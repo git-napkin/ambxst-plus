@@ -634,6 +634,13 @@ Rectangle {
                     }
                 }
 
+                // #region agent log
+                onStatusChanged: {
+                    const statusName = status === Loader.Null ? "Null" : status === Loader.Ready ? "Ready" : status === Loader.Loading ? "Loading" : status === Loader.Error ? "Error" : String(status);
+                    fetch('http://127.0.0.1:7831/ingest/a4304f6c-69be-4275-ac4c-24bbe90f21a4',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'95d973'},body:JSON.stringify({sessionId:'95d973',runId:'pre-fix',hypothesisId:'H3',location:'SettingsTab.qml:panelLoader',message:'panel loader status',data:{status:statusName,currentSection:root.currentSection,source:String(source),hasItem:!!item,opacity:opacity},timestamp:Date.now()})}).catch(()=>{});
+                }
+                // #endregion
+
                 onLoaded: {
                     if (item) {
                         item.maxContentWidth = contentArea.maxContentWidth;
@@ -648,6 +655,9 @@ Rectangle {
                         const loadedItems = SettingsCrawler.crawl(item, root.currentSection);
                         if (loadedItems.length > 0)
                             searchIndex.addDynamicItems(loadedItems);
+                        // #region agent log
+                        fetch('http://127.0.0.1:7831/ingest/a4304f6c-69be-4275-ac4c-24bbe90f21a4',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'95d973'},body:JSON.stringify({sessionId:'95d973',runId:'pre-fix',hypothesisId:'H3',location:'SettingsTab.qml:panelLoader.onLoaded',message:'panel loaded',data:{currentSection:root.currentSection,itemHeight:item.height,itemImplicitHeight:item.implicitHeight,currentSub:item.currentSection},timestamp:Date.now()})}).catch(()=>{});
+                        // #endregion
                     }
                 }
             }

@@ -141,56 +141,6 @@ QtObject {
         };
     }
 
-    function isModifierKeyName(key) {
-        return key === "Super_L" || key === "Super_R"
-            || key === "Control_L" || key === "Control_R"
-            || key === "Alt_L" || key === "Alt_R"
-            || key === "Shift_L" || key === "Shift_R"
-            || key === "Meta" || key === "Hyper_L" || key === "Hyper_R";
-    }
-
-    function ensureReleaseFlag(flags, key) {
-        if (!isModifierKeyName(key)) return flags;
-        var f = String(flags || "");
-        if (f.indexOf("e") === -1) f += "e";
-        return f;
-    }
-
-    // Expand a modifier-key bind that fires on release (e.g. launcher on
-    // Super_R) into a press/release pair. Hyprland fires such release binds
-    // even after a chord (SUPER + T), so on press we arm a slot in the shell
-    // and the release only toggles when no other ambxst+ action fired in
-    // between (a bare tap). Returns the bind unchanged when not applicable.
-    function expandSuperBind(bind) {
-        if (!isModifierKeyName(bind.key))
-            return [bind];
-        const flags = String(bind.flags || "");
-        if (flags.indexOf("e") === -1)
-            return [bind];
-        const parts = String(bind.argument || "").split(" ");
-        if (parts[0] !== "ambxst+" || parts[1] !== "run")
-            return [bind];
-        const action = parts.slice(2).join(" ");
-        return [
-            {
-                modifiers: bind.modifiers,
-                key: bind.key,
-                dispatcher: bind.dispatcher,
-                argument: "ambxst+ run super-press " + bind.key + " " + action,
-                flags: "",
-                enabled: true
-            },
-            {
-                modifiers: bind.modifiers,
-                key: bind.key,
-                dispatcher: bind.dispatcher,
-                argument: "ambxst+ run super-release " + bind.key,
-                flags: flags,
-                enabled: true
-            }
-        ];
-    }
-
     // Build a structured bind object from a core keybind (has all fields inline).
     function resolveBindAction(action, fallback) {
         const resolved = KeybindActions.resolveAction(action || fallback);
@@ -205,28 +155,26 @@ QtObject {
     function makeBindFromCore(keybind) {
         const resolved = resolveBindAction(keybind.action, keybind);
         if (!resolved) return [];
-        return expandSuperBind({
-            modifiers: keybind.modifiers || [],
-            key: keybind.key || "",
-            dispatcher: resolved.dispatcher,
-            argument: resolved.argument,
-            flags: ensureReleaseFlag(resolved.flags, keybind.key),
-            enabled: true
-        });
+        return KeybindActions.makeExpandedBinds(
+            keybind.modifiers || [],
+            keybind.key || "",
+            resolved.dispatcher,
+            resolved.argument,
+            resolved.flags
+        );
     }
 
     // Build a structured bind object from a key + action pair (custom keybinds).
     function makeBindFromKeyAction(keyObj, action) {
         const resolved = resolveBindAction(action, action);
         if (!resolved) return [];
-        return expandSuperBind({
-            modifiers: keyObj.modifiers || [],
-            key: keyObj.key || "",
-            dispatcher: resolved.dispatcher,
-            argument: resolved.argument,
-            flags: ensureReleaseFlag(resolved.flags, keyObj.key),
-            enabled: true
-        });
+        return KeybindActions.makeExpandedBinds(
+            keyObj.modifiers || [],
+            keyObj.key || "",
+            resolved.dispatcher,
+            resolved.argument,
+            resolved.flags
+        );
     }
 
     function applyKeybindsInternal() {

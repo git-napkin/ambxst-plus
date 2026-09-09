@@ -28,24 +28,29 @@ function directionToLetter(direction) {
     return "";
 }
 
+// Shell-routed opens fire on key *press* by default. Release (`e`) is only
+// appropriate for bare-modkey taps (Super_L / Super_R); those get `e` via
+// ensureReleaseFlag + expandSuperBind. Putting `e` on chords like
+// SUPER+SHIFT+S made Hyprland wait for key-up — if Super lifted first, the
+// bind missed and the keystroke bled into the focused app.
 var ACTION_CATALOG = [
-    { id: "ambxst+.launcher", label: "Open Launcher", category: "ambxst+", dispatcher: "exec", argument: "ambxst+ run launcher", flags: "e" },
-    { id: "ambxst+.dashboard", label: "Open Dashboard", category: "ambxst+", dispatcher: "exec", argument: "ambxst+ run dashboard", flags: "e" },
-    { id: "ambxst+.assistant", label: "Open Assistant", category: "ambxst+", dispatcher: "exec", argument: "ambxst+ run assistant", flags: "e" },
-    { id: "ambxst+.clipboard", label: "Open Clipboard", category: "ambxst+", dispatcher: "exec", argument: "ambxst+ run clipboard", flags: "e" },
-    { id: "ambxst+.emoji", label: "Open Emoji", category: "ambxst+", dispatcher: "exec", argument: "ambxst+ run emoji", flags: "e" },
-    { id: "ambxst+.notes", label: "Open Notes", category: "ambxst+", dispatcher: "exec", argument: "ambxst+ run notes", flags: "e" },
-    { id: "ambxst+.tmux", label: "Open Tmux", category: "ambxst+", dispatcher: "exec", argument: "ambxst+ run tmux", flags: "e" },
-    { id: "ambxst+.wallpapers", label: "Open Wallpapers", category: "ambxst+", dispatcher: "exec", argument: "ambxst+ run wallpapers", flags: "e" },
-    { id: "ambxst+.config", label: "Open Settings", category: "ambxst+", dispatcher: "exec", argument: "ambxst+ run config", flags: "e" },
-    { id: "ambxst+.overview", label: "Open Overview", category: "ambxst+", dispatcher: "exec", argument: "ambxst+ run overview", flags: "e" },
-    { id: "ambxst+.powermenu", label: "Open Power Menu", category: "ambxst+", dispatcher: "exec", argument: "ambxst+ run powermenu", flags: "e" },
-    { id: "ambxst+.tools", label: "Open Tools", category: "ambxst+", dispatcher: "exec", argument: "ambxst+ run tools", flags: "e" },
-    { id: "ambxst+.screenshot", label: "Take Screenshot", category: "ambxst+", dispatcher: "exec", argument: "ambxst+ run screenshot", flags: "e" },
-    { id: "ambxst+.screenrecord", label: "Screen Record", category: "ambxst+", dispatcher: "exec", argument: "ambxst+ run screenrecord", flags: "e" },
-    { id: "ambxst+.lens", label: "Open Lens", category: "ambxst+", dispatcher: "exec", argument: "ambxst+ run lens", flags: "e" },
-    { id: "ambxst+.reload", label: "Reload Ambxst[+]", category: "ambxst+", dispatcher: "exec", argument: "ambxst+ reload", flags: "e" },
-    { id: "ambxst+.quit", label: "Quit Ambxst[+]", category: "ambxst+", dispatcher: "exec", argument: "ambxst+ quit", flags: "e" },
+    { id: "ambxst+.launcher", label: "Open Launcher", category: "ambxst+", dispatcher: "exec", argument: "ambxst+ run launcher" },
+    { id: "ambxst+.dashboard", label: "Open Dashboard", category: "ambxst+", dispatcher: "exec", argument: "ambxst+ run dashboard" },
+    { id: "ambxst+.assistant", label: "Open Assistant", category: "ambxst+", dispatcher: "exec", argument: "ambxst+ run assistant" },
+    { id: "ambxst+.clipboard", label: "Open Clipboard", category: "ambxst+", dispatcher: "exec", argument: "ambxst+ run clipboard" },
+    { id: "ambxst+.emoji", label: "Open Emoji", category: "ambxst+", dispatcher: "exec", argument: "ambxst+ run emoji" },
+    { id: "ambxst+.notes", label: "Open Notes", category: "ambxst+", dispatcher: "exec", argument: "ambxst+ run notes" },
+    { id: "ambxst+.tmux", label: "Open Tmux", category: "ambxst+", dispatcher: "exec", argument: "ambxst+ run tmux" },
+    { id: "ambxst+.wallpapers", label: "Open Wallpapers", category: "ambxst+", dispatcher: "exec", argument: "ambxst+ run wallpapers" },
+    { id: "ambxst+.config", label: "Open Settings", category: "ambxst+", dispatcher: "exec", argument: "ambxst+ run config" },
+    { id: "ambxst+.overview", label: "Open Overview", category: "ambxst+", dispatcher: "exec", argument: "ambxst+ run overview" },
+    { id: "ambxst+.powermenu", label: "Open Power Menu", category: "ambxst+", dispatcher: "exec", argument: "ambxst+ run powermenu" },
+    { id: "ambxst+.tools", label: "Open Tools", category: "ambxst+", dispatcher: "exec", argument: "ambxst+ run tools" },
+    { id: "ambxst+.screenshot", label: "Take Screenshot", category: "ambxst+", dispatcher: "exec", argument: "ambxst+ run screenshot" },
+    { id: "ambxst+.screenrecord", label: "Screen Record", category: "ambxst+", dispatcher: "exec", argument: "ambxst+ run screenrecord" },
+    { id: "ambxst+.lens", label: "Open Lens", category: "ambxst+", dispatcher: "exec", argument: "ambxst+ run lens" },
+    { id: "ambxst+.reload", label: "Reload Ambxst[+]", category: "ambxst+", dispatcher: "exec", argument: "ambxst+ reload" },
+    { id: "ambxst+.quit", label: "Quit Ambxst[+]", category: "ambxst+", dispatcher: "exec", argument: "ambxst+ quit" },
 
     { id: "window.close", label: "Close Window", category: "Window", dispatcher: "killactive", argument: "" },
     { id: "window.focus", label: "Focus Window", category: "Window", dispatcher: "movefocus", args: [{ key: "direction", label: "Direction", placeholder: "up/down/left/right", defaultValue: "up" }], argumentBuilder: function (args) {
@@ -198,6 +203,67 @@ function resolveAction(action) {
         argument: argument || "",
         flags: entry.flags || ""
     };
+}
+
+function isModifierKeyName(key) {
+    return key === "Super_L" || key === "Super_R"
+        || key === "Control_L" || key === "Control_R"
+        || key === "Alt_L" || key === "Alt_R"
+        || key === "Shift_L" || key === "Shift_R"
+        || key === "Meta" || key === "Hyper_L" || key === "Hyper_R";
+}
+
+// Bare modkey taps (launcher on Super_R) must fire on release. Chord binds
+// (SUPER+SHIFT+S) must not — release waits for key-up and can miss / leak.
+function ensureReleaseFlag(flags, key) {
+    if (!isModifierKeyName(key)) return flags || "";
+    var f = String(flags || "");
+    if (f.indexOf("e") === -1) f += "e";
+    return f;
+}
+
+// Expand a release-bound modkey into press/release IPC so chords don't also
+// open the bare-modkey action (Hyprland still fires the release after SUPER+T).
+function expandSuperBind(bind) {
+    if (!bind || !isModifierKeyName(bind.key))
+        return [bind];
+    const flags = String(bind.flags || "");
+    if (flags.indexOf("e") === -1)
+        return [bind];
+    const parts = String(bind.argument || "").split(" ");
+    if (parts[0] !== "ambxst+" || parts[1] !== "run")
+        return [bind];
+    const action = parts.slice(2).join(" ");
+    return [
+        {
+            modifiers: bind.modifiers,
+            key: bind.key,
+            dispatcher: bind.dispatcher,
+            argument: "ambxst+ run super-press " + bind.key + " " + action,
+            flags: "",
+            enabled: true
+        },
+        {
+            modifiers: bind.modifiers,
+            key: bind.key,
+            dispatcher: bind.dispatcher,
+            argument: "ambxst+ run super-release " + bind.key,
+            flags: flags,
+            enabled: true
+        }
+    ];
+}
+
+function makeExpandedBinds(modifiers, key, dispatcher, argument, flags) {
+    const withRelease = {
+        modifiers: modifiers || [],
+        key: key || "",
+        dispatcher: dispatcher || "",
+        argument: argument || "",
+        flags: ensureReleaseFlag(flags, key),
+        enabled: true
+    };
+    return expandSuperBind(withRelease);
 }
 
 function describeAction(action) {

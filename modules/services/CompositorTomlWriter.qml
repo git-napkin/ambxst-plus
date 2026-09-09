@@ -185,18 +185,11 @@ Singleton {
         }
 
         function isModifierKeyName(key) {
-            return key === "Super_L" || key === "Super_R"
-                || key === "Control_L" || key === "Control_R"
-                || key === "Alt_L" || key === "Alt_R"
-                || key === "Shift_L" || key === "Shift_R"
-                || key === "Meta" || key === "Hyper_L" || key === "Hyper_R";
+            return KeybindActions.isModifierKeyName(key);
         }
 
         function ensureReleaseFlag(flags, key) {
-            if (!isModifierKeyName(key)) return flags;
-            var f = String(flags || "");
-            if (f.indexOf("e") === -1) f += "e";
-            return f;
+            return KeybindActions.ensureReleaseFlag(flags, key);
         }
 
         function resolveBindAction(action, fallback) {
@@ -215,6 +208,17 @@ Singleton {
             if (!action.layouts || action.layouts.length === 0)
                 return true;
             return action.layouts.indexOf(GlobalStates.compositorLayout) !== -1;
+        }
+
+        function pushExpandedBind(modifiers, key, dispatcher, argument, flags) {
+            const expanded = KeybindActions.makeExpandedBinds(
+                modifiers, key, dispatcher, argument, flags
+            );
+            for (let i = 0; i < expanded.length; i++) {
+                const b = expanded[i];
+                if (!b) continue;
+                pushKeybindEntry(b.modifiers, b.key, b.dispatcher, b.argument, b.flags);
+            }
         }
 
         // Appearance section
@@ -288,12 +292,12 @@ Singleton {
                 const resolved = resolveBindAction(keybind.action, keybind);
                 if (!resolved)
                     return;
-                pushKeybindEntry(
+                pushExpandedBind(
                     keybind.modifiers || [],
                     keybind.key || "",
                     resolved.dispatcher,
                     resolved.argument,
-                    ensureReleaseFlag(resolved.flags, keybind.key)
+                    resolved.flags
                 );
             }
 
@@ -339,12 +343,12 @@ Singleton {
                                 const resolved = resolveBindAction(action, action);
                                 if (!resolved)
                                     continue;
-                                pushKeybindEntry(
+                                pushExpandedBind(
                                     keyObj.modifiers || [],
                                     keyObj.key || "",
                                     resolved.dispatcher,
                                     resolved.argument,
-                                    ensureReleaseFlag(resolved.flags, keyObj.key)
+                                    resolved.flags
                                 );
                             }
                         }
@@ -353,12 +357,12 @@ Singleton {
                         const resolved = resolveBindAction(bind.action, bind);
                         if (!resolved)
                             continue;
-                        pushKeybindEntry(
+                        pushExpandedBind(
                             bind.modifiers || [],
                             bind.key || "",
                             resolved.dispatcher,
                             resolved.argument,
-                            ensureReleaseFlag(resolved.flags, bind.key)
+                            resolved.flags
                         );
                     }
                 }

@@ -86,6 +86,16 @@ Item {
     // Check if there are any windows on the current monitor and workspace
     readonly property bool hasWindows: toplevels.length > 0
 
+    // #region agent log
+    property bool _dbgLoggedReveal: false
+    function _dbgLogDockState(reason) {
+        fetch('http://127.0.0.1:7831/ingest/a4304f6c-69be-4275-ac4c-24bbe90f21a4',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'95d973'},body:JSON.stringify({sessionId:'95d973',runId:'pre-fix',hypothesisId:'H2',location:'DockContent.qml:reveal',message:reason,data:{hasWindows:root.hasWindows,toplevelCount:root.toplevels?root.toplevels.length:0,pinned:root.pinned,keepHidden:root.keepHidden,reveal:root.reveal,activeWsId:root.compositorMonitor&&root.compositorMonitor.activeWorkspace?root.compositorMonitor.activeWorkspace.id:null,clientWsIds:(AxctlService.clients.values||[]).slice(0,8).map(c=>c.workspace?c.workspace.id:null)},timestamp:Date.now()})}).catch(()=>{});
+    }
+    onHasWindowsChanged: _dbgLogDockState('hasWindowsChanged')
+    onRevealChanged: _dbgLogDockState('revealChanged')
+    Component.onCompleted: Qt.callLater(function() { _dbgLogDockState('dockCompleted'); })
+    // #endregion
+
     // Fullscreen detection
     readonly property bool activeWindowFullscreen: {
         if (!compositorMonitor || !toplevels) return false;
