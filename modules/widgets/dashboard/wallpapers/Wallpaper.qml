@@ -352,6 +352,33 @@ PanelWindow {
         scanSubfoldersProcess.running = true;
     }
 
+    function _sameStringList(a, b) {
+        if (a === b)
+            return true;
+        if (!a || !b || a.length !== b.length)
+            return false;
+        for (let i = 0; i < a.length; i++) {
+            if (a[i] !== b[i])
+                return false;
+        }
+        return true;
+    }
+
+    // FileView watches on every subdirectory fire together (and recreating
+    // those watches itself can emit onFileChanged). Coalesce into one scan
+    // so we cannot spawn overlapping find/ffmpeg or rebuild Instantiator
+    // delegates in a tight loop — that has taken the shell down.
+    function scheduleWallpaperRescan() {
+        if (!wallpaperDir)
+            return;
+        if (GlobalStates.wallpaperManager !== wallpaper)
+            return;
+        if (scanDebounce.running)
+            scanDebounce.restart();
+        else
+            scanDebounce.start();
+    }
+
     // Update directory watcher when wallpaperDir changes
     onWallpaperDirChanged: {
         // Skip initial spurious changes before config is loaded
@@ -1067,6 +1094,24 @@ PanelWindow {
         onTriggered: thumbnailGeneratorScript.running = true
     }
 
+    Timer {
+        id: scanDebounce
+        interval: 400
+        repeat: false
+        onTriggered: {
+            if (scanWallpapers.running || scanSubfoldersProcess.running) {
+                scanDebounce.restart();
+                return;
+            }
+            scanWallpapers.running = true;
+            scanSubfoldersProcess.running = true;
+            if (delayedThumbnailGen.running)
+                delayedThumbnailGen.restart();
+            else
+                delayedThumbnailGen.start();
+        }
+    }
+
     // Proceso para generar frame de lockscreen con el script de Python
     Process {
         id: lockscreenWallpaperScript
@@ -1110,7 +1155,8 @@ PanelWindow {
                     return f.length > 0;
                 });
 
-                allSubdirs = rawPaths;
+                if (!_sameStringList(allSubdirs, rawPaths))
+                    allSubdirs = rawPaths;
 
                 var basePath = wallpaperDir.endsWith("/") ? wallpaperDir : wallpaperDir + "/";
 
@@ -1155,16 +1201,8 @@ PanelWindow {
         printErrors: false
 
         onFileChanged: {
-            if (wallpaperDir === "")
-                return;
             console.debug("Wallpaper directory changed, rescanning...");
-            scanWallpapers.running = true;
-            scanSubfoldersProcess.running = true;
-            // Regenerar thumbnails si hay nuevos videos (delayed)
-            if (delayedThumbnailGen.running)
-                delayedThumbnailGen.restart();
-            else
-                delayedThumbnailGen.start();
+            scheduleWallpaperRescan();
         }
 
         // Remove onLoadFailed to prevent premature fallback activation
@@ -1180,14 +1218,7 @@ PanelWindow {
             printErrors: false
             onFileChanged: {
                 console.debug("Subdirectory content changed (" + path + "), rescanning...");
-                scanWallpapers.running = true;
-                scanSubfoldersProcess.running = true;
-
-                // Regenerar thumbnails (delayed)
-                if (delayedThumbnailGen.running)
-                    delayedThumbnailGen.restart();
-                else
-                    delayedThumbnailGen.start();
+                scheduleWallpaperRescan();
             }
         }
     }

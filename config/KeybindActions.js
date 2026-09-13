@@ -247,7 +247,7 @@ function expandSuperBind(bind) {
             modifiers: bind.modifiers,
             key: bind.key,
             dispatcher: bind.dispatcher,
-            argument: "ambxst+ run super-release " + bind.key,
+            argument: "ambxst+ run super-release " + bind.key + " " + action,
             flags: flags,
             enabled: true
         }

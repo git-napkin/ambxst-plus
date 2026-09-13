@@ -59,6 +59,10 @@ QtObject {
     // the shell arms a slot on modkey press and treats any OTHER ambxst+ IPC
     // arriving while a slot is armed as the chord; the release bind then only
     // toggles when the slot is still clean (a bare tap of the modkey).
+    //
+    // Never run the bare-modkey action without an armed press slot — a
+    // release-only fallback fires after SUPER+1 / any non-ambxst Super chord
+    // and makes keybinds feel random.
     property var superSlots: ({})  // key -> { action: string, chord: bool }
 
     function superPress(key, action) {
@@ -71,12 +75,13 @@ QtObject {
         }
     }
 
-    function superRelease(key) {
+    function superRelease(key, _fallbackAction) {
         const slot = superSlots[key];
         delete superSlots[key];
-        if (slot && !slot.chord && slot.action) {
+        if (!slot || slot.chord)
+            return;
+        if (slot.action)
             root.run(slot.action);
-        }
     }
 
     function run(command) {
@@ -100,7 +105,7 @@ QtObject {
             return;
         }
         if (verb === "super-release") {
-            superRelease(parts[1]);
+            superRelease(parts[1], parts.slice(2).join(" "));
             return;
         }
         switch (verb) {
@@ -212,7 +217,8 @@ QtObject {
         const willOpen = !GlobalStates.settingsWindowVisible;
         if (willOpen) {
             const targetMonitor = screenName ? AxctlService.monitorFor(screenName) : AxctlService.focusedMonitor;
-            GlobalStates.settingsTargetWorkspaceId = targetMonitor?.activeWorkspace?.id || AxctlService.focusedMonitor?.activeWorkspace?.id || AxctlService.focusedWorkspace?.id || 0;
+            const wsId = Number(targetMonitor?.activeWorkspace?.id || AxctlService.focusedMonitor?.activeWorkspace?.id || AxctlService.focusedWorkspace?.id || 0);
+            GlobalStates.settingsTargetWorkspaceId = wsId > 0 ? wsId : 0;
             GlobalStates.settingsTargetScreenName = targetMonitor?.name || AxctlService.focusedMonitor?.name || "";
             if (targetMonitor && targetMonitor.id !== AxctlService.focusedMonitor?.id) {
                 AxctlService.dispatch(`focusmonitor ${targetMonitor.id}`);

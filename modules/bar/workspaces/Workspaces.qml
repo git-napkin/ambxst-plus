@@ -15,10 +15,42 @@ Item {
     id: workspacesWidget
     required property var bar
     required property string orientation
-    readonly property var monitor: AxctlService.monitorFor(bar.screen)
+    // Depend on monitors/clients so active workspace updates after axctl events.
+    readonly property var _monitors: AxctlService.monitors.values
+    readonly property var _clients: AxctlService.clients.values
+    readonly property var _focusedMonitor: AxctlService.focusedMonitor
+    readonly property var _focusedClient: AxctlService.focusedClient
+    readonly property var monitor: {
+        void _monitors;
+        return AxctlService.monitorFor(bar.screen);
+    }
     readonly property Toplevel activeWindow: ToplevelManager.activeToplevel
 
-    readonly property int workspaceGroup: Math.floor(((monitor && monitor.activeWorkspace ? monitor.activeWorkspace.id : undefined) - 1 || 0) / Config.workspaces.shown)
+    // Prefer focusedMonitor (always rewritten in applyState), then this screen's
+    // monitor, then the focused client. Never treat 0 as valid — the old
+    // `(id - 1 || 0)` footgun mapped id 0 onto workspace 1.
+    readonly property int activeWorkspaceId: {
+        void _monitors;
+        void _clients;
+        void _focusedMonitor;
+        void _focusedClient;
+        const fm = AxctlService.focusedMonitor;
+        const fromFocused = fm && fm.activeWorkspace ? Number(fm.activeWorkspace.id) : 0;
+        if (fromFocused > 0)
+            return fromFocused;
+        const fromMon = monitor && monitor.activeWorkspace ? Number(monitor.activeWorkspace.id) : 0;
+        if (fromMon > 0)
+            return fromMon;
+        const fc = AxctlService.focusedClient;
+        const fromClient = fc && fc.workspace ? Number(fc.workspace.id) : 0;
+        if (fromClient > 0)
+            return fromClient;
+        const fw = AxctlService.focusedWorkspace;
+        const fromWs = fw ? Number(fw.id) : 0;
+        return fromWs > 0 ? fromWs : 1;
+    }
+
+    readonly property int workspaceGroup: Math.floor((activeWorkspaceId - 1) / Config.workspaces.shown)
     property var workspaceOccupied: []
     property var dynamicWorkspaceIds: []
     property int effectiveWorkspaceCount: Config.workspaces.dynamic ? dynamicWorkspaceIds.length : Config.workspaces.shown
@@ -34,7 +66,7 @@ Item {
     property real workspaceIconSizeShrinked: Math.round(workspaceButtonWidth * 0.5)
     property real workspaceIconOpacityShrinked: 1
     property real workspaceIconMarginShrinked: -4
-    property int workspaceIndexInGroup: Config.workspaces.dynamic ? dynamicWorkspaceIds.indexOf((monitor && monitor.activeWorkspace ? monitor.activeWorkspace.id : undefined) || 1) : ((monitor && monitor.activeWorkspace ? monitor.activeWorkspace.id : undefined) - 1 || 0) % Config.workspaces.shown
+    property int workspaceIndexInGroup: Config.workspaces.dynamic ? Math.max(0, dynamicWorkspaceIds.indexOf(activeWorkspaceId)) : (activeWorkspaceId - 1) % Config.workspaces.shown
     property var occupiedRanges: []
 
     function updateWorkspaceOccupied() {
@@ -43,7 +75,7 @@ Item {
             const occupiedIds = AxctlService.workspaces.values.filter(ws => CompositorData.workspaceOccupationMap[ws.id]).map(ws => ws.id).sort((a, b) => a - b).slice(0, Config.workspaces.shown);
 
             // Always include active workspace, even if empty
-            const activeId = (monitor && monitor.activeWorkspace ? monitor.activeWorkspace.id : undefined) || 1;
+            const activeId = activeWorkspaceId;
             if (!occupiedIds.includes(activeId)) {
                 occupiedIds.push(activeId);
                 occupiedIds.sort((a, b) => a - b);
@@ -288,8 +320,7 @@ Item {
         implicitHeight: orientation === "vertical" ? Math.abs(idx1 - idx2) * workspaceButtonWidth + workspaceButtonWidth - activeWorkspaceMargin * 2 : workspaceButtonWidth - activeWorkspaceMargin * 2
 
         radius: {
-            const activeWorkspaceId = (monitor && monitor.activeWorkspace ? monitor.activeWorkspace.id : undefined) || 1;
-            const currentWorkspaceHasWindows = CompositorData.workspaceOccupationMap[activeWorkspaceId];
+            const currentWorkspaceHasWindows = CompositorData.workspaceOccupationMap[workspacesWidget.activeWorkspaceId];
             if (workspacesWidget.radius === 0)
                 return 0;
             return currentWorkspaceHasWindows ? workspacesWidget.radius > 0 ? Math.max(workspacesWidget.radius - widgetPadding - activeWorkspaceMargin, 0) : 0 : Math.min(implicitWidth, implicitHeight) / 2;
@@ -346,7 +377,7 @@ Item {
             WorkspaceButton {
                 workspaceValue: getWorkspaceId(index)
                 occupied: workspaceOccupied[index] === true
-                active: (monitor && monitor.activeWorkspace ? monitor.activeWorkspace.id : undefined) == getWorkspaceId(index)
+                active: workspacesWidget.activeWorkspaceId == getWorkspaceId(index)
                 buttonWidth: workspaceButtonWidth
                 iconSize: workspaceIconSize
                 iconSizeShrinked: workspaceIconSizeShrinked
@@ -376,7 +407,7 @@ Item {
             WorkspaceButton {
                 workspaceValue: getWorkspaceId(index)
                 occupied: workspaceOccupied[index] === true
-                active: (monitor && monitor.activeWorkspace ? monitor.activeWorkspace.id : undefined) == getWorkspaceId(index)
+                active: workspacesWidget.activeWorkspaceId == getWorkspaceId(index)
                 buttonWidth: workspaceButtonWidth
                 iconSize: workspaceIconSize
                 iconSizeShrinked: workspaceIconSizeShrinked

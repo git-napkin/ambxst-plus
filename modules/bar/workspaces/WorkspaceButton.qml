@@ -58,7 +58,9 @@ Button {
             font.pixelSize: root.labelFontSize ? root.labelFontSize(text) : Config.theme.fontSize
             text: `${root.workspaceValue}`
             elide: Text.ElideRight
-            color: root.active ? Styling.srItem("primary") : (root.occupied ? Colors.overBackground : Colors.overSecondaryFixedVariant)
+            // on-primary for the active pill (srItem("primary") is overPrimary);
+            // never reuse the primary fill color or the digit vanishes on the blue box.
+            color: root.active ? Colors.overPrimary : (root.occupied ? Colors.overBackground : Colors.overSecondaryFixedVariant)
 
             Behavior on opacity {
                 enabled: Config.animDuration > 0
@@ -75,7 +77,7 @@ Button {
             width: root.buttonWidth * 0.2
             height: width
             radius: width / 2
-            color: root.active ? Styling.srItem("primary") : Colors.overBackground
+            color: root.active ? Colors.overPrimary : Colors.overBackground
 
             Behavior on opacity {
                 enabled: Config.animDuration > 0

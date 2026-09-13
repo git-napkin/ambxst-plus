@@ -18,12 +18,6 @@ Item {
 
     property string currentSection: ""
 
-    // #region agent log
-    Component.onCompleted: {
-        fetch('http://127.0.0.1:7831/ingest/a4304f6c-69be-4275-ac4c-24bbe90f21a4',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'95d973'},body:JSON.stringify({sessionId:'95d973',runId:'pre-fix',hypothesisId:'H4',location:'SystemPanel.qml:onCompleted',message:'SystemPanel constructed',data:{width:width,height:height,implicitHeight:implicitHeight,currentSection:currentSection,hasSystem:!!Config.system,hasIdle:!!(Config.system&&Config.system.idle),hasWeather:!!Config.weather,fpAvailable:FingerprintService?FingerprintService.available:null},timestamp:Date.now()})}).catch(()=>{});
-    }
-    // #endregion
-
     FingerprintEnrollWizard {
         id: enrollWizard
         anchors.centerIn: parent

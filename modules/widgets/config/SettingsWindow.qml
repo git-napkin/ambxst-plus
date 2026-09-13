@@ -41,7 +41,7 @@ FloatingWindow {
     }
 
     function placeOnTargetWorkspace() {
-        const targetWorkspace = GlobalStates.settingsTargetWorkspaceId || AxctlService.focusedMonitor?.activeWorkspace?.id || AxctlService.focusedWorkspace?.id || 0;
+        const targetWorkspace = Number(GlobalStates.settingsTargetWorkspaceId || AxctlService.focusedMonitor?.activeWorkspace?.id || AxctlService.focusedWorkspace?.id || 0);
         if (!targetWorkspace) return false;
 
         const clients = AxctlService.clients.values || [];
@@ -63,7 +63,7 @@ FloatingWindow {
                 // cross-workspace move. When it opened on the current workspace it
                 // already has focus, so skip focuswindow to avoid warping the
                 // cursor on every settings open (unlike any normal app).
-                const activeWs = AxctlService.focusedMonitor?.activeWorkspace?.id;
+                const activeWs = Number(AxctlService.focusedMonitor?.activeWorkspace?.id || 0);
                 if (activeWs !== targetWorkspace) {
                     AxctlService.dispatch(`focuswindow address:${client.address}`);
                 }

@@ -257,12 +257,41 @@ Refusing to write through it. Import Ambxst[+] from home.nix instead:
 EOF
 }
 
+# Write one IPC payload to the named pipe. The fifo stays on disk after a
+# crash, so an unbounded `echo >pipe` hangs forever; require a live shell
+# and bound the open/write.
+write_ipc_pipe() {
+	local payload="$1"
+	local pipe="${XDG_RUNTIME_DIR:-/tmp}/ambxst+_ipc.pipe"
+	local pid
+
+	pid=$(find_ambxst_plus_pid_cached)
+	if [ -z "$pid" ] || [ ! -p "$pipe" ]; then
+		return 1
+	fi
+	if command -v timeout >/dev/null 2>&1; then
+		printf '%s\n' "$payload" | timeout 0.4 tee "$pipe" >/dev/null 2>&1
+	else
+		printf '%s\n' "$payload" >"$pipe" &
+		local wpid=$!
+		local i
+		for i in 1 2 3 4; do
+			if ! kill -0 "$wpid" 2>/dev/null; then
+				wait "$wpid" 2>/dev/null
+				return $?
+			fi
+			sleep 0.1
+		done
+		kill "$wpid" 2>/dev/null || true
+		wait "$wpid" 2>/dev/null || true
+		return 1
+	fi
+}
+
 send_json_ipc() {
 	local json="$1"
-	local pipe="${XDG_RUNTIME_DIR:-/tmp}/ambxst+_ipc.pipe"
 
-	if [ -p "$pipe" ]; then
-		printf '%s\n' "$json" >"$pipe" &
+	if write_ipc_pipe "$json"; then
 		return 0
 	fi
 
@@ -346,16 +375,15 @@ refresh)
 run)
 	shift
 	CMD="$*"
-	PIPE="${XDG_RUNTIME_DIR:-/tmp}/ambxst+_ipc.pipe"
 
 	if [ -z "$CMD" ]; then
 		echo "Error: No command specified for run"
 		exit 1
 	fi
 
-	# Fast path: Write directly to pipe if it exists (Zero latency)
-	if [ -p "$PIPE" ]; then
-		echo "$CMD" >"$PIPE" &
+	# Fast path: write to the pipe only while the shell is actually alive.
+	# A leftover fifo after a crash would otherwise block Hyprland keybinds.
+	if write_ipc_pipe "$CMD"; then
 		exit 0
 	fi
 

@@ -116,7 +116,7 @@ Popup {
                     shadowColor: Qt.rgba(0, 0, 0, 0.3)
                     shadowVerticalOffset: 4
                     shadowHorizontalOffset: 0
-                    shadowBlurRadius: 16
+                    shadowBlur: 1
                 }
 
                 Column {

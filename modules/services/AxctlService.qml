@@ -177,6 +177,19 @@ Singleton {
         return null;
     }
 
+    // Hyprland 0.56 dropped numeric workspace id (JSON has name/address only).
+    // axctl may put the number in id, name, or workspace_id — never treat 0
+    // from a failed parseInt as a real workspace.
+    function parseWorkspaceId(a, b, c) {
+        const vals = [a, b, c];
+        for (let i = 0; i < vals.length; i++) {
+            const n = parseInt(vals[i], 10);
+            if (n > 0)
+                return n;
+        }
+        return 0;
+    }
+
     // Fingerprint of the last applied state. Every axctl event carries the full
     // state, and most events (title changes, geometry, focus moves) touch only a
     // handful of fields — but the old code unconditionally rebuilt and reassigned
@@ -292,7 +305,7 @@ Singleton {
                     address: win.id,
                     class: win.app_id,
                     title: win.title,
-                    workspace: { id: parseInt(win.workspace_id) || 0, name: win.workspace_id },
+                    workspace: { id: root.parseWorkspaceId(win.workspace_id), name: win.workspace_id },
                     monitor: parseInt(win.metadata ? win.metadata.monitor_id : 0) || 0,
                     floating: win.is_floating,
                     fullscreen: win.is_fullscreen,
@@ -315,29 +328,17 @@ Singleton {
             if (focused !== root.focusedClient) {
                 root.focusedClient = focused;
             }
-            // #region agent log
-            {
-                let wsIds = mappedClients.map(c => c.workspace ? c.workspace.id : null);
-                let uniq = {};
-                for (let i = 0; i < wsIds.length; i++) uniq[wsIds[i]] = (uniq[wsIds[i]] || 0) + 1;
-                let zeroCount = wsIds.filter(id => id === 0).length;
-                fetch('http://127.0.0.1:7831/ingest/a4304f6c-69be-4275-ac4c-24bbe90f21a4',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'95d973'},body:JSON.stringify({sessionId:'95d973',runId:'pre-fix',hypothesisId:'H1',location:'AxctlService.qml:applyState:windows',message:'mapped client workspace ids',data:{clientCount:mappedClients.length,zeroWorkspaceCount:zeroCount,wsIdCounts:uniq,sampleRawWorkspaceIds:(state.windows||[]).slice(0,5).map(w=>w.workspace_id),sampleClasses:mappedClients.slice(0,5).map(c=>c.class)},timestamp:Date.now()})}).catch(()=>{});
-            }
-            // #endregion
         }
 
         // --- Workspaces ---
         if (state.workspaces) {
             let mappedWorkspaces = state.workspaces.map(ws => ({
-                id: parseInt(ws.id) || 0,
+                id: root.parseWorkspaceId(ws.id, ws.name),
                 name: ws.name,
                 monitor: ws.monitor_id,
                 active: ws.is_active,
                 windows: 0
             }));
-            // #region agent log
-            fetch('http://127.0.0.1:7831/ingest/a4304f6c-69be-4275-ac4c-24bbe90f21a4',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'95d973'},body:JSON.stringify({sessionId:'95d973',runId:'pre-fix',hypothesisId:'H1',location:'AxctlService.qml:applyState:workspaces',message:'mapped workspaces',data:{count:mappedWorkspaces.length,ids:mappedWorkspaces.map(w=>w.id),names:mappedWorkspaces.map(w=>w.name),raw:state.workspaces.map(w=>({id:w.id,name:w.name}))},timestamp:Date.now()})}).catch(()=>{});
-            // #endregion
             root.workspaces.values = mappedWorkspaces;
             let focused = mappedWorkspaces.find(ws => ws.active) || null;
             if (focused !== root.focusedWorkspace) {
@@ -355,16 +356,13 @@ Singleton {
                 height: mon.height,
                 refreshRate: mon.refresh_rate,
                 scale: mon.scale,
-                activeWorkspace: { id: parseInt(mon.metadata ? mon.metadata.active_workspace : 0) || 0, name: mon.metadata ? mon.metadata.active_workspace : "" }
+                activeWorkspace: { id: root.parseWorkspaceId(mon.metadata ? mon.metadata.active_workspace : 0), name: mon.metadata ? mon.metadata.active_workspace : "" }
             }));
             root.monitors.values = mappedMonitors;
             let focused = mappedMonitors.find(m => m.focused) || null;
             if (focused !== root.focusedMonitor) {
                 root.focusedMonitor = focused;
             }
-            // #region agent log
-            fetch('http://127.0.0.1:7831/ingest/a4304f6c-69be-4275-ac4c-24bbe90f21a4',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'95d973'},body:JSON.stringify({sessionId:'95d973',runId:'pre-fix',hypothesisId:'H2',location:'AxctlService.qml:applyState:monitors',message:'mapped monitors activeWorkspace',data:{monitors:mappedMonitors.map(m=>({name:m.name,activeWsId:m.activeWorkspace?m.activeWorkspace.id:null,activeWsName:m.activeWorkspace?m.activeWorkspace.name:null}))},timestamp:Date.now()})}).catch(()=>{});
-            // #endregion
         }
 
         root.followActivatedWorkspace();

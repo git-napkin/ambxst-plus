@@ -7,11 +7,11 @@
         ]
       },
       "locked": {
-        "lastModified": 1787283060,
-        "narHash": "sha256-E1NyIL/BktGCXm4yStvd+b6XFeHQW5hVKXROVgB14KE=",
+        "lastModified": 1789274922,
+        "narHash": "sha256-izDgYQrk5LauXfsXP/JnKVgXUQrV3cfPBB2uCdxjtm4=",
         "owner": "git-napkin",
         "repo": "axctl-plus",
-        "rev": "438df3de975223ae511339d7dddfd77393b7706c",
+        "rev": "9284080a2a8c8c14f1b9bf001e3d0d7778ada04b",
         "type": "github"
       },
       "original": {

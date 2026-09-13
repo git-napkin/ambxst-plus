@@ -20,7 +20,10 @@ PanelWindow {
     property string imagePath: ""
     // Snapshot of the path for an in-flight drag so hide/clear cannot empty MIME mid-drag
     property string dragMimePath: ""
-    readonly property bool dragInProgress: dragArea.drag.active || dragTarget.Drag.active
+    // Do not bind Drag.active to MouseArea.drag.active — that loop SIGSEGVs
+    // Qt's mouse delivery (see ~/.cache/quickshell/crashes).
+    property bool previewDragActive: false
+    readonly property bool dragInProgress: previewDragActive
 
     // Position: Bottom Left with margins
     anchors {
@@ -157,7 +160,7 @@ PanelWindow {
                 // Invisible item to handle the Drag attached property state
                 Item {
                     id: dragTarget
-                    Drag.active: dragArea.drag.active
+                    Drag.active: root.previewDragActive
                     Drag.dragType: Drag.Automatic
                     Drag.supportedActions: Qt.CopyAction
                     // Snapshot path — never rebind to a cleared imagePath mid-drag
@@ -188,6 +191,12 @@ PanelWindow {
                         if (mouse.button === Qt.LeftButton && root.imagePath !== "")
                             root.dragMimePath = root.imagePath;
                     }
+                    onPositionChanged: {
+                        if (pressed && drag.active)
+                            root.previewDragActive = true;
+                    }
+                    onReleased: root.previewDragActive = false
+                    onCanceled: root.previewDragActive = false
 
                     // Click to Open (Left) or Delete (Middle)
                     onClicked: mouse => {
