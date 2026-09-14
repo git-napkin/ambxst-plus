@@ -1,16 +1,15 @@
 # DASHBOARD KNOWLEDGE BASE
 
 ## OVERVIEW
-Central interactive hub of Ambxst[+]. Tabbed interface with LRU-based lazy-loading for widgets, system controls, media, AI tools, clipboard, notes, and tmux management. Opened via the Notch overlay.
+Central interactive hub of Ambxst[+]. Tabbed interface with LRU-based lazy-loading for widgets, system controls, media, clipboard, notes, and tmux management. Opened via the Notch overlay. AI chat is the Spotlight overlay (Super+A), not a dashboard tab.
 
 ## STRUCTURE
 - **Root**: `Dashboard.qml` — Orchestrates LRU logic, tab layout, and open/close animations.
 - **Side Tabs**: Vertical navigation bar on the left for switching main views.
 - **Sub-tabs** (each a directory):
   - `widgets/`: `WidgetsTab` — Main grid: `FullPlayer`, `Calendar`, `NotificationHistory`, weather, quick toggles.
-  - `controls/`: Settings panels — `ShellPanel` (1913 lines), `ThemePanel` (1564 lines), `BindsPanel` (1974 lines), `CompositorPanel`, `SystemPanel`, `VariantEditor`.
-  - `assistant/`: `AssistantTab` (1196 lines) — AI chat interface.
-  - `clipboard/`: `ClipboardTab` (3615 lines) — Searchable clipboard history with categories.
+  - `controls/`: Settings panels — `ShellPanel`, `ThemePanel`, `BindsPanel`, `CompositorPanel`, `SystemPanel`, `VariantEditor`.
+  - `clipboard/`: `ClipboardTab` — Searchable clipboard history with categories.
   - `notes/`: `NotesTab` (3505 lines) — Rich text editor with file management.
   - `tmux/`: `TmuxTab` (2250 lines) — Tmux session manager.
   - `emoji/`: `EmojiTab` (934 lines) — Emoji picker with search.
@@ -25,7 +24,7 @@ Central interactive hub of Ambxst[+]. Tabbed interface with LRU-based lazy-loadi
 | **System settings** | `controls/ShellPanel.qml` | Bar, dock, notch configuration UI |
 | **Theme settings** | `controls/ThemePanel.qml` | Colors, gradients, fonts, opacity |
 | **Keybindings** | `controls/BindsPanel.qml` | Compositor keybind editor |
-| **AI chat** | `assistant/AssistantTab.qml` | Multi-provider chat with streaming |
+| **AI settings** | `modules/widgets/config/AiPanel.qml` | Keys, execution profile, overlay, tools. Chat UI is the Spotlight overlay |
 | **Clipboard** | `clipboard/ClipboardTab.qml` | Largest file (3615 lines). Category filtering |
 | **Notes** | `notes/NotesTab.qml` | Rich text, file tree, search |
 

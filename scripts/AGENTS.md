@@ -26,6 +26,7 @@ Python and Bash backend utilities invoked by QML services via `Quickshell.Io.Pro
 | `loginlock.sh` | Bash | `LockScreen` | Login lock coordination |
 | `daemon_priority.sh` | Bash | Shell init | Process priority adjustment |
 | `camera_monitor.py` | Python | `CameraService.qml` | Long-running camera enumeration + in-use detection via /proc fd scan |
+| `ai/agent.py` | Python | `Ai.qml` | NDJSON agent loop, providers, Warp-shaped tools |
 
 ## CONVENTIONS
 - **Communication**: Scripts output to stdout; QML reads via `Process` + `SplitParser` or `StdioCollector`.

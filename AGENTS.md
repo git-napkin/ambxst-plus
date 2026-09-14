@@ -41,8 +41,8 @@ but the binary/command is lowercase `ambxst+` — use that in shell commands.
 - `shell.qml` — entry point; declares the Shell (`pragma ShellId ambxst+`), registers
   singletons and the init sequence.
 - `config/` — reactive file-backed config system (see below).
-- `modules/` — UI (`bar`, `notch`, `dock`, `notifications`, `widgets`, `theme`,
-  `services`, `corners`, `desktop`, `frame`, `globals`, `lockscreen`, `sidebar`,
+- `modules/` — UI (`bar`, `notch`, `dock`, `notifications`, `widgets` including Spotlight `assistant/`, `theme`,
+  `services`, `corners`, `desktop`, `frame`, `globals`, `lockscreen`, `sidebar` (CodeBlock/model picker only),
   `shell`, `tools`, `components`). Most have their own `AGENTS.md` — **read the
   module's `AGENTS.md` first** when working in that subtree instead of guessing
   conventions.

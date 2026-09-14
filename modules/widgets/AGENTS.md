@@ -8,6 +8,7 @@ clipboard, notes, metrics, wallpapers, emoji, tmux, and more.
 | Subdirectory | Role |
 |-------------|------|
 | `overview/` | Mission Control-style workspace overview (grid + scrolling) |
+| `assistant/` | Spotlight AI overlay (bar + transcript, not a sidebar) |
 | `presets/` | Color preset selector with live preview |
 | `powermenu/` | Power actions (lock, suspend, reboot, shutdown) |
 | `dashboard/` | Main dashboard with tabbed widgets |

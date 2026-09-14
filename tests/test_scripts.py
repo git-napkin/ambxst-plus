@@ -401,5 +401,471 @@ class TestCliPort(unittest.TestCase):
             self.assertNotEqual(other_rc, 0)
 
 
+class TestKeystorePath(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        import importlib.util
+        spec = importlib.util.spec_from_file_location(
+            "keystore", SCRIPTS_DIR / "keystore.py"
+        )
+        cls.keystore = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(cls.keystore)
+
+    def test_config_and_data_dirs_are_allowed(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            config_home = Path(tmp) / "config"
+            data_home = Path(tmp) / "data"
+            config_db = config_home / "ambxst+" / "keys.db"
+            data_db = data_home / "ambxst+" / "keys.db"
+            config_db.parent.mkdir(parents=True)
+            data_db.parent.mkdir(parents=True)
+            env = {"XDG_CONFIG_HOME": str(config_home), "XDG_DATA_HOME": str(data_home)}
+            with patch.dict(os.environ, env, clear=False):
+                self.assertTrue(self.keystore.is_db_path_allowed(config_db))
+                self.assertTrue(self.keystore.is_db_path_allowed(data_db))
+                local_share = Path.home() / ".local" / "share" / "ambxst+" / "keys.db"
+                self.assertTrue(self.keystore.is_db_path_allowed(local_share))
+                outside = Path(tmp) / "other" / "keys.db"
+                outside.parent.mkdir()
+                self.assertFalse(self.keystore.is_db_path_allowed(outside))
+
+    def test_main_allows_data_dir_list(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            data_home = Path(tmp) / "data"
+            db = data_home / "ambxst+" / "keys.db"
+            db.parent.mkdir(parents=True)
+            env = os.environ.copy()
+            env["XDG_DATA_HOME"] = str(data_home)
+            result = subprocess.run(
+                [sys.executable, str(SCRIPTS_DIR / "keystore.py"), str(db), "list"],
+                capture_output=True,
+                text=True,
+                env=env,
+                check=False,
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(json.loads(result.stdout.strip() or "[]"), [])
+
+
+from ai.execution_profile import (
+    ALWAYS_ASK,
+    ASK,
+    DENY,
+    NEVER,
+    ExecutionProfile,
+    can_autoexecute_command,
+)
+from ai.protocol import (
+    ALL_TOOLS,
+    cancelled_result,
+    decode_command,
+    encode_command,
+    encode_event,
+)
+from ai.tools.ask_user_question import AnswerWaiter, AskUserQuestionTool
+from ai.tools.apply_file_diffs import apply_file_diffs
+from ai.tools.diff_validation import error_already_made, error_missing_file, error_search_mismatch
+from ai.tools.exa import EXA_CONTENTS_URL, EXA_SEARCH_URL, ExaContentsTool, ExaSearchTool, shape_contents_body, shape_search_body
+from ai.tools.file_glob import file_glob
+from ai.tools.grep import grep
+from ai.tools.read_files import read_files
+from ai.tools.read_skill import discover_skills, skill_catalog_names
+from ai.tools.registry import ToolContext
+
+
+def _ctx(workspace, **kwargs):
+    profile = kwargs.pop("profile", None) or ExecutionProfile(kwargs.pop("execution_profile", None))
+    ctx = ToolContext(workspace=workspace, profile=profile, **kwargs)
+    ctx.emit = lambda _event: None
+    return ctx
+
+
+class TestAiProtocol(unittest.TestCase):
+    def test_encode_decode_roundtrip(self):
+        cmd = {
+            "cmd": "send",
+            "text": "hello",
+            "attachments": [],
+            "chat_id": "c1",
+        }
+        decoded = decode_command(encode_command(cmd))
+        self.assertEqual(decoded["cmd"], "send")
+        self.assertEqual(decoded["text"], "hello")
+        event = encode_event({"type": "token", "text": "hi"})
+        self.assertIn('"type":"token"', event)
+
+    def test_init_is_valid_command(self):
+        payload = decode_command(
+            json.dumps(
+                {
+                    "cmd": "init",
+                    "workspace": "",
+                    "system_prompt": "",
+                    "temperature": 0.7,
+                    "max_tokens": 4096,
+                    "enabled_tools": ["read_files"],
+                    "execution_profile": {},
+                    "skill_dirs": [],
+                    "keystore_db": "",
+                    "custom_endpoint": "",
+                    "model": {"provider": "gemini", "model": "gemini-2.0-flash"},
+                    "context": {},
+                }
+            )
+        )
+        self.assertEqual(payload["cmd"], "init")
+
+    def test_list_models_and_models_event(self):
+        payload = decode_command(json.dumps({"cmd": "list_models"}))
+        self.assertEqual(payload["cmd"], "list_models")
+        encoded = encode_event({"type": "models", "models": []})
+        self.assertIn('"type":"models"', encoded)
+
+    def test_cancelled_for_every_tool(self):
+        for name in ALL_TOOLS:
+            result = cancelled_result(name)
+            self.assertEqual(result["status"], "Cancelled")
+            self.assertEqual(result["result"]["variant"], "Cancelled")
+            self.assertEqual(result["tool"], name)
+            encoded = encode_event(
+                {"type": "cancelled", "tool": name, "result": result["result"]}
+            )
+            self.assertIn("cancelled", encoded)
+
+
+class TestReadFiles(unittest.TestCase):
+    def test_batch_line_ranges_and_partial_failure(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            a = Path(tmp) / "a.txt"
+            b = Path(tmp) / "b.txt"
+            a.write_text("one\ntwo\nthree\nfour\n")
+            b.write_text("alpha\nbeta\n")
+            ctx = _ctx(tmp)
+            result = read_files(
+                ctx,
+                {
+                    "files": [
+                        {"name": "a.txt", "lines": [{"start": 2, "end": 3}]},
+                        {"name": "missing.txt"},
+                        {"name": "b.txt"},
+                    ]
+                },
+            )
+            names = [item["file_name"] for item in result["files"]]
+            self.assertEqual(names, ["a.txt", "b.txt"])
+            self.assertEqual(result["files"][0]["content"], "two\nthree\n")
+            self.assertEqual(result["files"][0]["line_range"], {"start": 2, "end": 3})
+            self.assertEqual(result["files"][0]["line_count"], 4)
+            self.assertFalse(result["files"][0]["truncated"])
+            self.assertEqual(len(result["failed_files"]), 1)
+            self.assertEqual(result["failed_files"][0]["name"], "missing.txt")
+            self.assertIn(str(a.resolve()), ctx.temp_read_permissions)
+
+    def test_locations_alias(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            (Path(tmp) / "x.txt").write_text("hello\n")
+            result = read_files(_ctx(tmp), {"locations": [{"name": "x.txt"}]})
+            self.assertEqual(result["files"][0]["content"], "hello\n")
+
+
+class TestGrep(unittest.TestCase):
+    def test_returns_paths_and_line_numbers_only(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "src.py"
+            target.write_text("alpha\nsecret needle here\nomega\n")
+            result = grep(_ctx(tmp), {"queries": ["needle"], "path": "."})
+            self.assertEqual(len(result["results"]), 1)
+            hit = result["results"][0]
+            self.assertIn("file_path", hit)
+            self.assertEqual(hit["matched_lines"], [{"line_number": 2}])
+            blob = json.dumps(result)
+            self.assertNotIn("secret needle here", blob)
+
+    def test_exit_1_empty_success(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            (Path(tmp) / "a.txt").write_text("nothing to see\n")
+            result = grep(_ctx(tmp), {"queries": ["definitely-not-here"], "path": "."})
+            self.assertEqual(result["results"], [])
+
+    def test_query_cannot_inject_command_substitution(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            marker = Path(tmp) / "pwned"
+            (Path(tmp) / "note.txt").write_text("hello\n")
+            result = grep(_ctx(tmp), {"queries": ["$(touch pwned)"], "path": "."})
+            self.assertFalse(marker.exists())
+            self.assertEqual(result["results"], [])
+            calls = []
+            real_run = subprocess.run
+
+            def wrapped(*args, **kwargs):
+                calls.append((args, kwargs))
+                return real_run(*args, **kwargs)
+
+            with patch("subprocess.run", side_effect=wrapped):
+                grep(_ctx(tmp), {"queries": ["$(whoami)"], "path": "."})
+            for args, kwargs in calls:
+                self.assertFalse(kwargs.get("shell"))
+                argv = args[0] if args else kwargs.get("args")
+                self.assertIsInstance(argv, list)
+
+
+class TestFileGlob(unittest.TestCase):
+    def test_git_vs_pathlib_backends(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "keep.py").write_text("x\n")
+            (root / "skip.txt").write_text("y\n")
+            pathlib_result = file_glob(_ctx(tmp), {"patterns": ["*.py"]})
+            self.assertEqual(pathlib_result["backend"], "pathlib")
+            self.assertIn("keep.py", pathlib_result["paths"])
+            self.assertNotIn("skip.txt", pathlib_result["paths"])
+
+            subprocess.run(["git", "init"], cwd=tmp, check=True, capture_output=True)
+            subprocess.run(["git", "add", "keep.py"], cwd=tmp, check=True, capture_output=True)
+            subprocess.run(
+                ["git", "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-m", "init"],
+                cwd=tmp,
+                check=True,
+                capture_output=True,
+            )
+            (root / "untracked.py").write_text("z\n")
+            git_result = file_glob(_ctx(tmp), {"patterns": ["*.py"]})
+            self.assertEqual(git_result["backend"], "git")
+            self.assertIn("keep.py", git_result["paths"])
+            self.assertNotIn("untracked.py", git_result["paths"])
+
+
+class TestApplyFileDiffs(unittest.TestCase):
+    def test_whitespace_drift(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "code.py"
+            path.write_text("def  foo():\n    return 1\n")
+            result = apply_file_diffs(
+                _ctx(tmp),
+                {"edits": [{"file": "code.py", "search": "def foo():", "replace": "def bar():"}]},
+            )
+            self.assertEqual(result["status"], "ok")
+            self.assertIn("def bar():", path.read_text())
+
+    def test_nearest_line_numbered_window(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "dup.txt"
+            lines = ["TARGET\n"] + ["x\n"] * 48 + ["TARGET\n"]
+            path.write_text("".join(lines))
+            result = apply_file_diffs(
+                _ctx(tmp),
+                {"edits": [{"file": "dup.txt", "search": "50|TARGET", "replace": "REPLACED"}]},
+            )
+            self.assertEqual(result["status"], "ok")
+            out = path.read_text().splitlines()
+            self.assertEqual(out[0], "TARGET")
+            self.assertEqual(out[49], "REPLACED")
+
+    def test_noop_and_overlap_and_errors(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "f.txt"
+            path.write_text("abcdef\n")
+            noop = apply_file_diffs(
+                _ctx(tmp),
+                {"edits": [{"file": "f.txt", "search": "abc", "replace": "abc"}]},
+            )
+            self.assertEqual(noop["status"], "error")
+            self.assertIn("already made", noop["error"])
+            self.assertEqual(noop["error"], error_already_made("f.txt"))
+
+            overlap = apply_file_diffs(
+                _ctx(tmp),
+                {
+                    "edits": [
+                        {"file": "f.txt", "search": "abc", "replace": "XXX"},
+                        {"file": "f.txt", "search": "cde", "replace": "YYY"},
+                    ]
+                },
+            )
+            self.assertEqual(overlap["status"], "ok")
+            self.assertEqual(path.read_text(), "XXXdef\n")
+
+            missing = apply_file_diffs(
+                _ctx(tmp),
+                {"edits": [{"file": "nope.txt", "search": "a", "replace": "b"}]},
+            )
+            self.assertEqual(missing["error"], error_missing_file("nope.txt"))
+
+            mismatch = apply_file_diffs(
+                _ctx(tmp),
+                {"edits": [{"file": "f.txt", "search": "zzzz-not-in-file", "replace": "b"}]},
+            )
+            self.assertEqual(mismatch["error"], error_search_mismatch("f.txt", 1))
+
+    def test_failed_hunk_does_not_wedge(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "ok.txt"
+            path.write_text("hello\n")
+            ctx = _ctx(tmp)
+            first = apply_file_diffs(
+                ctx,
+                {
+                    "edits": [
+                        {"file": "ok.txt", "search": "hello", "replace": "world"},
+                        {"file": "ok.txt", "search": "not-a-match", "replace": "nope"},
+                    ]
+                },
+            )
+            self.assertEqual(first["status"], "error")
+            self.assertEqual(path.read_text(), "hello\n")
+            second = apply_file_diffs(
+                ctx,
+                {"edits": [{"file": "ok.txt", "search": "hello", "replace": "world"}]},
+            )
+            self.assertEqual(second["status"], "ok")
+            self.assertEqual(path.read_text(), "world\n")
+
+
+class TestShellPermissions(unittest.TestCase):
+    def test_denylist_beats_session_autoapprove(self):
+        ctx = _ctx(".", execution_profile={"executeCommands": "AlwaysAllow"})
+        ctx.autoexecute_any_action = True
+        self.assertEqual(can_autoexecute_command("rm -rf /tmp/x", ctx.profile, ctx), DENY)
+
+    def test_allowlist_under_always_ask(self):
+        ctx = _ctx(".", execution_profile={"executeCommands": "AlwaysAsk"})
+        self.assertEqual(can_autoexecute_command("ls -la", ctx.profile, ctx), "allow")
+        self.assertEqual(can_autoexecute_command("python3 script.py", ctx.profile, ctx), ASK)
+
+    def test_risky_and_redirection_force_ask(self):
+        ctx = _ctx(".", execution_profile={"executeCommands": "AgentDecides"})
+        self.assertEqual(
+            can_autoexecute_command("ls", ctx.profile, ctx, is_risky=True),
+            ASK,
+        )
+        self.assertEqual(can_autoexecute_command("ls > out.txt", ctx.profile, ctx), ASK)
+        self.assertEqual(
+            can_autoexecute_command("cat notes.txt", ctx.profile, ctx, is_read_only=True),
+            "allow",
+        )
+
+    def test_unknown_profile_values_fail_closed(self):
+        profile = ExecutionProfile(
+            {
+                "executeCommands": "TotallyUnknown",
+                "readFiles": "nope",
+                "applyCodeDiffs": "whatever",
+                "askUserQuestion": "??",
+                "computerUse": "please",
+            }
+        )
+        self.assertEqual(profile.execute_commands, ALWAYS_ASK)
+        self.assertEqual(profile.read_files, ALWAYS_ASK)
+        self.assertEqual(profile.apply_code_diffs, ALWAYS_ASK)
+        self.assertEqual(profile.ask_user_question, ALWAYS_ASK)
+        self.assertEqual(profile.computer_use, NEVER)
+
+
+class TestAskUserQuestion(unittest.TestCase):
+    def test_waits_for_answer_questions(self):
+        ctx = _ctx(".")
+        waiter = AnswerWaiter()
+        ctx.wait_for_answers = lambda call_id, timeout=5: waiter.wait(timeout)
+        ctx.current_call_id = "q1"
+        captured = []
+        ctx.emit = captured.append
+
+        def answer():
+            time.sleep(0.05)
+            waiter.provide([{"question_id": "color", "answer": "blue"}])
+
+        thread = threading.Thread(target=answer)
+        thread.start()
+        tool = AskUserQuestionTool()
+        result = tool.execute(
+            ctx,
+            {
+                "questions": [
+                    {
+                        "question_id": "color",
+                        "question": "Favorite color?",
+                        "options": [{"label": "blue", "recommended": True}],
+                    }
+                ]
+            },
+        )
+        thread.join(timeout=2)
+        self.assertEqual(result["status"], "ok")
+        self.assertEqual(result["answers"][0]["answer"], "blue")
+        self.assertEqual(captured[0]["type"], "ask_user_question")
+
+
+class TestReadSkill(unittest.TestCase):
+    def test_discovers_direct_skill_md_children_only(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "volume").mkdir()
+            (root / "volume" / "SKILL.md").write_text("# Volume\n")
+            (root / "loose.md").write_text("ignore")
+            nested = root / "nested" / "deep"
+            nested.mkdir(parents=True)
+            (nested / "SKILL.md").write_text("# Nested\n")
+            (root / "broken").mkdir()
+            names = skill_catalog_names([tmp])
+            self.assertEqual(names, ["volume"])
+            catalog = discover_skills([tmp])
+            self.assertIn("volume", catalog)
+            self.assertNotIn("nested", catalog)
+            self.assertNotIn("loose.md", catalog)
+
+
+class TestExaMockHttp(unittest.TestCase):
+    def test_request_shaping(self):
+        search = shape_search_body({"query": "ambxst", "num_results": 3})
+        self.assertEqual(search["query"], "ambxst")
+        self.assertEqual(search["numResults"], 3)
+        contents = shape_contents_body({"ids": ["https://example.com"]})
+        self.assertEqual(contents["ids"], ["https://example.com"])
+
+        class FakeResp:
+            def __init__(self, payload):
+                self._payload = json.dumps(payload).encode("utf-8")
+
+            def read(self):
+                return self._payload
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *exc):
+                return False
+
+        class FakeOpener:
+            def __init__(self):
+                self.requests = []
+
+            def __call__(self, request, timeout=None):
+                self.requests.append(request)
+                if request.full_url.endswith("/search"):
+                    return FakeResp({"results": [{"title": "t", "url": "https://ex", "highlights": ["h"]}]})
+                return FakeResp({"results": [{"url": "https://ex", "text": "body"}]})
+
+        opener = FakeOpener()
+        ctx = _ctx(".", execution_profile={"webSearchEnabled": True})
+        ctx.http_opener = opener
+        ctx.api_keys["exa"] = "test-key"
+        search_out = ExaSearchTool().execute(ctx, {"query": "hello"})
+        self.assertEqual(search_out["status"], "ok")
+        self.assertEqual(opener.requests[0].full_url, EXA_SEARCH_URL)
+        body = json.loads(opener.requests[0].data.decode("utf-8"))
+        self.assertEqual(body["query"], "hello")
+        headers = {k.lower(): v for k, v in opener.requests[0].header_items()}
+        self.assertEqual(headers.get("x-api-key"), "test-key")
+
+        contents_out = ExaContentsTool().execute(ctx, {"ids": ["https://ex"]})
+        self.assertEqual(contents_out["status"], "ok")
+        self.assertEqual(opener.requests[1].full_url, EXA_CONTENTS_URL)
+
+        ctx.api_keys["exa"] = ""
+        ctx.profile.web_search_enabled = False
+        denied = ExaSearchTool().execute(ctx, {"query": "nope"})
+        self.assertEqual(denied["status"], "error")
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

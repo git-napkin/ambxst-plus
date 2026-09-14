@@ -19,7 +19,7 @@ Singleton {
     property string lastFocusedScreen: ""
     property var contextMenu: null
     property bool playerMenuOpen: false
-    readonly property var moduleNames: ["launcher", "dashboard", "overview", "powermenu", "tools", "presets"]
+    readonly property var moduleNames: ["launcher", "dashboard", "overview", "powermenu", "tools", "presets", "assistant"]
 
     // BarPopup instances keyed by groupId. Opening one closes the others
     // in that group so bar flyouts behave like a menu bar.
@@ -256,6 +256,7 @@ Singleton {
             property bool powermenu: false
             property bool tools: false
             property bool presets: false
+            property bool assistant: false
         }
     }
 

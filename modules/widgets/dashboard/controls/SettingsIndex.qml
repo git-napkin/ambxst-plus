@@ -24,6 +24,14 @@ QtObject {
         
         // --- Mixer ---
         { label: "Audio Mixer", keywords: "sound volume output input mic speaker", section: 2, subSection: "", subLabel: "", icon: Icons.faders, isIcon: true },
+
+        // --- AI ---
+        { label: "AI", keywords: "assistant spotlight openai gemini claude key api", section: 3, subSection: "", subLabel: "AI", icon: Icons.sparkle, isIcon: true },
+        { label: "System Prompt", keywords: "instructions persona prompt", section: 3, subSection: "", subLabel: "AI", icon: Icons.sparkle, isIcon: true },
+        { label: "Workspace", keywords: "folder project files grep", section: 3, subSection: "", subLabel: "AI", icon: Icons.folder, isIcon: true },
+        { label: "Execution Profile", keywords: "approve allow deny commands diffs agent", section: 3, subSection: "", subLabel: "AI", icon: Icons.sparkle, isIcon: true },
+        { label: "Exa Search", keywords: "web search exa key", section: 3, subSection: "", subLabel: "AI", icon: Icons.globe, isIcon: true },
+        { label: "Overlay Size", keywords: "spotlight width position scrim assistant", section: 3, subSection: "", subLabel: "AI", icon: Icons.sparkle, isIcon: true },
         
         // --- Effects ---
         { label: "Audio Effects", keywords: "equalizer bass treble easyeffects", section: 4, subSection: "", subLabel: "", icon: Icons.waveform, isIcon: true },

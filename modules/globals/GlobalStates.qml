@@ -581,50 +581,20 @@ Singleton {
     }
 
     // ═══════════════════════════════════════════════════════════════
-    // ASSISTANT SIDEBAR STATE
+    // ASSISTANT OVERLAY STATE
     // ═══════════════════════════════════════════════════════════════
-    property bool assistantVisible: false
-    // Seeded from Config.ai once config has fully loaded (see below); until
-    // then we use the blueprint defaults so we never capture a half-loaded
-    // adapter value.
-    property bool assistantPinned: false
-    property int assistantWidth: 400
-    property string assistantPosition: "right"
-    property string assistantScreenName: ""
-
-    function _seedAssistantFromConfig() {
-        if (Config.initialLoadComplete) {
-            root.assistantPinned = Config.ai.sidebarPinnedOnStartup ?? false;
-            root.assistantWidth = Config.ai.sidebarWidth ?? 400;
-            root.assistantPosition = Config.ai.sidebarPosition ?? "right";
-        }
-    }
-
-    Connections {
-        target: Config
-        function onInitialLoadCompleteChanged() {
-            _seedAssistantFromConfig();
-        }
-    }
-
-    signal assistantFocusRequested(bool wasAlreadyOpen)
+    readonly property bool assistantVisible: Visibilities.currentActiveModule === "assistant"
 
     function toggleAssistant() {
-        if (assistantVisible) {
-            assistantFocusRequested(true);
-        } else {
-            assistantVisible = true;
-            if (AxctlService.focusedMonitor && AxctlService.focusedMonitor.name) {
-                assistantScreenName = AxctlService.focusedMonitor.name;
-            } else if (Quickshell.screens.length > 0) {
-                assistantScreenName = Quickshell.screens[0].name;
-            }
-            assistantFocusRequested(false);
-        }
+        if (Visibilities.currentActiveModule === "assistant")
+            Visibilities.setActiveModule("");
+        else
+            Visibilities.setActiveModule("assistant");
     }
 
     function hideAssistant() {
-        assistantVisible = false;
+        if (Visibilities.currentActiveModule === "assistant")
+            Visibilities.setActiveModule("");
     }
 
     property int settingsCurrentTab: 0

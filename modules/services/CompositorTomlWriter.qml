@@ -406,6 +406,13 @@ Singleton {
         toml += "ignore_alpha_value = 0.5\n";
 
         toml += "\n[[layer_rules]]\n";
+        toml += "namespace = \"ambxst+:assistant\"\n";
+        toml += "blur = true\n";
+        toml += "blur_popups = true\n";
+        toml += "no_anim = true\n";
+        toml += "ignore_alpha_value = 0.5\n";
+
+        toml += "\n[[layer_rules]]\n";
         toml += "namespace = \"overview\"\n";
         toml += "blur = true\n";
         toml += "blur_popups = true\n";

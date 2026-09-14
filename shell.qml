@@ -13,6 +13,7 @@ import qs.modules.widgets.dashboard.wallpapers
 
 import qs.modules.notch
 import qs.modules.widgets.overview
+import qs.modules.widgets.assistant
 import qs.modules.widgets.presets
 import qs.modules.services
 import qs.modules.corners
@@ -118,12 +119,6 @@ ShellRoot {
 
                 frameEnabled: (Config.bar && Config.bar.frameEnabled !== undefined ? Config.bar.frameEnabled : false)
                 frameThickness: (Config.bar && Config.bar.frameThickness !== undefined ? Config.bar.frameThickness : 6)
-
-                // Sidebar status for reservations
-                sidebarEnabled: GlobalStates.assistantVisible && screenShellContainer.modelData.name === GlobalStates.assistantScreenName
-                sidebarPinned: GlobalStates.assistantPinned
-                sidebarWidth: GlobalStates.assistantWidth
-                sidebarPosition: GlobalStates.assistantPosition
             }
         }
     }
@@ -144,6 +139,26 @@ ShellRoot {
             required property ShellScreen modelData
             sourceComponent: OverviewPopup {
                 screen: overviewLoader.modelData
+            }
+        }
+    }
+
+    // Assistant spotlight overlay
+    Variants {
+        model: {
+            const screens = Quickshell.screens;
+            const list = (Config.bar && Config.bar.screenList !== undefined ? Config.bar.screenList : []);
+            if (!list || list.length === 0)
+                return screens;
+            return screens.filter(screen => list.indexOf(screen.name) !== -1);
+        }
+
+        Loader {
+            id: assistantLoader
+            active: SuspendManager.wakeReady && (Visibilities.getForScreen(modelData.name) ? Visibilities.getForScreen(modelData.name).assistant : false)
+            required property ShellScreen modelData
+            sourceComponent: AssistantPopup {
+                screen: assistantLoader.modelData
             }
         }
     }

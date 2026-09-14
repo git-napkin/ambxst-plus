@@ -6,10 +6,6 @@ import os
 import base64
 from pathlib import Path
 
-from cryptography.fernet import Fernet
-from cryptography.hazmat.primitives import hashes
-from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
-
 
 def get_machine_id():
     try:
@@ -41,6 +37,9 @@ def get_machine_id():
 
 
 def _derive_key(machine_key, salt):
+    from cryptography.hazmat.primitives import hashes
+    from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
+
     kdf = PBKDF2HMAC(
         algorithm=hashes.SHA256(),
         length=32,
@@ -51,6 +50,8 @@ def _derive_key(machine_key, salt):
 
 
 def encrypt(text, machine_key):
+    from cryptography.fernet import Fernet
+
     salt = os.urandom(16)
     key = _derive_key(machine_key, salt)
     token = Fernet(key).encrypt(text.encode("utf-8"))
@@ -60,6 +61,8 @@ def encrypt(text, machine_key):
 _LEGACY_FALLBACK_KEY = b"ambxst+-fallback-salt-82741"
 
 def _try_decrypt(hex_str, machine_key):
+    from cryptography.fernet import Fernet
+
     raw = base64.b64decode(hex_str)
     if len(raw) < 17:
         raise ValueError("too short")
@@ -81,6 +84,68 @@ def decrypt(hex_str, machine_key):
         return ""
 
 
+def allowed_db_roots():
+    roots = []
+    try:
+        roots.append((Path.home() / ".config" / "ambxst+").resolve())
+    except Exception:
+        pass
+    xdg_config = os.environ.get("XDG_CONFIG_HOME")
+    if xdg_config:
+        try:
+            roots.append(Path(xdg_config).expanduser().resolve() / "ambxst+")
+        except Exception:
+            pass
+    try:
+        roots.append((Path.home() / ".local" / "share" / "ambxst+").resolve())
+    except Exception:
+        pass
+    xdg_data = os.environ.get("XDG_DATA_HOME")
+    if xdg_data:
+        try:
+            roots.append(Path(xdg_data).expanduser().resolve() / "ambxst+")
+        except Exception:
+            pass
+    return roots
+
+
+def is_db_path_allowed(db_path):
+    resolved = Path(os.path.expanduser(str(db_path))).resolve()
+    for root in allowed_db_roots():
+        try:
+            resolved.relative_to(root)
+            return True
+        except ValueError:
+            continue
+        except Exception:
+            continue
+    return False
+
+
+def get_provider_key(db_path, provider):
+    """Read a decrypted API key from the sqlite db without putting it on argv."""
+    path = Path(os.path.expanduser(str(db_path))).resolve()
+    if not is_db_path_allowed(path):
+        return ""
+    if path.is_symlink() or path.parent.is_symlink():
+        return ""
+    if not path.exists():
+        return ""
+    conn = sqlite3.connect(str(path), timeout=5.0)
+    try:
+        row = conn.execute(
+            "SELECT api_key FROM api_keys WHERE provider = ?",
+            (provider,),
+        ).fetchone()
+        if not row:
+            return ""
+        return decrypt(row[0], get_machine_id())
+    except Exception:
+        return ""
+    finally:
+        conn.close()
+
+
 def main():
     if len(sys.argv) < 3:
         print(json.dumps({"error": "Usage: <db_path> <cmd> [args...]"}), flush=True)
@@ -90,30 +155,7 @@ def main():
     cmd = sys.argv[2]
     args = sys.argv[3:]
 
-    # Validate path stays under ~/.config/ambxst+ (or $XDG_CONFIG_HOME/ambxst+)
-    allowed_roots = []
-    try:
-        allowed_roots.append((Path.home() / ".config" / "ambxst+").resolve())
-    except Exception:
-        pass
-    xdg = os.environ.get("XDG_CONFIG_HOME")
-    if xdg:
-        try:
-            allowed_roots.append(Path(xdg).expanduser().resolve() / "ambxst+")
-        except Exception:
-            pass
-    # Check relative_to any allowed root
-    _allowed = False
-    for ar in allowed_roots:
-        try:
-            db_path.relative_to(ar)
-            _allowed = True
-            break
-        except ValueError:
-            continue
-        except Exception:
-            continue
-    if not _allowed:
+    if not is_db_path_allowed(db_path):
         print(json.dumps({"error": "db_path outside allowed directory"}), flush=True)
         sys.exit(1)
 

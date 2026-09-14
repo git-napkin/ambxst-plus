@@ -1296,15 +1296,37 @@ Singleton {
         }
 
         adapter: JsonAdapter {
-            property string systemPrompt: "You are a helpful assistant running on a Linux system. You have access to some tools to control the system."
-            property string tool: "none"
+            property string systemPrompt: "You are a helpful assistant running on Ambxst[+], a Linux desktop shell. Prefer specialized tools over guessing. Use grep to locate, then read_files with line ranges. Edit via apply_file_diffs, not whole-file rewrites. Ask the user when intent is ambiguous."
             property list<var> extraModels: []
             property string defaultModel: "gemini-2.0-flash"
-            property int sidebarWidth: 400
-            property string sidebarPosition: "right"
-            property bool sidebarPinnedOnStartup: false
             property string customEndpoint: ""
             property string customCurlTemplate: ""
+            property string workspace: ""
+            property int overlayWidth: 640
+            property real overlayYFraction: 0.22
+            property bool showScrim: true
+            property real temperature: 0.7
+            property int maxTokens: 4096
+            property list<var> enabledTools: ["read_files", "grep", "file_glob", "apply_file_diffs", "run_shell_command", "ask_user_question", "read_skill", "exa_search", "exa_contents", "native"]
+            property list<var> commands: []
+            property JsonObject contextProviders: JsonObject {
+                property bool focusedWindow: true
+                property bool clipboard: false
+                property bool notifications: false
+                property bool weather: false
+                property bool resources: false
+            }
+            property JsonObject executionProfile: JsonObject {
+                property string readFiles: "AgentDecides"
+                property string applyCodeDiffs: "AlwaysAsk"
+                property string executeCommands: "AlwaysAsk"
+                property string askUserQuestion: "AlwaysAsk"
+                property string computerUse: "Never"
+                property list<var> commandAllowlist: ["cat(\\s.*)?", "echo(\\s.*)?", "find .*", "grep(\\s.*)?", "ls(\\s.*)?", "which .*"]
+                property list<var> commandDenylist: ["bash(\\s.*)?", "fish(\\s.*)?", "pwsh(\\s.*)?", "sh(\\s.*)?", "zsh(\\s.*)?", "curl(\\s.*)?", "eval(\\s.*)?", "exec(\\s.*)?", "source(\\s.*)?", "wget(\\s.*)?", "dig(\\s.*)?", "nslookup(\\s.*)?", "host(\\s.*)?", "ssh(\\s.*)?", "scp(\\s.*)?", "rsync(\\s.*)?", "telnet(\\s.*)?", "rm(\\s.*)?"]
+                property list<var> directoryAllowlist: []
+                property bool webSearchEnabled: true
+            }
         }
     }
 

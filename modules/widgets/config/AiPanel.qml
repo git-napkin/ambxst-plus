@@ -37,9 +37,520 @@ Item {
                 Layout.bottomMargin: 8
             }
 
+            Text {
+                text: "Overlay"
+                font.family: Config.theme.font
+                font.pixelSize: Styling.fontSize(2)
+                font.weight: Font.Bold
+                color: Colors.overSurface
+                Layout.fillWidth: true
+            }
+
+            Text {
+                text: "Workspace"
+                font.family: Config.theme.font
+                font.pixelSize: Styling.fontSize(-1)
+                color: Colors.overSurface
+            }
+            TextField {
+                id: workspaceInput
+                Layout.fillWidth: true
+                text: Config.ai.workspace || ""
+                placeholderText: Quickshell.env("HOME") || qsTr("Project folder")
+                font.family: Config.theme.font
+                color: Colors.overSurface
+                onEditingFinished: Config.ai.workspace = text
+                background: StyledRect {
+                    variant: "internalbg"
+                    radius: Styling.radius(4)
+                }
+            }
+
+            Text {
+                text: "System prompt"
+                font.family: Config.theme.font
+                font.pixelSize: Styling.fontSize(-1)
+                color: Colors.overSurface
+            }
+            TextArea {
+                id: promptInput
+                Layout.fillWidth: true
+                Layout.preferredHeight: 120
+                wrapMode: Text.Wrap
+                text: Config.ai.systemPrompt || ""
+                font.family: Config.theme.font
+                color: Colors.overSurface
+                onEditingFinished: Config.ai.systemPrompt = text
+                background: StyledRect { variant: "internalbg"; radius: Styling.radius(4) }
+            }
+
+            RowLayout {
+                Layout.fillWidth: true
+                spacing: 12
+                ColumnLayout {
+                    Layout.fillWidth: true
+                    Text {
+                        text: "Width"
+                        font.family: Config.theme.font
+                        font.pixelSize: Styling.fontSize(-2)
+                        color: Colors.outline
+                    }
+                    SpinBox {
+                        from: 400
+                        to: 1200
+                        stepSize: 20
+                        value: Config.ai.overlayWidth || 640
+                        onValueModified: Config.ai.overlayWidth = value
+                    }
+                }
+                ColumnLayout {
+                    Layout.fillWidth: true
+                    Text {
+                        text: "Vertical position"
+                        font.family: Config.theme.font
+                        font.pixelSize: Styling.fontSize(-2)
+                        color: Colors.outline
+                    }
+                    Slider {
+                        from: 0.05
+                        to: 0.5
+                        value: Config.ai.overlayYFraction ?? 0.22
+                        onMoved: Config.ai.overlayYFraction = value
+                    }
+                }
+            }
+
+            RowLayout {
+                Layout.fillWidth: true
+                Text {
+                    text: "Show scrim"
+                    font.family: Config.theme.font
+                    color: Colors.overSurface
+                    Layout.fillWidth: true
+                }
+                Switch {
+                    checked: Config.ai.showScrim ?? true
+                    onToggled: Config.ai.showScrim = checked
+                }
+            }
+
+            RowLayout {
+                Layout.fillWidth: true
+                spacing: 12
+                ColumnLayout {
+                    Layout.fillWidth: true
+                    Text {
+                        text: "Temperature"
+                        font.family: Config.theme.font
+                        font.pixelSize: Styling.fontSize(-2)
+                        color: Colors.outline
+                    }
+                    Slider {
+                        from: 0
+                        to: 2
+                        value: Config.ai.temperature ?? 0.7
+                        onMoved: Config.ai.temperature = value
+                    }
+                }
+                ColumnLayout {
+                    Layout.fillWidth: true
+                    Text {
+                        text: "Max tokens"
+                        font.family: Config.theme.font
+                        font.pixelSize: Styling.fontSize(-2)
+                        color: Colors.outline
+                    }
+                    SpinBox {
+                        from: 256
+                        to: 128000
+                        stepSize: 256
+                        value: Config.ai.maxTokens || 4096
+                        onValueModified: Config.ai.maxTokens = value
+                    }
+                }
+            }
+
+            Text {
+                text: "Execution profile"
+                font.family: Config.theme.font
+                font.pixelSize: Styling.fontSize(2)
+                font.weight: Font.Bold
+                color: Colors.overSurface
+                Layout.fillWidth: true
+                Layout.topMargin: 8
+            }
+
+            ColumnLayout {
+                Layout.fillWidth: true
+                spacing: 4
+                Text {
+                    text: "Read files"
+                    font.family: Config.theme.font
+                    font.pixelSize: Styling.fontSize(-1)
+                    color: Colors.overSurface
+                }
+                RowLayout {
+                    Layout.fillWidth: true
+                    Repeater {
+                        model: ["AgentDecides", "AlwaysAllow", "AlwaysAsk"]
+                        delegate: StyledRect {
+                            required property string modelData
+                            variant: Config.ai.executionProfile.readFiles === modelData ? "primary" : "internalbg"
+                            radius: Styling.radius(-4)
+                            implicitHeight: 28
+                            implicitWidth: readLab.implicitWidth + 16
+                            Text {
+                                id: readLab
+                                anchors.centerIn: parent
+                                text: modelData
+                                font.family: Config.theme.font
+                                font.pixelSize: Styling.fontSize(-3)
+                                color: Config.ai.executionProfile.readFiles === modelData ? Colors.overPrimary : Colors.overSurface
+                            }
+                            MouseArea {
+                                anchors.fill: parent
+                                cursorShape: Qt.PointingHandCursor
+                                onClicked: Config.ai.executionProfile.readFiles = modelData
+                            }
+                        }
+                    }
+                }
+            }
+
+            ColumnLayout {
+                Layout.fillWidth: true
+                spacing: 4
+                Text {
+                    text: "Apply diffs"
+                    font.family: Config.theme.font
+                    font.pixelSize: Styling.fontSize(-1)
+                    color: Colors.overSurface
+                }
+                RowLayout {
+                    Layout.fillWidth: true
+                    Repeater {
+                        model: ["AgentDecides", "AlwaysAllow", "AlwaysAsk"]
+                        delegate: StyledRect {
+                            required property string modelData
+                            variant: Config.ai.executionProfile.applyCodeDiffs === modelData ? "primary" : "internalbg"
+                            radius: Styling.radius(-4)
+                            implicitHeight: 28
+                            implicitWidth: diffLab.implicitWidth + 16
+                            Text {
+                                id: diffLab
+                                anchors.centerIn: parent
+                                text: modelData
+                                font.family: Config.theme.font
+                                font.pixelSize: Styling.fontSize(-3)
+                                color: Config.ai.executionProfile.applyCodeDiffs === modelData ? Colors.overPrimary : Colors.overSurface
+                            }
+                            MouseArea {
+                                anchors.fill: parent
+                                cursorShape: Qt.PointingHandCursor
+                                onClicked: Config.ai.executionProfile.applyCodeDiffs = modelData
+                            }
+                        }
+                    }
+                }
+            }
+
+            ColumnLayout {
+                Layout.fillWidth: true
+                spacing: 4
+                Text {
+                    text: "Shell commands"
+                    font.family: Config.theme.font
+                    font.pixelSize: Styling.fontSize(-1)
+                    color: Colors.overSurface
+                }
+                RowLayout {
+                    Layout.fillWidth: true
+                    Repeater {
+                        model: ["AgentDecides", "AlwaysAllow", "AlwaysAsk"]
+                        delegate: StyledRect {
+                            required property string modelData
+                            variant: Config.ai.executionProfile.executeCommands === modelData ? "primary" : "internalbg"
+                            radius: Styling.radius(-4)
+                            implicitHeight: 28
+                            implicitWidth: shLab.implicitWidth + 16
+                            Text {
+                                id: shLab
+                                anchors.centerIn: parent
+                                text: modelData
+                                font.family: Config.theme.font
+                                font.pixelSize: Styling.fontSize(-3)
+                                color: Config.ai.executionProfile.executeCommands === modelData ? Colors.overPrimary : Colors.overSurface
+                            }
+                            MouseArea {
+                                anchors.fill: parent
+                                cursorShape: Qt.PointingHandCursor
+                                onClicked: Config.ai.executionProfile.executeCommands = modelData
+                            }
+                        }
+                    }
+                }
+            }
+
+            Text {
+                text: "Ask user questions"
+                font.family: Config.theme.font
+                font.pixelSize: Styling.fontSize(-1)
+                color: Colors.overSurface
+            }
+            RowLayout {
+                Layout.fillWidth: true
+                Repeater {
+                    model: ["AlwaysAsk", "AskExceptInAutoApprove", "Never"]
+                    delegate: StyledRect {
+                        required property string modelData
+                        variant: Config.ai.executionProfile.askUserQuestion === modelData ? "primary" : "internalbg"
+                        radius: Styling.radius(-4)
+                        implicitHeight: 28
+                        implicitWidth: qLab.implicitWidth + 16
+                        Text {
+                            id: qLab
+                            anchors.centerIn: parent
+                            text: modelData
+                            font.family: Config.theme.font
+                            font.pixelSize: Styling.fontSize(-3)
+                            color: Config.ai.executionProfile.askUserQuestion === modelData ? Colors.overPrimary : Colors.overSurface
+                        }
+                        MouseArea {
+                            anchors.fill: parent
+                            cursorShape: Qt.PointingHandCursor
+                            onClicked: Config.ai.executionProfile.askUserQuestion = modelData
+                        }
+                    }
+                }
+            }
+
+            Text {
+                text: "Computer use"
+                font.family: Config.theme.font
+                font.pixelSize: Styling.fontSize(-1)
+                color: Colors.overSurface
+            }
+            RowLayout {
+                Layout.fillWidth: true
+                Repeater {
+                    model: ["Never", "AlwaysAsk", "AlwaysAllow"]
+                    delegate: StyledRect {
+                        required property string modelData
+                        variant: Config.ai.executionProfile.computerUse === modelData ? "primary" : "internalbg"
+                        radius: Styling.radius(-4)
+                        implicitHeight: 28
+                        implicitWidth: cLab.implicitWidth + 16
+                        Text {
+                            id: cLab
+                            anchors.centerIn: parent
+                            text: modelData
+                            font.family: Config.theme.font
+                            font.pixelSize: Styling.fontSize(-3)
+                            color: Config.ai.executionProfile.computerUse === modelData ? Colors.overPrimary : Colors.overSurface
+                        }
+                        MouseArea {
+                            anchors.fill: parent
+                            cursorShape: Qt.PointingHandCursor
+                            onClicked: Config.ai.executionProfile.computerUse = modelData
+                        }
+                    }
+                }
+            }
+
+            RowLayout {
+                Layout.fillWidth: true
+                Text {
+                    text: "Web search (Exa)"
+                    font.family: Config.theme.font
+                    color: Colors.overSurface
+                    Layout.fillWidth: true
+                }
+                Switch {
+                    checked: Config.ai.executionProfile.webSearchEnabled ?? true
+                    onToggled: Config.ai.executionProfile.webSearchEnabled = checked
+                }
+            }
+
+            Text {
+                text: "Command allowlist (one regex per line)"
+                font.family: Config.theme.font
+                font.pixelSize: Styling.fontSize(-1)
+                color: Colors.overSurface
+            }
+            TextArea {
+                Layout.fillWidth: true
+                Layout.preferredHeight: 80
+                wrapMode: Text.Wrap
+                font.family: Config.theme.monoFont
+                font.pixelSize: Styling.fontSize(-2)
+                color: Colors.overSurface
+                text: (Config.ai.executionProfile.commandAllowlist || []).join("\n")
+                onEditingFinished: Config.ai.executionProfile.commandAllowlist = text.split("\n").map(s => s.trim()).filter(s => s.length)
+                background: StyledRect { variant: "internalbg"; radius: Styling.radius(4) }
+            }
+
+            Text {
+                text: "Command denylist (one regex per line)"
+                font.family: Config.theme.font
+                font.pixelSize: Styling.fontSize(-1)
+                color: Colors.overSurface
+            }
+            TextArea {
+                Layout.fillWidth: true
+                Layout.preferredHeight: 80
+                wrapMode: Text.Wrap
+                font.family: Config.theme.monoFont
+                font.pixelSize: Styling.fontSize(-2)
+                color: Colors.overSurface
+                text: (Config.ai.executionProfile.commandDenylist || []).join("\n")
+                onEditingFinished: Config.ai.executionProfile.commandDenylist = text.split("\n").map(s => s.trim()).filter(s => s.length)
+                background: StyledRect { variant: "internalbg"; radius: Styling.radius(4) }
+            }
+
+            Text {
+                text: "Enabled tools"
+                font.family: Config.theme.font
+                font.pixelSize: Styling.fontSize(2)
+                font.weight: Font.Bold
+                color: Colors.overSurface
+                Layout.fillWidth: true
+                Layout.topMargin: 8
+            }
+
+            Repeater {
+                model: ["read_files", "grep", "file_glob", "apply_file_diffs", "run_shell_command", "ask_user_question", "read_skill", "exa_search", "exa_contents", "native"]
+                delegate: RowLayout {
+                    required property string modelData
+                    Layout.fillWidth: true
+                    Text {
+                        text: modelData
+                        font.family: Config.theme.monoFont
+                        font.pixelSize: Styling.fontSize(-2)
+                        color: Colors.overSurface
+                        Layout.fillWidth: true
+                    }
+                    Switch {
+                        checked: (Config.ai.enabledTools || []).indexOf(modelData) !== -1
+                        onToggled: {
+                            const cur = (Config.ai.enabledTools || []).slice();
+                            const i = cur.indexOf(modelData);
+                            if (checked && i === -1)
+                                cur.push(modelData);
+                            if (!checked && i !== -1)
+                                cur.splice(i, 1);
+                            Config.ai.enabledTools = cur;
+                        }
+                    }
+                }
+            }
+
+            Text {
+                text: "Context"
+                font.family: Config.theme.font
+                font.pixelSize: Styling.fontSize(2)
+                font.weight: Font.Bold
+                color: Colors.overSurface
+                Layout.fillWidth: true
+                Layout.topMargin: 8
+            }
+
+            Repeater {
+                model: [
+                    { key: "focusedWindow", label: "Focused window" },
+                    { key: "clipboard", label: "Clipboard" },
+                    { key: "notifications", label: "Notifications" },
+                    { key: "weather", label: "Weather" },
+                    { key: "resources", label: "Resources" }
+                ]
+                delegate: RowLayout {
+                    required property var modelData
+                    Layout.fillWidth: true
+                    Text {
+                        text: modelData.label
+                        font.family: Config.theme.font
+                        color: Colors.overSurface
+                        Layout.fillWidth: true
+                    }
+                    Switch {
+                        checked: Config.ai.contextProviders[modelData.key] ?? false
+                        onToggled: Config.ai.contextProviders[modelData.key] = checked
+                    }
+                }
+            }
+
+            Text {
+                text: "Saved commands"
+                font.family: Config.theme.font
+                font.pixelSize: Styling.fontSize(2)
+                font.weight: Font.Bold
+                color: Colors.overSurface
+                Layout.fillWidth: true
+                Layout.topMargin: 8
+            }
+
+            Repeater {
+                model: Config.ai.commands || []
+                delegate: RowLayout {
+                    required property var modelData
+                    required property int index
+                    Layout.fillWidth: true
+                    Text {
+                        Layout.fillWidth: true
+                        text: (modelData.name || modelData.id || qsTr("Command"))
+                        font.family: Config.theme.font
+                        color: Colors.overSurface
+                        elide: Text.ElideRight
+                    }
+                    Button {
+                        text: qsTr("Remove")
+                        onClicked: {
+                            const next = (Config.ai.commands || []).slice();
+                            next.splice(index, 1);
+                            Config.ai.commands = next;
+                        }
+                    }
+                }
+            }
+
+            RowLayout {
+                Layout.fillWidth: true
+                TextField {
+                    id: newCmdName
+                    Layout.fillWidth: true
+                    placeholderText: qsTr("Name")
+                    font.family: Config.theme.font
+                    color: Colors.overSurface
+                    background: StyledRect { variant: "internalbg"; radius: Styling.radius(4) }
+                }
+                TextField {
+                    id: newCmdPrompt
+                    Layout.fillWidth: true
+                    placeholderText: qsTr("Prompt")
+                    font.family: Config.theme.font
+                    color: Colors.overSurface
+                    background: StyledRect { variant: "internalbg"; radius: Styling.radius(4) }
+                }
+                Button {
+                    text: qsTr("Add")
+                    onClicked: {
+                        if (!newCmdName.text.trim() || !newCmdPrompt.text.trim())
+                            return;
+                        const next = (Config.ai.commands || []).slice();
+                        next.push({
+                            id: newCmdName.text.trim().toLowerCase().replace(/\s+/g, "-"),
+                            name: newCmdName.text.trim(),
+                            prompt: newCmdPrompt.text.trim()
+                        });
+                        Config.ai.commands = next;
+                        newCmdName.text = "";
+                        newCmdPrompt.text = "";
+                    }
+                }
+            }
+
             // Providers
             Repeater {
-                model: ["gemini", "openai", "anthropic", "mistral", "groq", "ollama", "minimax"]
+                model: ["gemini", "openai", "anthropic", "mistral", "groq", "ollama", "minimax", "exa"]
                 delegate: StyledRect {
                     required property string modelData
                     Layout.fillWidth: true
