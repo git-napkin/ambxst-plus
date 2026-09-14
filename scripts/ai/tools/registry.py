@@ -32,6 +32,8 @@ class ToolContext:
         keystore_db="",
         enabled_tools=None,
         custom_endpoint="",
+        custom_models=None,
+        custom_name="",
         http_opener=None,
     ):
         from ..execution_profile import ExecutionProfile
@@ -42,6 +44,8 @@ class ToolContext:
         self.keystore_db = keystore_db or ""
         self.enabled_tools = list(enabled_tools) if enabled_tools else list(CORE_TOOLS)
         self.custom_endpoint = custom_endpoint or ""
+        self.custom_models = list(custom_models) if custom_models else []
+        self.custom_name = custom_name or ""
         self.http_opener = http_opener
         self.autoexecute_any_action = False
         self.temp_read_permissions = set()
@@ -53,7 +57,12 @@ class ToolContext:
         self.computer_use_approved = False
         self.current_call_id = ""
         self.api_keys = {}
+        self._listed_keys = {}
         self.running_procs = []
+
+    def clear_key_cache(self):
+        self.api_keys = {}
+        self._listed_keys = {}
 
     def add_temporary_file_read_permissions(self, abs_path):
         self.temp_read_permissions.add(str(Path(abs_path).resolve()))
@@ -68,11 +77,7 @@ class ToolContext:
         ev = self.cancel_event
         return bool(ev is not None and ev.is_set())
 
-    def get_key(self, provider):
-        if provider in self.api_keys:
-            return self.api_keys[provider]
-        if not self.keystore_db:
-            return ""
+    def _keystore(self):
         try:
             import keystore
         except ImportError:
@@ -85,9 +90,35 @@ class ToolContext:
             )
             keystore = importlib.util.module_from_spec(spec)
             spec.loader.exec_module(keystore)
-        key = keystore.get_provider_key(self.keystore_db, provider)
+        return keystore
+
+    def get_key(self, provider):
+        if provider in self.api_keys:
+            return self.api_keys[provider]
+        if not self.keystore_db:
+            return ""
+        key = self._keystore().get_provider_key(self.keystore_db, provider)
         self.api_keys[provider] = key
         return key
+
+    def list_keys(self, provider):
+        if provider in self._listed_keys:
+            return self._listed_keys[provider]
+        if not self.keystore_db:
+            key = self.api_keys.get(provider) or ""
+            entries = [{"id": None, "label": "", "api_key": key}] if key else []
+            self._listed_keys[provider] = entries
+            return entries
+        entries = self._keystore().list_provider_keys(self.keystore_db, provider) or []
+        self._listed_keys[provider] = entries
+        if entries:
+            self.api_keys[provider] = entries[0].get("api_key") or ""
+            for entry in entries:
+                eid = entry.get("id")
+                if eid is None:
+                    continue
+                self.api_keys["%s#%s" % (provider, eid)] = entry.get("api_key") or ""
+        return entries
 
 
 class Tool:

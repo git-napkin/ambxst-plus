@@ -333,141 +333,29 @@ Item {
                                 }
                             }
 
-                            // Tint Icons toggle
-                            RowLayout {
-                                Layout.fillWidth: true
-                                spacing: 8
+                            SettingsRow {
+                                label: "Tint Icons"
+                                description: "Recolor icons to match the theme"
 
-                                Text {
-                                    text: "Tint Icons"
-                                    font.family: Config.theme.font
-                                    font.pixelSize: Styling.fontSize(0)
-                                    color: Colors.overBackground
-                                    Layout.fillWidth: true
-                                }
-
-                                Switch {
-                                    id: tintIconsSwitch
+                                SettingsSwitch {
                                     checked: Config.theme.tintIcons
-
-                                    readonly property bool configValue: Config.theme.tintIcons
-
-                                    onConfigValueChanged: {
-                                        if (checked !== configValue) {
-                                            checked = configValue;
-                                        }
+                                    onToggled: value => {
+                                        GlobalStates.markThemeChanged();
+                                        Config.theme.tintIcons = value;
                                     }
-
-                                    onCheckedChanged: {
-                                        if (checked !== Config.theme.tintIcons) {
-                                            GlobalStates.markThemeChanged();
-                                            Config.theme.tintIcons = checked;
-                                        }
-                                    }
-
-                                    indicator: Rectangle {
-                                        implicitWidth: 40
-                                        implicitHeight: 20
-                                        x: tintIconsSwitch.leftPadding
-                                        y: parent.height / 2 - height / 2
-                                        radius: height / 2
-                                        color: tintIconsSwitch.checked ? Styling.srItem("overprimary") : Colors.surfaceBright
-                                        border.color: tintIconsSwitch.checked ? Styling.srItem("overprimary") : Colors.outline
-
-                                        Behavior on color {
-                                            enabled: Config.animDuration > 0
-                                            ColorAnimation {
-                                                duration: Config.animDuration / 2
-                                            }
-                                        }
-
-                                        Rectangle {
-                                            x: tintIconsSwitch.checked ? parent.width - width - 2 : 2
-                                            y: 2
-                                            width: parent.height - 4
-                                            height: width
-                                            radius: width / 2
-                                            color: tintIconsSwitch.checked ? Colors.background : Colors.overSurfaceVariant
-
-                                            Behavior on x {
-                                                enabled: Config.animDuration > 0
-                                                NumberAnimation {
-                                                    duration: Config.animDuration / 2
-                                                    easing.type: Styling.animEasing
-                                                }
-                                            }
-                                        }
-                                    }
-                                    background: null
                                 }
                             }
 
-                            // Enable Corners toggle
-                            RowLayout {
-                                Layout.fillWidth: true
-                                spacing: 8
+                            SettingsRow {
+                                label: "Enable Corners"
+                                description: "Round the screen corners"
 
-                                Text {
-                                    text: "Enable Corners"
-                                    font.family: Config.theme.font
-                                    font.pixelSize: Styling.fontSize(0)
-                                    color: Colors.overBackground
-                                    Layout.fillWidth: true
-                                }
-
-                                Switch {
-                                    id: enableCornersSwitch
+                                SettingsSwitch {
                                     checked: Config.theme.enableCorners
-
-                                    readonly property bool configValue: Config.theme.enableCorners
-
-                                    onConfigValueChanged: {
-                                        if (checked !== configValue) {
-                                            checked = configValue;
-                                        }
+                                    onToggled: value => {
+                                        GlobalStates.markThemeChanged();
+                                        Config.theme.enableCorners = value;
                                     }
-
-                                    onCheckedChanged: {
-                                        if (checked !== Config.theme.enableCorners) {
-                                            GlobalStates.markThemeChanged();
-                                            Config.theme.enableCorners = checked;
-                                        }
-                                    }
-
-                                    indicator: Rectangle {
-                                        implicitWidth: 40
-                                        implicitHeight: 20
-                                        x: enableCornersSwitch.leftPadding
-                                        y: parent.height / 2 - height / 2
-                                        radius: height / 2
-                                        color: enableCornersSwitch.checked ? Styling.srItem("overprimary") : Colors.surfaceBright
-                                        border.color: enableCornersSwitch.checked ? Styling.srItem("overprimary") : Colors.outline
-
-                                        Behavior on color {
-                                            enabled: Config.animDuration > 0
-                                            ColorAnimation {
-                                                duration: Config.animDuration / 2
-                                            }
-                                        }
-
-                                        Rectangle {
-                                            x: enableCornersSwitch.checked ? parent.width - width - 2 : 2
-                                            y: 2
-                                            width: parent.height - 4
-                                            height: width
-                                            radius: width / 2
-                                            color: enableCornersSwitch.checked ? Colors.background : Colors.overSurfaceVariant
-
-                                            Behavior on x {
-                                                enabled: Config.animDuration > 0
-                                                NumberAnimation {
-                                                    duration: Config.animDuration / 2
-                                                    easing.type: Styling.animEasing
-                                                }
-                                            }
-                                        }
-                                    }
-                                    background: null
                                 }
                             }
 
@@ -1138,55 +1026,15 @@ Item {
                                 Layout.bottomMargin: -4
                             }
 
-                            // Light/Dark toggle
-                            RowLayout {
-                                Layout.fillWidth: true
-                                spacing: 8
+                            SettingsRow {
+                                label: "Light Mode"
+                                description: "Use the light color scheme"
 
-                                Text {
-                                    text: "Light Mode"
-                                    font.family: Config.theme.font
-                                    font.pixelSize: Styling.fontSize(0)
-                                    color: Colors.overBackground
-                                    Layout.fillWidth: true
-                                }
-
-                                Switch {
-                                    id: lightModeSwitch
+                                SettingsSwitch {
                                     checked: Config.theme.lightMode
-                                    onCheckedChanged: {
-                                        Config.theme.lightMode = checked;
+                                    onToggled: value => {
+                                        Config.theme.lightMode = value;
                                     }
-
-                                    indicator: Rectangle {
-                                        implicitWidth: 40
-                                        implicitHeight: 20
-                                        x: lightModeSwitch.leftPadding
-                                        y: parent.height / 2 - height / 2
-                                        radius: height / 2
-                                        color: lightModeSwitch.checked ? Styling.srItem("overprimary") : Colors.surfaceBright
-                                        border.color: lightModeSwitch.checked ? Styling.srItem("overprimary") : Colors.outline
-
-                                        Behavior on color {
-                                            enabled: Config.animDuration > 0
-                                            ColorAnimation { duration: Config.animDuration / 2 }
-                                        }
-
-                                        Rectangle {
-                                            x: lightModeSwitch.checked ? parent.width - width - 2 : 2
-                                            y: 2
-                                            width: parent.height - 4
-                                            height: width
-                                            radius: width / 2
-                                            color: lightModeSwitch.checked ? Colors.background : Colors.overSurfaceVariant
-
-                                            Behavior on x {
-                                                enabled: Config.animDuration > 0
-                                                NumberAnimation { duration: Config.animDuration / 2; easing.type: Styling.animEasing }
-                                            }
-                                        }
-                                    }
-                                    background: null
                                 }
                             }
 

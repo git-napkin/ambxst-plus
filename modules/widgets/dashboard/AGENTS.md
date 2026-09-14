@@ -32,6 +32,7 @@ Central interactive hub of Ambxst[+]. Tabbed interface with LRU-based lazy-loadi
 - **LRU management**: Use `shouldTabBeLoaded(index)` for conditional `Loader.active`. Tabs evicted when exceeding cache limit.
 - **Keyboard flow**: Components implement `focusSearchInput()` so root can forward focus on open.
 - **UI primitives**: ALWAYS use `StyledRect` variants (`"pane"`, `"internalbg"`, `"focus"`) for containers.
+- **Settings controls**: Use `SettingsRow` / `SettingsGroup` / `SettingsSwitch` / `SettingsSpinBox` / `SettingsField` / `SettingsButton` / `SegmentedSwitch`. Never drop raw Qt `Switch`, `CheckBox`, `SpinBox`, or `TextField` into a settings panel.
 - **Service bindings**: Connect directly to service singletons (`NetworkService`, `Audio`). No prop-drilling.
 - **Large files**: Most tabs exceed 900 lines. Edit with care; use targeted line ranges.
 
@@ -39,3 +40,4 @@ Central interactive hub of Ambxst[+]. Tabbed interface with LRU-based lazy-loadi
 - Creating tab content without LRU integration via `TabLoader`.
 - Prop-drilling service state through parent components instead of importing singletons directly.
 - Using `Rectangle` instead of `StyledRect` for any container.
+- Using stock Qt `Switch` / `CheckBox` / `SpinBox` / `TextField` in settings panels.

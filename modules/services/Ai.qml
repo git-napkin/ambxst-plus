@@ -45,7 +45,7 @@ Singleton {
         if (persistenceReady && currentModel && isRestored)
             StateService.set("lastAiModel", currentModel.model);
         if (agentReady && currentModel)
-            writeCmd({ cmd: "set_model", model: modelPayload(currentModel) });
+            writeCmd(Object.assign({ cmd: "set_model", model: modelPayload(currentModel) }, samplingPayload()));
     }
 
     function restoreModel() {
@@ -55,18 +55,107 @@ Singleton {
     }
 
     function tryRestore() {
-        if (isRestored || models.length === 0)
+        if (models.length === 0)
             return;
-        for (let i = 0; i < models.length; i++) {
-            const m = models[i];
-            if (m.model === savedModelId || m.model.endsWith("/" + savedModelId) || m.name === savedModelId) {
-                currentModel = m;
-                isRestored = true;
-                return;
+        const wanted = savedModelId || Config.ai.defaultModel || "";
+        if (wanted) {
+            for (let i = 0; i < models.length; i++) {
+                const m = models[i];
+                if (m.model === wanted || m.model.endsWith("/" + wanted) || m.name === wanted) {
+                    currentModel = m;
+                    isRestored = true;
+                    return;
+                }
+            }
+        }
+        const defaults = Config.ai.defaultModels;
+        if (defaults) {
+            const order = ["openai", "anthropic", "gemini", "openrouter", "ollama", "custom"];
+            for (let p = 0; p < order.length; p++) {
+                const provider = order[p];
+                const mid = defaults[provider] || "";
+                if (!mid)
+                    continue;
+                const found = findModel(mid, provider);
+                if (found) {
+                    currentModel = found;
+                    isRestored = true;
+                    return;
+                }
             }
         }
         if (currentModel)
             isRestored = true;
+        else if (models.length > 0) {
+            currentModel = models[0];
+            isRestored = true;
+        }
+    }
+
+    function modelsFor(provider) {
+        const out = [];
+        const id = String(provider || "").toLowerCase();
+        for (let i = 0; i < models.length; i++) {
+            const m = models[i];
+            if (m && String(m.provider || "").toLowerCase() === id)
+                out.push(m);
+        }
+        return out;
+    }
+
+    function findModel(modelId, provider, keyId) {
+        const mid = String(modelId || "");
+        const pid = String(provider || "").toLowerCase();
+        const kid = keyId !== undefined && keyId !== null ? String(keyId) : "";
+        for (let i = 0; i < models.length; i++) {
+            const m = models[i];
+            if (!m)
+                continue;
+            if (mid && m.model !== mid && m.name !== mid)
+                continue;
+            if (pid && String(m.provider || "").toLowerCase() !== pid)
+                continue;
+            if (kid && String(m.key_id || "") !== kid)
+                continue;
+            return m;
+        }
+        return null;
+    }
+
+    function providerDefault(provider) {
+        const defaults = Config.ai.defaultModels;
+        if (!defaults || !provider)
+            return "";
+        return defaults[provider] || "";
+    }
+
+    function setProviderDefault(provider, modelObj) {
+        if (!provider || !modelObj)
+            return;
+        const mid = modelObj.model || modelObj.name || "";
+        if (!mid)
+            return;
+        const defaults = Config.ai.defaultModels;
+        if (defaults && defaults[provider] !== undefined)
+            defaults[provider] = mid;
+        Config.ai.defaultModel = mid;
+        currentModel = modelObj;
+        savedModelId = mid;
+        if (persistenceReady)
+            StateService.set("lastAiModel", mid);
+    }
+
+    function setModel(modelName) {
+        for (let i = 0; i < models.length; i++) {
+            if (models[i].name === modelName || models[i].model === modelName) {
+                currentModel = models[i];
+                const provider = String(models[i].provider || "").toLowerCase();
+                if (provider && Config.ai.defaultModels && Config.ai.defaultModels[provider] !== undefined)
+                    Config.ai.defaultModels[provider] = models[i].model;
+                Config.ai.defaultModel = models[i].model;
+                return;
+            }
+        }
     }
 
     Connections {
@@ -79,7 +168,33 @@ Singleton {
     Connections {
         target: KeyStore
         function onKeysChanged() {
+            pruneModelsMissingKeys();
+            sendInit();
             fetchAvailableModels();
+        }
+    }
+
+    Connections {
+        target: Config.ai
+        function onCustomEndpointChanged() {
+            fetchAvailableModels();
+        }
+        function onCustomModelsChanged() {
+            fetchAvailableModels();
+        }
+        function onCustomModelsJsonChanged() {
+            fetchAvailableModels();
+        }
+        function onCustomNameChanged() {
+            fetchAvailableModels();
+        }
+        function onTemperatureChanged() {
+            if (agentReady)
+                writeCmd(Object.assign({ cmd: "set_model", model: modelPayload(currentModel) }, samplingPayload()));
+        }
+        function onMaxTokensChanged() {
+            if (agentReady)
+                writeCmd(Object.assign({ cmd: "set_model", model: modelPayload(currentModel) }, samplingPayload()));
         }
     }
 
@@ -112,15 +227,27 @@ Singleton {
         return [bundledSkills, configHome + "/ambxst+/ai/skills"];
     }
 
+    function samplingPayload() {
+        const provider = (currentModel && currentModel.provider) ? String(currentModel.provider).toLowerCase() : "";
+        if (provider === "ollama" || provider === "custom") {
+            return {
+                temperature: Config.ai.temperature ?? 0.7,
+                max_tokens: Config.ai.maxTokens ?? 4096
+            };
+        }
+        return {
+            temperature: null,
+            max_tokens: null
+        };
+    }
+
     function sendInit() {
         if (!agentProc.running)
             return;
-        writeCmd({
+        writeCmd(Object.assign({
             cmd: "init",
             workspace: Config.ai.workspace || (Quickshell.env("HOME") || ""),
             system_prompt: Config.ai.systemPrompt || "",
-            temperature: Config.ai.temperature ?? 0.7,
-            max_tokens: Config.ai.maxTokens ?? 4096,
             enabled_tools: Config.ai.enabledTools || [],
             execution_profile: {
                 readFiles: Config.ai.executionProfile.readFiles,
@@ -136,9 +263,11 @@ Singleton {
             skill_dirs: skillDirs(),
             keystore_db: KeyStore.dbPath,
             custom_endpoint: Config.ai.customEndpoint || "",
+            custom_models: Config.readCustomModels(),
+            custom_name: Config.ai.customName || "",
             model: modelPayload(currentModel),
             context: { autoexecute_any_action: autoApprove }
-        });
+        }, samplingPayload()));
     }
 
     function writeCmd(obj) {
@@ -305,15 +434,6 @@ Singleton {
         currentChat = next;
         saveCurrentChat();
         chatModelChanged();
-    }
-
-    function setModel(modelName) {
-        for (let i = 0; i < models.length; i++) {
-            if (models[i].name === modelName) {
-                currentModel = models[i];
-                return;
-            }
-        }
     }
 
     function pushSystemMessage(text) {
@@ -511,13 +631,61 @@ for f in files:
         fetchingModels = true;
         if (agentReady)
             writeCmd({ cmd: "list_models" });
-        else
+        else {
+            pruneModelsMissingKeys();
             seedFallbackModels();
+            fetchingModels = false;
+        }
+    }
+
+    function modelStillAvailable(m) {
+        if (!m)
+            return false;
+        const provider = String(m.provider || "").toLowerCase();
+        if (!provider)
+            return true;
+        if (KeyStore.hasKey(provider))
+            return true;
+        if (provider === "custom") {
+            const customs = Config.readCustomModels();
+            const mid = String(m.model || "");
+            for (let i = 0; i < customs.length; i++) {
+                const item = customs[i] || {};
+                if (String(item.model || item.id || "") === mid)
+                    return true;
+            }
+            return false;
+        }
+        if (m.requires_key === false)
+            return false;
+        return false;
+    }
+
+    function pruneModelsMissingKeys() {
+        const next = [];
+        let droppedCurrent = false;
+        for (let i = 0; i < models.length; i++) {
+            const m = models[i];
+            if (modelStillAvailable(m)) {
+                next.push(m);
+                continue;
+            }
+            if (currentModel === m)
+                droppedCurrent = true;
+            if (m && m.destroy)
+                m.destroy();
+        }
+        if (next.length !== models.length)
+            models = next;
+        if (droppedCurrent || (currentModel && next.indexOf(currentModel) === -1)) {
+            currentModel = next.length > 0 ? next[0] : null;
+            isRestored = !!currentModel;
+        }
     }
 
     function seedFallbackModels() {
-        const extras = Config.ai.extraModels || [];
         const seeded = [];
+        const extras = Config.ai.extraModels || [];
         for (let i = 0; i < extras.length; i++) {
             const item = extras[i] || {};
             seeded.push(aiModelFactory.createObject(root, {
@@ -530,11 +698,33 @@ for f in files:
                 key_id: item.key_id || item.provider || "custom"
             }));
         }
+        const customs = Config.readCustomModels();
+        const customLabel = Config.ai.customName || "";
+        for (let i = 0; i < customs.length; i++) {
+            const item = customs[i] || {};
+            const mid = item.model || item.id || "";
+            if (!mid)
+                continue;
+            seeded.push(aiModelFactory.createObject(root, {
+                name: item.name || customLabel || mid,
+                description: item.description || customLabel || "Custom",
+                endpoint: Config.ai.customEndpoint || "",
+                model: mid,
+                provider: "custom",
+                requires_key: true,
+                key_id: "custom"
+            }));
+        }
         if (seeded.length)
             mergeModels(seeded);
     }
 
     function ingestModels(list) {
+        const previous = currentModel ? {
+            model: currentModel.model,
+            provider: currentModel.provider,
+            key_id: currentModel.key_id || ""
+        } : null;
         const created = [];
         for (let i = 0; i < list.length; i++) {
             const item = list[i] || {};
@@ -548,8 +738,21 @@ for f in files:
                 key_id: item.key_id || item.provider
             }));
         }
-        mergeModels(created);
+        for (let i = 0; i < models.length; i++) {
+            if (models[i] && models[i].destroy)
+                models[i].destroy();
+        }
+        models = created;
         seedFallbackModels();
+        isRestored = false;
+        if (previous) {
+            const match = findModel(previous.model, previous.provider, previous.key_id)
+                || findModel(previous.model, previous.provider);
+            if (match) {
+                currentModel = match;
+                isRestored = true;
+            }
+        }
         tryRestore();
     }
 
@@ -561,7 +764,7 @@ for f in files:
             const m = newModels[i];
             let dup = false;
             for (let j = 0; j < updated.length; j++) {
-                if (updated[j].model === m.model) {
+                if (updated[j].model === m.model && (updated[j].key_id || "") === (m.key_id || "")) {
                     dup = true;
                     break;
                 }

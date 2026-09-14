@@ -111,46 +111,9 @@ RowLayout {
         }
     }
 
-    // Toggle switch
-    Switch {
-        id: toggleSwitch
+    SettingsSwitch {
         visible: root.showToggle
         checked: root.toggleChecked
-        onCheckedChanged: root.toggleChanged(checked)
-
-        indicator: Rectangle {
-            implicitWidth: 40
-            implicitHeight: 20
-            x: toggleSwitch.leftPadding
-            y: parent.height / 2 - height / 2
-            radius: height / 2
-            color: toggleSwitch.checked ? Styling.srItem("overprimary") : Colors.surfaceBright
-            border.color: toggleSwitch.checked ? Styling.srItem("overprimary") : Colors.outline
-
-            Behavior on color {
-                enabled: Config.animDuration > 0
-                ColorAnimation {
-                    duration: Config.animDuration / 2
-                }
-            }
-
-            Rectangle {
-                x: toggleSwitch.checked ? parent.width - width - 2 : 2
-                y: 2
-                width: parent.height - 4
-                height: width
-                radius: width / 2
-                color: toggleSwitch.checked ? Colors.background : Colors.overSurfaceVariant
-
-                Behavior on x {
-                    enabled: Config.animDuration > 0
-                    NumberAnimation {
-                        duration: Config.animDuration / 2
-                        easing.type: Styling.animEasing
-                    }
-                }
-            }
-        }
-        background: null
+        onToggled: checked => root.toggleChanged(checked)
     }
 }

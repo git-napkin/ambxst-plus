@@ -21,7 +21,7 @@ clipboard, notes, metrics, wallpapers, emoji, tmux, and more.
 | Dashboard entry | `Dashboard.qml` | Tabbed container; lazy-loads tabs |
 | Tab management | `DashboardTab.qml` | Base class for dashboard tabs |
 | Window management | `OverviewPopup.qml` | PanelWindow; search, layout switching |
-| Settings | `SettingsWindow.qml` | Scrollable settings with search |
+| Settings | `SettingsWindow.qml` | Scrollable settings with search. Controls: `SettingsSwitch`, `SettingsRow`, `SettingsGroup`, `SegmentedSwitch`. |
 | Config binding | All widgets | Use `Config.<module>.<prop>` for all settings |
 
 ## CONVENTIONS

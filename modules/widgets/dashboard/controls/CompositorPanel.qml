@@ -93,151 +93,33 @@ Item {
         colorPickerCurrentColor = color;
     }
 
-    // Inline component for toggle rows
-    component ToggleRow: RowLayout {
+    component ToggleRow: SettingsRow {
         id: toggleRowRoot
-        property string label: ""
         property bool checked: false
         signal toggled(bool value)
 
-        // Track if we're updating from external binding
-        property bool _updating: false
-
-        onCheckedChanged: {
-            if (!_updating && toggleSwitch.checked !== checked) {
-                _updating = true;
-                toggleSwitch.checked = checked;
-                _updating = false;
-            }
-        }
-
-        Layout.fillWidth: true
-        spacing: 8
-
-        Text {
-            text: toggleRowRoot.label
-            font.family: Config.theme.font
-            font.pixelSize: Styling.fontSize(0)
-            color: Colors.overBackground
-            Layout.fillWidth: true
-        }
-
-        Switch {
-            id: toggleSwitch
+        SettingsSwitch {
             checked: toggleRowRoot.checked
-
-            onCheckedChanged: {
-                if (!toggleRowRoot._updating && checked !== toggleRowRoot.checked) {
-                    toggleRowRoot.toggled(checked);
-                }
-            }
-
-            indicator: Rectangle {
-                implicitWidth: 40
-                implicitHeight: 20
-                x: toggleSwitch.leftPadding
-                y: parent.height / 2 - height / 2
-                radius: height / 2
-                color: toggleSwitch.checked ? Styling.srItem("overprimary") : Colors.surfaceBright
-                border.color: toggleSwitch.checked ? Styling.srItem("overprimary") : Colors.outline
-
-                Behavior on color {
-                    enabled: Config.animDuration > 0
-                    ColorAnimation {
-                        duration: Config.animDuration / 2
-                    }
-                }
-
-                Rectangle {
-                    x: toggleSwitch.checked ? parent.width - width - 2 : 2
-                    y: 2
-                    width: parent.height - 4
-                    height: width
-                    radius: width / 2
-                    color: toggleSwitch.checked ? Colors.background : Colors.overSurfaceVariant
-
-                    Behavior on x {
-                        enabled: Config.animDuration > 0
-                        NumberAnimation {
-                            duration: Config.animDuration / 2
-                            easing.type: Styling.animEasing
-                        }
-                    }
-                }
-            }
-            background: null
+            enabled: toggleRowRoot.enabled
+            onToggled: value => toggleRowRoot.toggled(value)
         }
     }
 
-    // Inline component for number input rows
-    component NumberInputRow: RowLayout {
+    component NumberInputRow: SettingsRow {
         id: numberInputRowRoot
-        property string label: ""
         property int value: 0
         property int minValue: 0
         property int maxValue: 100
         property string suffix: ""
         signal valueEdited(int newValue)
 
-        Layout.fillWidth: true
-        spacing: 8
-        opacity: enabled ? 1.0 : 0.5
-
-        Text {
-            text: numberInputRowRoot.label
-            font.family: Config.theme.font
-            font.pixelSize: Styling.fontSize(0)
-            color: Colors.overBackground
-            Layout.fillWidth: true
-        }
-
-        StyledRect {
-            variant: "common"
-            Layout.preferredWidth: 60
-            Layout.preferredHeight: 32
-            radius: Styling.radius(-2)
-
-            TextInput {
-                id: numberTextInput
-                anchors.fill: parent
-                anchors.margins: 8
-                font.family: Config.theme.font
-                font.pixelSize: Styling.fontSize(0)
-                color: Colors.overBackground
-                selectByMouse: true
-                clip: true
-                verticalAlignment: TextInput.AlignVCenter
-                horizontalAlignment: TextInput.AlignHCenter
-                validator: IntValidator {
-                    bottom: numberInputRowRoot.minValue
-                    top: numberInputRowRoot.maxValue
-                }
-
-                // Sync text when external value changes
-                readonly property int configValue: numberInputRowRoot.value
-                onConfigValueChanged: {
-                    if (!activeFocus && text !== configValue.toString()) {
-                        text = configValue.toString();
-                    }
-                }
-                Component.onCompleted: text = configValue.toString()
-
-                onEditingFinished: {
-                    let newVal = parseInt(text);
-                    if (!isNaN(newVal)) {
-                        newVal = Math.max(numberInputRowRoot.minValue, Math.min(numberInputRowRoot.maxValue, newVal));
-                        numberInputRowRoot.valueEdited(newVal);
-                    }
-                }
-            }
-        }
-
-        Text {
-            text: numberInputRowRoot.suffix
-            font.family: Config.theme.font
-            font.pixelSize: Styling.fontSize(0)
-            color: Colors.overSurfaceVariant
-            visible: suffix !== ""
+        SettingsSpinBox {
+            value: numberInputRowRoot.value
+            from: numberInputRowRoot.minValue
+            to: numberInputRowRoot.maxValue
+            suffix: numberInputRowRoot.suffix
+            enabled: numberInputRowRoot.enabled
+            onValueEdited: newValue => numberInputRowRoot.valueEdited(newValue)
         }
     }
 

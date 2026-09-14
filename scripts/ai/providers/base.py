@@ -47,15 +47,34 @@ def iter_lines(response):
             yield line
 
 
+def normalize_openai_base(base, default="https://api.openai.com"):
+    """Accept host, /v1, or legacy /v1/chat/completions and return the API root."""
+    text = (base or "").strip().rstrip("/")
+    if not text:
+        return default or ""
+    if text.endswith("/chat/completions"):
+        text = text[: -len("/chat/completions")].rstrip("/")
+    if text.endswith("/models"):
+        text = text[: -len("/models")].rstrip("/")
+    return text
+
+
 def chat_completions_url(base):
-    base = (base or "").rstrip("/")
-    if not base:
-        base = "https://api.openai.com"
-    if base.endswith("/chat/completions"):
-        return base
-    if base.endswith("/v1"):
-        return base + "/chat/completions"
-    return base + "/v1/chat/completions"
+    root = normalize_openai_base(base)
+    if not root:
+        root = "https://api.openai.com"
+    if root.endswith("/v1"):
+        return root + "/chat/completions"
+    return root + "/v1/chat/completions"
+
+
+def models_url(base):
+    root = normalize_openai_base(base, default="")
+    if not root:
+        return ""
+    if root.endswith("/v1"):
+        return root + "/models"
+    return root + "/v1/models"
 
 
 def openai_tools(tools):

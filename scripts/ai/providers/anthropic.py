@@ -89,10 +89,11 @@ class AnthropicProvider(Provider):
         body = {
             "model": model_id,
             "messages": filtered,
-            "max_tokens": max_tokens,
-            "temperature": temperature,
+            "max_tokens": max_tokens if max_tokens is not None else 8192,
             "stream": True,
         }
+        if temperature is not None:
+            body["temperature"] = temperature
         if system:
             body["system"] = system
         formatted = _anthropic_tools(tools)

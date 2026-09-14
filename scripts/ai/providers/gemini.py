@@ -89,11 +89,14 @@ class GeminiProvider(Provider):
         system, contents = _contents(messages)
         body = {
             "contents": contents,
-            "generationConfig": {
-                "temperature": temperature,
-                "maxOutputTokens": max_tokens,
-            },
         }
+        generation = {}
+        if temperature is not None:
+            generation["temperature"] = temperature
+        if max_tokens is not None:
+            generation["maxOutputTokens"] = max_tokens
+        if generation:
+            body["generationConfig"] = generation
         if system:
             body["systemInstruction"] = {"parts": [{"text": system}]}
         gemini_tools = _gemini_tools(tools)

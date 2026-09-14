@@ -308,47 +308,9 @@ Item {
                     color: Colors.overSurfaceVariant
                 }
 
-                Switch {
-                    id: trustSwitch
-                    implicitWidth: 40
-                    implicitHeight: 20
+                SettingsSwitch {
                     checked: root.device?.trusted ?? false
-                    onToggled: root.device?.setTrust(checked)
-
-                    indicator: Rectangle {
-                        implicitWidth: 40
-                        implicitHeight: 20
-                        x: trustSwitch.leftPadding
-                        y: parent.height / 2 - height / 2
-                        radius: height / 2
-                        color: trustSwitch.checked ? Styling.srItem("overprimary") : Colors.surfaceBright
-                        border.color: trustSwitch.checked ? Styling.srItem("overprimary") : Colors.outline
-
-                        Behavior on color {
-                            enabled: Config.animDuration > 0
-                            ColorAnimation {
-                                duration: Config.animDuration / 2
-                            }
-                        }
-
-                        Rectangle {
-                            x: trustSwitch.checked ? parent.width - width - 2 : 2
-                            y: 2
-                            width: parent.height - 4
-                            height: width
-                            radius: width / 2
-                            color: trustSwitch.checked ? Colors.background : Colors.overSurfaceVariant
-
-                            Behavior on x {
-                                enabled: Config.animDuration > 0
-                                NumberAnimation {
-                                    duration: Config.animDuration / 2
-                                    easing.type: Styling.animEasing
-                                }
-                            }
-                        }
-                    }
-                    background: null
+                    onToggled: value => root.device?.setTrust(value)
                 }
             }
         }

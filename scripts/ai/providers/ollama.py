@@ -23,8 +23,14 @@ class OllamaProvider(Provider):
                 for m in (messages or [])
             ],
             "stream": True,
-            "options": {"temperature": temperature, "num_predict": max_tokens},
         }
+        options = {}
+        if temperature is not None:
+            options["temperature"] = temperature
+        if max_tokens is not None:
+            options["num_predict"] = max_tokens
+        if options:
+            body["options"] = options
         formatted = openai_tools(tools)
         if formatted:
             body["tools"] = formatted

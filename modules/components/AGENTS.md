@@ -16,6 +16,13 @@ Atomic design library for the Ambxst[+] shell. 26 QML components + 29 GLSL shade
 | Component | Role |
 |-----------|------|
 | `SearchInput.qml` | Text entry with icon, prefix, escape-to-clear |
+| `SettingsSwitch.qml` | Native on/off toggle for settings rows |
+| `SettingsCheckbox.qml` | Native checkbox (multi-select / enable rows) |
+| `SettingsRow.qml` | Settings label + description + control |
+| `SettingsGroup.qml` | Inset pane grouping related settings |
+| `SettingsSpinBox.qml` | Native numeric stepper |
+| `SettingsField.qml` | Native text / password / multiline field. Bind Config via `value:`; read `text` in `onEditingFinished`. |
+| `SettingsButton.qml` | Native text/icon action button (`kind`: primary, common, error) |
 | `StyledSlider.qml` | Standard slider (volume, brightness, progress) |
 | `PositionSlider.qml` | Media position/seek slider |
 | `SegmentedSwitch.qml` | Multi-option toggle (radio-button style) |
@@ -52,6 +59,7 @@ Atomic design library for the Ambxst[+] shell. 26 QML components + 29 GLSL shade
 - **StyledRect variants**: Always pass `variant` as one of: `"pane"`, `"popup"`, `"common"`, `"internalbg"`, `"focus"`. Variant config comes from `Styling.getStyledRectConfig()`.
 - **Property aliasing**: Components expose internal state via `property alias` for clean external APIs.
 - **Reactive styling**: All components use `Config.resolveColor()` and `Styling.radius()`. Changing a JSON preset updates the entire library instantly.
+- **Settings panels**: Boolean prefs use `SettingsSwitch`; mutually exclusive short lists use `SegmentedSwitch`; numbers use `SettingsSpinBox`; text uses `SettingsField`. Wrap them in `SettingsRow` / `SettingsGroup` so every panel shares label wrapping, hit targets, and pane grouping.
 - **BarPopup pattern**: Flyouts require an `anchorItem` and `bar` reference to anchor correctly to the shell panel.
 - **Shader binaries**: `.qsb` files are pre-compiled shaders. Regenerate with `qsb` tool if `.frag`/`.vert` sources change.
 

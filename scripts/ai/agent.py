@@ -67,8 +67,8 @@ class Agent:
             "name": "gemini-2.0-flash",
         }
         self.system_prompt = DEFAULT_SYSTEM
-        self.temperature = 0.7
-        self.max_tokens = 4096
+        self.temperature = None
+        self.max_tokens = None
         self.chat_id = ""
         self._lock = threading.Lock()
         self._busy = threading.Event()
@@ -90,6 +90,8 @@ class Agent:
             keystore_db=payload.get("keystore_db") or payload.get("keystoreDb") or "",
             enabled_tools=enabled,
             custom_endpoint=payload.get("custom_endpoint") or payload.get("customEndpoint") or "",
+            custom_models=payload.get("custom_models") or payload.get("customModels") or [],
+            custom_name=payload.get("custom_name") or payload.get("customName") or "",
         )
         context = payload.get("context") or {}
         self.ctx.autoexecute_any_action = bool(context.get("autoexecute_any_action"))
@@ -101,8 +103,7 @@ class Agent:
         user_tools_dir = payload.get("user_tools_dir")
         self.registry = build_registry(self.ctx, user_tools_dir=user_tools_dir)
         self.system_prompt = payload.get("system_prompt") or payload.get("systemPrompt") or DEFAULT_SYSTEM
-        self.temperature = float(payload.get("temperature", 0.7))
-        self.max_tokens = int(payload.get("max_tokens") or payload.get("maxTokens") or 4096)
+        self._apply_sampling(payload)
         if payload.get("model"):
             self.model = dict(payload["model"])
         catalog = skill_catalog_names(self.ctx.skill_dirs)
@@ -115,6 +116,16 @@ class Agent:
         )
         if extra:
             self.system_prompt = self.system_prompt.rstrip() + "\n\n" + "\n".join(extra)
+
+    def _apply_sampling(self, payload):
+        if "temperature" in payload:
+            value = payload.get("temperature")
+            self.temperature = None if value is None else float(value)
+        if "max_tokens" in payload or "maxTokens" in payload:
+            value = payload.get("max_tokens")
+            if value is None:
+                value = payload.get("maxTokens")
+            self.max_tokens = None if value is None else int(value)
 
     def _register_process(self, proc):
         self.ctx.running_procs.append(proc)
@@ -202,6 +213,7 @@ class Agent:
         if cmd == "set_model":
             if payload.get("model"):
                 self.model = dict(payload["model"])
+            self._apply_sampling(payload)
             self.emit({"type": "done", "reason": "set_model"})
             return
         if cmd == "set_autoapprove":
@@ -214,7 +226,15 @@ class Agent:
             return
         if cmd == "list_models":
             try:
-                models = list_models(self.ctx, custom_endpoint=self.ctx.custom_endpoint)
+                if hasattr(self.ctx, "clear_key_cache"):
+                    self.ctx.clear_key_cache()
+                # Keep custom model catalog in sync with the latest init payload.
+                models = list_models(
+                    self.ctx,
+                    custom_endpoint=self.ctx.custom_endpoint,
+                    custom_models=self.ctx.custom_models,
+                    custom_name=self.ctx.custom_name,
+                )
             except Exception as exc:
                 self.emit({"type": "error", "error": "list_models: %s" % exc})
                 return
@@ -241,8 +261,6 @@ class Agent:
     def _api_key(self):
         provider = (self.model.get("provider") or "").lower()
         key_id = self.model.get("key_id") or provider
-        if provider == "custom":
-            key_id = "custom"
         if provider == "ollama":
             return ""
         return self.ctx.get_key(key_id) or self.ctx.get_key(provider)

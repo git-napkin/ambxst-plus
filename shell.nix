@@ -3,9 +3,10 @@
 pkgs.mkShell {
   packages = with pkgs; [
     quickshell
-    python3
-    python3Packages.cryptography
-    python3Packages.dbus-python
+    python3.withPackages (ps: [
+      ps.cryptography
+      ps.dbus-python
+    ])
     brightnessctl
     ddcutil
     grim

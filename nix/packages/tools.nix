@@ -13,7 +13,10 @@ with pkgs; [
 
   libnotify
   matugen
-  python3
+  python3.withPackages (ps: [
+    ps.cryptography
+    ps.dbus-python
+  ])
   power-profiles-daemon
   slurp
   sqlite
@@ -31,6 +34,4 @@ with pkgs; [
    # Fingerprint authentication
    fprintd
    pam
-   python3Packages.dbus-python
-   python3Packages.cryptography
   ]

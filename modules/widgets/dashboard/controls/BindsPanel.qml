@@ -1963,56 +1963,10 @@ Item {
             anchors.bottomMargin: 8
             spacing: 12
 
-            // Checkbox for custom binds (styled like OLED Mode)
-            Item {
-                id: checkboxItem
+            SettingsCheckbox {
                 visible: !bindItem.isAmbxstPlus
-                Layout.preferredWidth: 32
-                Layout.preferredHeight: 32
-
-                Item {
-                    anchors.fill: parent
-
-                    Rectangle {
-                        anchors.fill: parent
-                        radius: Styling.radius(-4)
-                        color: Colors.background
-                        visible: !bindItem.isEnabled
-                    }
-
-                    StyledRect {
-                        variant: "primary"
-                        anchors.fill: parent
-                        radius: Styling.radius(-4)
-                        visible: bindItem.isEnabled
-                        opacity: bindItem.isEnabled ? 1.0 : 0.0
-
-                        Behavior on opacity {
-                            enabled: Config.animDuration > 0
-                            NumberAnimation {
-                                duration: Config.animDuration / 2
-                                easing.type: Styling.animEasing
-                            }
-                        }
-
-                        Text {
-                            anchors.centerIn: parent
-                            text: Icons.accept
-                            color: Styling.srItem("primary")
-                            font.family: Icons.font
-                            font.pixelSize: Styling.fontSize(2)
-                            scale: bindItem.isEnabled ? 1.0 : 0.0
-
-                            Behavior on scale {
-                                enabled: Config.animDuration > 0
-                                NumberAnimation {
-                                    duration: Config.animDuration / 2
-                                    easing.type: Styling.animEasing
-                                }
-                            }
-                        }
-                    }
-                }
+                checked: bindItem.isEnabled
+                onToggled: bindItem.toggleEnabled()
             }
 
             // Info column - what the bind does
@@ -2124,10 +2078,10 @@ Item {
         MouseArea {
             id: checkboxClickArea
             visible: !bindItem.isAmbxstPlus
-            x: 12
-            y: (parent.height - 32) / 2
-            width: 32
-            height: 32
+            x: 8
+            y: (parent.height - 40) / 2
+            width: 40
+            height: 40
             z: 1
             cursorShape: Qt.PointingHandCursor
             hoverEnabled: true

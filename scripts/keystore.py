@@ -4,6 +4,8 @@ import json
 import sys
 import os
 import base64
+import shutil
+import subprocess
 from pathlib import Path
 
 
@@ -36,6 +38,15 @@ def get_machine_id():
             return base64.b64encode(os.urandom(32))
 
 
+def _has_cryptography():
+    try:
+        import cryptography  # noqa: F401
+
+        return True
+    except ImportError:
+        return False
+
+
 def _derive_key(machine_key, salt):
     from cryptography.hazmat.primitives import hashes
     from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
@@ -49,7 +60,7 @@ def _derive_key(machine_key, salt):
     return base64.urlsafe_b64encode(kdf.derive(machine_key))
 
 
-def encrypt(text, machine_key):
+def _fernet_encrypt(text, machine_key):
     from cryptography.fernet import Fernet
 
     salt = os.urandom(16)
@@ -58,7 +69,80 @@ def encrypt(text, machine_key):
     return base64.b64encode(salt + token).decode("utf-8")
 
 
+_OPENSSL_PREFIX = "o1:"
+_OPENSSL_PASS_ENV = "AMBXST_KS_PASS"
+
+
+def _openssl_bin():
+    return shutil.which("openssl") or "openssl"
+
+
+def _openssl_env(machine_key):
+    env = os.environ.copy()
+    env[_OPENSSL_PASS_ENV] = base64.b64encode(machine_key).decode("ascii")
+    return env
+
+
+def _openssl_encrypt(text, machine_key):
+    proc = subprocess.run(
+        [
+            _openssl_bin(),
+            "enc",
+            "-aes-256-cbc",
+            "-pbkdf2",
+            "-iter",
+            "600000",
+            "-salt",
+            "-pass",
+            "env:" + _OPENSSL_PASS_ENV,
+            "-base64",
+            "-A",
+        ],
+        input=text.encode("utf-8"),
+        capture_output=True,
+        env=_openssl_env(machine_key),
+        check=False,
+    )
+    if proc.returncode != 0:
+        err = (proc.stderr or b"").decode("utf-8", "replace").strip()
+        raise RuntimeError(err or "openssl encrypt failed")
+    return _OPENSSL_PREFIX + proc.stdout.decode("ascii").strip()
+
+
+def _openssl_decrypt(blob, machine_key):
+    payload = blob[len(_OPENSSL_PREFIX) :] if blob.startswith(_OPENSSL_PREFIX) else blob
+    proc = subprocess.run(
+        [
+            _openssl_bin(),
+            "enc",
+            "-d",
+            "-aes-256-cbc",
+            "-pbkdf2",
+            "-iter",
+            "600000",
+            "-pass",
+            "env:" + _OPENSSL_PASS_ENV,
+            "-base64",
+            "-A",
+        ],
+        input=payload.encode("ascii"),
+        capture_output=True,
+        env=_openssl_env(machine_key),
+        check=False,
+    )
+    if proc.returncode != 0:
+        raise ValueError("openssl decrypt failed")
+    return proc.stdout.decode("utf-8")
+
+
+def encrypt(text, machine_key):
+    if _has_cryptography():
+        return _fernet_encrypt(text, machine_key)
+    return _openssl_encrypt(text, machine_key)
+
+
 _LEGACY_FALLBACK_KEY = b"ambxst+-fallback-salt-82741"
+
 
 def _try_decrypt(hex_str, machine_key):
     from cryptography.fernet import Fernet
@@ -71,11 +155,20 @@ def _try_decrypt(hex_str, machine_key):
     key = _derive_key(machine_key, salt)
     return Fernet(key).decrypt(payload).decode("utf-8")
 
+
 def decrypt(hex_str, machine_key):
+    if not hex_str:
+        return ""
+    if str(hex_str).startswith(_OPENSSL_PREFIX):
+        try:
+            return _openssl_decrypt(hex_str, machine_key)
+        except Exception:
+            return ""
     try:
         return _try_decrypt(hex_str, machine_key)
+    except ImportError:
+        return ""
     except Exception:
-        # Compatibility: try legacy constant if current key fails
         try:
             if machine_key != _LEGACY_FALLBACK_KEY:
                 return _try_decrypt(hex_str, _LEGACY_FALLBACK_KEY)
@@ -122,26 +215,141 @@ def is_db_path_allowed(db_path):
     return False
 
 
-def get_provider_key(db_path, provider):
-    """Read a decrypted API key from the sqlite db without putting it on argv."""
+def ensure_schema(conn, create=True):
+    cursor = conn.cursor()
+    exists = cursor.execute(
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name='api_keys'"
+    ).fetchone()
+    if not exists:
+        if not create:
+            return False
+        cursor.execute(
+            """
+            CREATE TABLE api_keys (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                provider TEXT NOT NULL,
+                label TEXT DEFAULT '',
+                api_key TEXT NOT NULL,
+                endpoint TEXT DEFAULT '',
+                custom_curl TEXT DEFAULT ''
+            )
+            """
+        )
+        return True
+    cols = {row[1] for row in cursor.execute("PRAGMA table_info(api_keys)")}
+    if "id" in cols:
+        if "label" not in cols:
+            cursor.execute("ALTER TABLE api_keys ADD COLUMN label TEXT DEFAULT ''")
+        return True
+    cursor.execute("ALTER TABLE api_keys RENAME TO api_keys_legacy")
+    cursor.execute(
+        """
+        CREATE TABLE api_keys (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            provider TEXT NOT NULL,
+            label TEXT DEFAULT '',
+            api_key TEXT NOT NULL,
+            endpoint TEXT DEFAULT '',
+            custom_curl TEXT DEFAULT ''
+        )
+        """
+    )
+    legacy = {row[1] for row in cursor.execute("PRAGMA table_info(api_keys_legacy)")}
+    if "endpoint" in legacy and "custom_curl" in legacy:
+        cursor.execute(
+            "INSERT INTO api_keys (provider, label, api_key, endpoint, custom_curl) "
+            "SELECT provider, '', api_key, endpoint, custom_curl FROM api_keys_legacy"
+        )
+    else:
+        cursor.execute(
+            "INSERT INTO api_keys (provider, label, api_key, endpoint, custom_curl) "
+            "SELECT provider, '', api_key, '', '' FROM api_keys_legacy"
+        )
+    cursor.execute("DROP TABLE api_keys_legacy")
+    return True
+
+
+def _open_keystore(db_path, create=False):
     path = Path(os.path.expanduser(str(db_path))).resolve()
     if not is_db_path_allowed(path):
-        return ""
+        return None
     if path.is_symlink() or path.parent.is_symlink():
-        return ""
+        return None
     if not path.exists():
-        return ""
+        return None
     conn = sqlite3.connect(str(path), timeout=5.0)
     try:
-        row = conn.execute(
-            "SELECT api_key FROM api_keys WHERE provider = ?",
-            (provider,),
-        ).fetchone()
+        if not ensure_schema(conn, create=create):
+            conn.close()
+            return None
+        conn.commit()
+        return conn
+    except Exception:
+        conn.close()
+        return None
+
+
+def _split_key_ref(provider):
+    text = str(provider or "")
+    if "#" not in text:
+        return text, None
+    prefix, rest = text.rsplit("#", 1)
+    if rest.isdigit():
+        return prefix, int(rest)
+    return text, None
+
+
+def _entry_from_row(row, machine_key):
+    return {
+        "id": row[0],
+        "provider": row[1],
+        "label": row[2] or "",
+        "api_key": decrypt(row[3], machine_key),
+        "endpoint": row[4] or "",
+        "custom_curl": row[5] or "",
+    }
+
+
+def get_provider_key(db_path, provider):
+    """Read a decrypted API key from the sqlite db without putting it on argv."""
+    conn = _open_keystore(db_path)
+    if conn is None:
+        return ""
+    try:
+        prefix, key_id = _split_key_ref(provider)
+        if key_id is not None:
+            row = conn.execute(
+                "SELECT api_key FROM api_keys WHERE id = ?",
+                (key_id,),
+            ).fetchone()
+        else:
+            row = conn.execute(
+                "SELECT api_key FROM api_keys WHERE provider = ? ORDER BY id LIMIT 1",
+                (prefix,),
+            ).fetchone()
         if not row:
             return ""
         return decrypt(row[0], get_machine_id())
     except Exception:
         return ""
+    finally:
+        conn.close()
+
+
+def list_provider_keys(db_path, provider):
+    conn = _open_keystore(db_path)
+    if conn is None:
+        return []
+    try:
+        rows = conn.execute(
+            "SELECT id, provider, label, api_key, endpoint, custom_curl "
+            "FROM api_keys WHERE provider = ? ORDER BY id",
+            (provider,),
+        ).fetchall()
+        machine_key = get_machine_id()
+        return [_entry_from_row(row, machine_key) for row in rows]
+    except Exception:
+        return []
     finally:
         conn.close()
 
@@ -197,24 +405,20 @@ def main():
             pass
 
         cursor = conn.cursor()
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS api_keys (
-                provider TEXT PRIMARY KEY,
-                api_key TEXT NOT NULL,
-                endpoint TEXT DEFAULT '',
-                custom_curl TEXT DEFAULT ''
-            )
-        """)
+        ensure_schema(conn, create=True)
         conn.commit()
 
         machine_key = get_machine_id()
+        select_cols = (
+            "SELECT id, provider, label, api_key, endpoint, custom_curl FROM api_keys"
+        )
 
-        if cmd == "set":
+        if cmd in ("set", "add"):
             if len(args) < 2:
                 print(
                     json.dumps(
                         {
-                            "error": "set requires <provider> <key> [endpoint] [custom_curl]"
+                            "error": f"{cmd} requires <provider> <key> [label] [endpoint] [custom_curl]"
                         }
                     ),
                     flush=True,
@@ -223,31 +427,43 @@ def main():
 
             provider = args[0]
             api_key = encrypt(args[1], machine_key)
-            endpoint = args[2] if len(args) > 2 else ""
-            custom_curl = args[3] if len(args) > 3 else ""
+            label = args[2] if len(args) > 2 else ""
+            endpoint = args[3] if len(args) > 3 else ""
+            custom_curl = args[4] if len(args) > 4 else ""
+            if cmd == "set" and len(args) <= 4 and len(args) >= 3:
+                # Legacy: set <provider> <key> [endpoint] [custom_curl]
+                looks_like_url = args[2].startswith("http://") or args[2].startswith(
+                    "https://"
+                )
+                if looks_like_url or (len(args) > 3 and not args[2]):
+                    label = ""
+                    endpoint = args[2]
+                    custom_curl = args[3] if len(args) > 3 else ""
 
             cursor.execute(
-                "INSERT OR REPLACE INTO api_keys (provider, api_key, endpoint, custom_curl) VALUES (?, ?, ?, ?)",
-                (provider, api_key, endpoint, custom_curl),
+                "INSERT INTO api_keys (provider, label, api_key, endpoint, custom_curl) "
+                "VALUES (?, ?, ?, ?, ?)",
+                (provider, label, api_key, endpoint, custom_curl),
             )
             conn.commit()
-            print(json.dumps({"status": "ok"}), flush=True)
+            print(json.dumps({"status": "ok", "id": cursor.lastrowid}), flush=True)
 
         elif cmd == "get":
             if not args:
                 print(json.dumps({"error": "get requires <provider>"}), flush=True)
                 sys.exit(1)
 
-            cursor.execute("SELECT provider, api_key, endpoint, custom_curl FROM api_keys WHERE provider = ?", (args[0],))
+            prefix, key_id = _split_key_ref(args[0])
+            if key_id is not None:
+                cursor.execute(select_cols + " WHERE id = ?", (key_id,))
+            else:
+                cursor.execute(
+                    select_cols + " WHERE provider = ? ORDER BY id LIMIT 1",
+                    (prefix,),
+                )
             row = cursor.fetchone()
             if row:
-                res = {
-                    "provider": row[0],
-                    "api_key": decrypt(row[1], machine_key),
-                    "endpoint": row[2],
-                    "custom_curl": row[3],
-                }
-                print(json.dumps(res), flush=True)
+                print(json.dumps(_entry_from_row(row, machine_key)), flush=True)
             else:
                 print(
                     json.dumps({"error": f"Provider '{args[0]}' not found"}), flush=True
@@ -262,20 +478,26 @@ def main():
             conn.commit()
             print(json.dumps({"status": "ok"}), flush=True)
 
+        elif cmd == "delete-id":
+            if not args:
+                print(json.dumps({"error": "delete-id requires <id>"}), flush=True)
+                sys.exit(1)
+            try:
+                key_id = int(args[0])
+            except ValueError:
+                print(json.dumps({"error": "delete-id requires a numeric id"}), flush=True)
+                sys.exit(1)
+            cursor.execute("DELETE FROM api_keys WHERE id = ?", (key_id,))
+            conn.commit()
+            print(json.dumps({"status": "ok"}), flush=True)
+
         elif cmd == "list":
-            cursor.execute("SELECT provider, api_key, endpoint, custom_curl FROM api_keys")
+            cursor.execute(select_cols + " ORDER BY id")
             rows = cursor.fetchall()
-            results = []
-            for row in rows:
-                results.append(
-                    {
-                        "provider": row[0],
-                        "api_key": decrypt(row[1], machine_key),
-                        "endpoint": row[2],
-                        "custom_curl": row[3],
-                    }
-                )
-            print(json.dumps(results), flush=True)
+            print(
+                json.dumps([_entry_from_row(row, machine_key) for row in rows]),
+                flush=True,
+            )
 
         elif cmd == "has":
             if not args:

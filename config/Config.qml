@@ -1301,6 +1301,17 @@ Singleton {
             property string defaultModel: "gemini-2.0-flash"
             property string customEndpoint: ""
             property string customCurlTemplate: ""
+            property string customName: ""
+            property list<var> customModels: []
+            property string customModelsJson: "[]"
+            property JsonObject defaultModels: JsonObject {
+                property string openai: ""
+                property string anthropic: ""
+                property string gemini: ""
+                property string openrouter: ""
+                property string ollama: ""
+                property string custom: ""
+            }
             property string workspace: ""
             property int overlayWidth: 640
             property real overlayYFraction: 0.22
@@ -3660,6 +3671,52 @@ Singleton {
     // AI configuration
     property QtObject ai: aiLoader.adapter
 
+    function readCustomModels() {
+        let list = [];
+        try {
+            const raw = root.ai && root.ai.customModelsJson ? root.ai.customModelsJson : "";
+            if (raw && String(raw).trim() !== "" && String(raw).trim() !== "[]")
+                list = JSON.parse(raw);
+        } catch (e) {
+            list = [];
+        }
+        if ((!list || list.length === 0) && root.ai && root.ai.customModels && root.ai.customModels.length)
+            list = root.ai.customModels;
+        const out = [];
+        for (let i = 0; i < (list || []).length; i++) {
+            const item = list[i] || {};
+            const mid = String(item.model || item.id || "").trim();
+            if (!mid)
+                continue;
+            out.push({
+                model: mid,
+                name: String(item.name || item.display_name || mid).trim() || mid
+            });
+        }
+        return out;
+    }
+
+    function writeCustomModels(list) {
+        const plain = [];
+        for (let i = 0; i < (list || []).length; i++) {
+            const item = list[i] || {};
+            const mid = String(item.model || item.id || "").trim();
+            if (!mid)
+                continue;
+            plain.push({
+                model: mid,
+                name: String(item.name || item.display_name || mid).trim() || mid
+            });
+        }
+        root.ai.customModelsJson = JSON.stringify(plain);
+        root.ai.customModels = plain;
+        root.scheduleSave(aiLoader);
+    }
+
+    function saveAi() {
+        aiLoader.writeAdapter();
+    }
+
     // Module save functions
     function saveBar() {
         barLoader.writeAdapter();
@@ -3699,9 +3756,6 @@ Singleton {
     }
     function savePinnedApps() {
         pinnedAppsLoader.writeAdapter();
-    }
-    function saveAi() {
-        aiLoader.writeAdapter();
     }
 
     // Color helpers

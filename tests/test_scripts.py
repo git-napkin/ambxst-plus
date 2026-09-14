@@ -4,6 +4,7 @@
 import json
 import os
 import re
+import sqlite3
 import subprocess
 import sys
 import tempfile
@@ -65,11 +66,93 @@ class TestKeystore(unittest.TestCase):
         result = self.keystore.decrypt("invalid-base64-data", machine_key)
         self.assertEqual(result, "")
 
+    def test_openssl_fallback_roundtrip(self):
+        machine_key = b"test-machine-id-1234"
+        original = "sk-openrouter-fallback-test"
+        blob = self.keystore._openssl_encrypt(original, machine_key)
+        self.assertTrue(blob.startswith("o1:"))
+        self.assertEqual(self.keystore.decrypt(blob, machine_key), original)
+
     def test_get_machine_id_fallback(self):
         """get_machine_id should return bytes."""
         result = self.keystore.get_machine_id()
         self.assertIsInstance(result, bytes)
         self.assertTrue(len(result) > 0)
+
+    def _run_keystore(self, db, env, *args):
+        return subprocess.run(
+            [sys.executable, str(SCRIPTS_DIR / "keystore.py"), str(db), *args],
+            capture_output=True,
+            text=True,
+            env=env,
+            check=False,
+        )
+
+    def test_multiple_keys_per_provider(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            data_home = Path(tmp) / "data"
+            db = data_home / "ambxst+" / "keys.db"
+            db.parent.mkdir(parents=True)
+            env = os.environ.copy()
+            env["XDG_DATA_HOME"] = str(data_home)
+            first = self._run_keystore(db, env, "add", "openai", "sk-aaa-aaaa", "work")
+            second = self._run_keystore(db, env, "add", "openai", "sk-bbb-bbbb", "personal")
+            self.assertEqual(first.returncode, 0, first.stderr)
+            self.assertEqual(second.returncode, 0, second.stderr)
+            listed = json.loads(self._run_keystore(db, env, "list").stdout)
+            self.assertEqual(len(listed), 2)
+            self.assertEqual({row["label"] for row in listed}, {"work", "personal"})
+            got = json.loads(self._run_keystore(db, env, "get", "openai").stdout)
+            self.assertEqual(got["api_key"], "sk-aaa-aaaa")
+            by_id = json.loads(
+                self._run_keystore(db, env, "get", "openai#%s" % listed[1]["id"]).stdout
+            )
+            self.assertEqual(by_id["api_key"], "sk-bbb-bbbb")
+            with patch.dict(os.environ, env, clear=False):
+                self.assertEqual(
+                    self.keystore.get_provider_key(str(db), "openai#%s" % listed[1]["id"]),
+                    "sk-bbb-bbbb",
+                )
+            removed = self._run_keystore(db, env, "delete-id", str(listed[0]["id"]))
+            self.assertEqual(removed.returncode, 0, removed.stderr)
+            remaining = json.loads(self._run_keystore(db, env, "list").stdout)
+            self.assertEqual(len(remaining), 1)
+            self.assertEqual(remaining[0]["label"], "personal")
+
+    def test_migrates_legacy_provider_primary_key(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            data_home = Path(tmp) / "data"
+            db = data_home / "ambxst+" / "keys.db"
+            db.parent.mkdir(parents=True)
+            env = os.environ.copy()
+            env["XDG_DATA_HOME"] = str(data_home)
+            conn = sqlite3.connect(str(db))
+            conn.execute(
+                """
+                CREATE TABLE api_keys (
+                    provider TEXT PRIMARY KEY,
+                    api_key TEXT NOT NULL,
+                    endpoint TEXT DEFAULT '',
+                    custom_curl TEXT DEFAULT ''
+                )
+                """
+            )
+            encrypted = self.keystore.encrypt("sk-legacy", self.keystore.get_machine_id())
+            conn.execute(
+                "INSERT INTO api_keys (provider, api_key) VALUES (?, ?)",
+                ("openai", encrypted),
+            )
+            conn.commit()
+            conn.close()
+            listed = json.loads(self._run_keystore(db, env, "list").stdout)
+            self.assertEqual(len(listed), 1)
+            self.assertEqual(listed[0]["provider"], "openai")
+            self.assertEqual(listed[0]["api_key"], "sk-legacy")
+            self.assertIn("id", listed[0])
+            extra = self._run_keystore(db, env, "add", "openai", "sk-new", "second")
+            self.assertEqual(extra.returncode, 0, extra.stderr)
+            listed = json.loads(self._run_keystore(db, env, "list").stdout)
+            self.assertEqual(len(listed), 2)
 
 
 class TestSystemMonitor(unittest.TestCase):
@@ -447,6 +530,61 @@ class TestKeystorePath(unittest.TestCase):
             self.assertEqual(json.loads(result.stdout.strip() or "[]"), [])
 
 
+class TestKeystoreOpensslFallback(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        import importlib.util
+        spec = importlib.util.spec_from_file_location(
+            "keystore", SCRIPTS_DIR / "keystore.py"
+        )
+        cls.keystore = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(cls.keystore)
+
+    def test_openssl_roundtrip_without_cryptography_module(self):
+        machine_key = b"test-machine-id-1234"
+        original = "sk-openrouter-fallback-test"
+        blob = self.keystore._openssl_encrypt(original, machine_key)
+        self.assertTrue(blob.startswith("o1:"))
+        self.assertEqual(self.keystore.decrypt(blob, machine_key), original)
+
+    def test_add_list_with_system_python(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            data_home = Path(tmp) / "data"
+            db = data_home / "ambxst+" / "keys.db"
+            db.parent.mkdir(parents=True)
+            env = os.environ.copy()
+            env["XDG_DATA_HOME"] = str(data_home)
+            added = subprocess.run(
+                [
+                    sys.executable,
+                    str(SCRIPTS_DIR / "keystore.py"),
+                    str(db),
+                    "add",
+                    "openrouter",
+                    "sk-or-test-key-1234",
+                    "work",
+                ],
+                capture_output=True,
+                text=True,
+                env=env,
+                check=False,
+            )
+            self.assertEqual(added.returncode, 0, added.stderr or added.stdout)
+            listed = json.loads(
+                subprocess.run(
+                    [sys.executable, str(SCRIPTS_DIR / "keystore.py"), str(db), "list"],
+                    capture_output=True,
+                    text=True,
+                    env=env,
+                    check=False,
+                ).stdout
+            )
+            self.assertEqual(len(listed), 1)
+            self.assertEqual(listed[0]["provider"], "openrouter")
+            self.assertEqual(listed[0]["label"], "work")
+            self.assertEqual(listed[0]["api_key"], "sk-or-test-key-1234")
+
+
 from ai.execution_profile import (
     ALWAYS_ASK,
     ASK,
@@ -531,6 +669,106 @@ class TestAiProtocol(unittest.TestCase):
                 {"type": "cancelled", "tool": name, "result": result["result"]}
             )
             self.assertIn("cancelled", encoded)
+
+
+class TestOpenAiBaseUrls(unittest.TestCase):
+    def test_normalize_and_models_url(self):
+        from ai.providers.base import chat_completions_url, models_url, normalize_openai_base
+
+        self.assertEqual(
+            normalize_openai_base("https://api.example.com/v1/chat/completions"),
+            "https://api.example.com/v1",
+        )
+        self.assertEqual(
+            normalize_openai_base("https://api.example.com/v1/"),
+            "https://api.example.com/v1",
+        )
+        self.assertEqual(
+            models_url("https://openrouter.ai/api/v1"),
+            "https://openrouter.ai/api/v1/models",
+        )
+        self.assertEqual(
+            models_url("https://api.openai.com"),
+            "https://api.openai.com/v1/models",
+        )
+        self.assertEqual(
+            chat_completions_url("https://api.example.com/v1"),
+            "https://api.example.com/v1/chat/completions",
+        )
+        self.assertEqual(
+            chat_completions_url("https://api.example.com/v1/chat/completions"),
+            "https://api.example.com/v1/chat/completions",
+        )
+
+    def test_list_models_fetches_custom_v1_models(self):
+        from ai.list_models import list_models
+
+        class Ctx:
+            def get_key(self, provider):
+                return "sk-custom" if provider == "custom" else ""
+
+            def list_keys(self, provider):
+                if provider != "custom":
+                    return []
+                return [{"id": 1, "label": "work", "api_key": "sk-custom"}]
+
+        calls = []
+
+        def fake_get(url, headers=None, timeout=20):
+            calls.append(url)
+            return {"data": [{"id": "local-llama"}, {"id": "local-coder"}]}
+
+        with patch("ai.list_models._get", side_effect=fake_get):
+            models = list_models(Ctx(), custom_endpoint="https://example.com/v1")
+        self.assertEqual(calls, ["https://example.com/v1/models"])
+        self.assertEqual([m["model"] for m in models], ["local-llama", "local-coder"])
+        self.assertEqual(models[0]["name"], "Local Llama · work")
+        self.assertTrue(all(m["provider"] == "custom" for m in models))
+        self.assertTrue(all(m["endpoint"] == "https://example.com/v1" for m in models))
+
+    def test_manual_custom_models_override_display_name(self):
+        from ai.list_models import list_models
+
+        class Ctx:
+            def get_key(self, provider):
+                return ""
+
+            def list_keys(self, provider):
+                return []
+
+        models = list_models(
+            Ctx(),
+            custom_endpoint="https://example.com/v1",
+            custom_models=[{"model": "local-llama", "name": "House Llama"}],
+            custom_name="Homelab",
+        )
+        self.assertEqual(len(models), 1)
+        self.assertEqual(models[0]["model"], "local-llama")
+        self.assertEqual(models[0]["name"], "House Llama")
+        self.assertEqual(models[0]["provider"], "custom")
+
+    def test_openai_style_prefers_api_display_name(self):
+        from ai.list_models import _display_name, _humanize_model_id
+
+        self.assertEqual(
+            _display_name({"id": "openai/gpt-4o", "name": "GPT-4o"}, "openai/gpt-4o"),
+            "GPT-4o",
+        )
+        self.assertEqual(
+            _humanize_model_id("~openai/gpt-luna-latest"),
+            "GPT Luna Latest",
+        )
+
+
+    def test_list_keys_cache_clears(self):
+        from ai.tools.registry import ToolContext
+
+        ctx = ToolContext()
+        ctx._listed_keys["openrouter"] = [{"id": 1, "label": "", "api_key": "stale"}]
+        ctx.api_keys["openrouter"] = "stale"
+        ctx.clear_key_cache()
+        self.assertEqual(ctx._listed_keys, {})
+        self.assertEqual(ctx.api_keys, {})
 
 
 class TestReadFiles(unittest.TestCase):

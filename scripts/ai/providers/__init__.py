@@ -5,7 +5,7 @@ from .gemini import GeminiProvider
 from .ollama import OllamaProvider
 from .openai import OpenAIProvider
 
-OPENAI_COMPAT = frozenset({"openai", "groq", "mistral", "custom", "minimax"})
+OPENAI_COMPAT = frozenset({"openai", "openrouter", "groq", "mistral", "custom", "minimax"})
 
 
 def get_provider(model_spec, custom_endpoint=""):

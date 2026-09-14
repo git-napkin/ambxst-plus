@@ -31,6 +31,13 @@ Popup {
         updateFilteredModels();
     }
 
+    Connections {
+        target: Ai
+        function onModelsChanged() {
+            root.updateFilteredModels();
+        }
+    }
+
     // Initialize fetching if empty (e.g. first run)
     Component.onCompleted: {
         if (Ai.models.length === 0) {
@@ -40,6 +47,7 @@ Popup {
 
     property int selectedIndex: -1  // Start with no selection like App Launcher
     property var filteredModels: []
+    property string providerFilter: ""
 
     function getProviderIcon(provider) {
         if (!provider)
@@ -78,8 +86,12 @@ Popup {
     function updateFilteredModels() {
         let text = searchInput.text.toLowerCase();
         let allModels = [];
+        const wantProvider = String(root.providerFilter || "").toLowerCase();
         for (let i = 0; i < Ai.models.length; i++) {
-            allModels.push(Ai.models[i]);
+            const m = Ai.models[i];
+            if (wantProvider && String(m.provider || "").toLowerCase() !== wantProvider)
+                continue;
+            allModels.push(m);
         }
 
         if (text.trim() === "") {

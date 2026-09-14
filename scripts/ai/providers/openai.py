@@ -1,13 +1,14 @@
-"""OpenAI-compatible chat completions (OpenAI, Groq, Mistral, MiniMax, custom)."""
+"""OpenAI-compatible chat completions (OpenAI, OpenRouter, Groq, Mistral, MiniMax, custom)."""
 
 from __future__ import annotations
 
 import json
 
-from .base import Provider, chat_completions_url, iter_lines, openai_tools, post_request
+from .base import Provider, chat_completions_url, iter_lines, normalize_openai_base, openai_tools, post_request
 
 DEFAULT_ENDPOINTS = {
     "openai": "https://api.openai.com",
+    "openrouter": "https://openrouter.ai/api/v1",
     "groq": "https://api.groq.com/openai/v1",
     "mistral": "https://api.mistral.ai/v1",
     "minimax": "https://api.minimax.io",
@@ -60,6 +61,7 @@ class OpenAIProvider(Provider):
         provider = (spec.get("provider") or "openai").lower()
         model_id = spec.get("model") or spec.get("name") or ""
         base = endpoint or spec.get("endpoint") or DEFAULT_ENDPOINTS.get(provider) or "https://api.openai.com"
+        base = normalize_openai_base(base)
         url = chat_completions_url(base)
         headers = {
             "Content-Type": "application/json",
@@ -68,10 +70,12 @@ class OpenAIProvider(Provider):
         body = {
             "model": model_id,
             "messages": _format_messages(messages),
-            "temperature": temperature,
-            "max_tokens": max_tokens,
             "stream": True,
         }
+        if temperature is not None:
+            body["temperature"] = temperature
+        if max_tokens is not None:
+            body["max_tokens"] = max_tokens
         formatted_tools = openai_tools(tools)
         if formatted_tools:
             body["tools"] = formatted_tools

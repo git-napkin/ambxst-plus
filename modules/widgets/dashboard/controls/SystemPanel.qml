@@ -385,110 +385,76 @@ Item {
                         Layout.fillWidth: true
                         spacing: 8
 
-                        Text {
-                            text: "Performance"
-                            font.family: Config.theme.font
-                            font.pixelSize: Styling.fontSize(-1)
-                            font.weight: Font.Medium
-                            color: Colors.overSurfaceVariant
-                            Layout.bottomMargin: -4
-                        }
+                        SettingsGroup {
+                            title: "Performance"
+                            description: "Turn off visual effects to keep the shell snappy."
 
-                        Text {
-                            text: "Toggle visual effects to improve performance"
-                            font.family: Config.theme.font
-                            font.pixelSize: Styling.fontSize(-2)
-                            color: Colors.overSurfaceVariant
-                            opacity: 0.7
-                        }
-
-                        // Blur Transition toggle
-                        ToggleRow {
-                            Layout.fillWidth: true
-                            label: "Blur Transition"
-                            description: "Animated blur when opening panels"
-                            checked: Config.performance.blurTransition
-                            onToggled: checked => {
-                                Config.performance.blurTransition = checked;
-                            }
-                        }
-
-                        // Window Preview toggle
-                        ToggleRow {
-                            Layout.fillWidth: true
-                            label: "Window Preview"
-                            description: "Show window thumbnails in overview"
-                            checked: Config.performance.windowPreview
-                            onToggled: checked => {
-                                Config.performance.windowPreview = checked;
-                            }
-                        }
-
-                        // Wavy Line toggle
-                        ToggleRow {
-                            Layout.fillWidth: true
-                            label: "Wavy Line"
-                            description: "Animated wavy line effect"
-                            checked: Config.performance.wavyLine
-                            onToggled: checked => {
-                                Config.performance.wavyLine = checked;
-                            }
-                        }
-
-                        // Rotate Cover Art toggle
-                        ToggleRow {
-                            Layout.fillWidth: true
-                            label: "Disable Cover Art Rotation"
-                            description: "Stop the vinyl disc from spinning"
-                            checked: !Config.performance.rotateCoverArt
-                            onToggled: checked => {
-                                Config.performance.rotateCoverArt = !checked;
-                            }
-                        }
-
-                        // Optimize Video Wallpapers toggle
-                        ToggleRow {
-                            Layout.fillWidth: true
-                            label: "Optimize Video Wallpapers"
-                            description: "Downscale video wallpapers to your screen's resolution/refresh to cut GPU usage. First use of each video does a one-time background transcode."
-                            checked: Config.performance.optimizeVideoWallpapers
-                            onToggled: checked => {
-                                Config.performance.optimizeVideoWallpapers = checked;
-                            }
-                        }
-
-                        // Keep recently-used dashboard tabs resident (LRU)
-                        ToggleRow {
-                            Layout.fillWidth: true
-                            label: "Keep Tabs Loaded"
-                            description: "Keep recently opened dashboard tabs resident instead of unloading them for snappier switching"
-                            checked: Config.performance.dashboardPersistTabs
-                            onToggled: checked => {
-                                Config.performance.dashboardPersistTabs = checked;
-                            }
-                        }
-
-                        // Max number of resident tabs
-                        RowLayout {
-                            Layout.fillWidth: true
-                            spacing: 8
-                            enabled: Config.performance.dashboardPersistTabs
-
-                            Text {
-                                text: "Max Kept Tabs"
-                                font.family: Config.theme.font
-                                font.pixelSize: Styling.fontSize(0)
-                                color: Colors.overBackground
-                                Layout.fillWidth: true
+                            ToggleRow {
+                                label: "Blur Transition"
+                                description: "Animated blur when opening panels"
+                                checked: Config.performance.blurTransition
+                                onToggled: checked => {
+                                    Config.performance.blurTransition = checked;
+                                }
                             }
 
-                            SpinBox {
-                                from: 1
-                                to: 12
-                                value: Config.performance.dashboardMaxPersistentTabs
-                                onValueChanged: {
-                                    if (value !== Config.performance.dashboardMaxPersistentTabs)
-                                        Config.performance.dashboardMaxPersistentTabs = value;
+                            ToggleRow {
+                                label: "Window Preview"
+                                description: "Show window thumbnails in overview"
+                                checked: Config.performance.windowPreview
+                                onToggled: checked => {
+                                    Config.performance.windowPreview = checked;
+                                }
+                            }
+
+                            ToggleRow {
+                                label: "Wavy Line"
+                                description: "Animated wavy line effect"
+                                checked: Config.performance.wavyLine
+                                onToggled: checked => {
+                                    Config.performance.wavyLine = checked;
+                                }
+                            }
+
+                            ToggleRow {
+                                label: "Disable Cover Art Rotation"
+                                description: "Stop the vinyl disc from spinning"
+                                checked: !Config.performance.rotateCoverArt
+                                onToggled: checked => {
+                                    Config.performance.rotateCoverArt = !checked;
+                                }
+                            }
+
+                            ToggleRow {
+                                label: "Optimize Video Wallpapers"
+                                description: "Downscale video wallpapers to the screen resolution. First play of each video does a one-time transcode."
+                                checked: Config.performance.optimizeVideoWallpapers
+                                onToggled: checked => {
+                                    Config.performance.optimizeVideoWallpapers = checked;
+                                }
+                            }
+
+                            ToggleRow {
+                                label: "Keep Tabs Loaded"
+                                description: "Keep recently opened dashboard tabs resident for snappier switching"
+                                checked: Config.performance.dashboardPersistTabs
+                                onToggled: checked => {
+                                    Config.performance.dashboardPersistTabs = checked;
+                                }
+                            }
+
+                            SettingsRow {
+                                label: "Max Kept Tabs"
+                                description: "How many dashboard tabs stay resident"
+                                enabled: Config.performance.dashboardPersistTabs
+
+                                SettingsSpinBox {
+                                    from: 1
+                                    to: 12
+                                    value: Config.performance.dashboardMaxPersistentTabs
+                                    onValueEdited: newValue => {
+                                        Config.performance.dashboardMaxPersistentTabs = newValue;
+                                    }
                                 }
                             }
                         }
@@ -739,165 +705,86 @@ Item {
                             }
                         }
 
-                        // ===== Fingerprint Settings =====
-                        Text {
-                            text: "Fingerprint"
-                            font.family: Config.theme.font
-                            font.pixelSize: Styling.fontSize(0)
-                            font.weight: Font.Medium
-                            color: Colors.overBackground
-                            Layout.topMargin: 16
-                        }
+                        SettingsGroup {
+                            title: "Fingerprint"
+                            description: FingerprintService.available
+                                ? (FingerprintService.enrolled
+                                    ? "Reader detected · " + FingerprintService.enrolledFingers.length + " fingers enrolled"
+                                    : "Reader detected · no fingers enrolled yet")
+                                : "No fingerprint reader available"
 
-                        // Fingerprint availability status
-                        RowLayout {
-                            Layout.fillWidth: true
-                            spacing: 8
-
-                            Text {
-                                text: FingerprintService.available ? Icons.shieldCheck : Icons.warning
-                                font.family: Icons.font
-                                font.pixelSize: Styling.fontSize(4)
-                                color: FingerprintService.available ? Colors.green : Colors.error
+                            ToggleRow {
+                                label: "Enable Fingerprint Auth"
+                                description: "Unlock the lock screen with a fingerprint"
+                                checked: Config.lockscreen.enableFingerprint
+                                enabled: FingerprintService.available
+                                onToggled: checked => {
+                                    Config.lockscreen.enableFingerprint = checked;
+                                }
                             }
 
-                            Text {
-                                text: FingerprintService.available
-                                    ? (FingerprintService.enrolled
-                                        ? "Fingerprint reader detected (" + FingerprintService.enrolledFingers.length + " fingers enrolled)"
-                                        : "Fingerprint reader detected (no fingers enrolled)")
-                                    : "Fingerprint reader not available"
-                                font.family: Config.theme.font
-                                font.pixelSize: Styling.fontSize(-1)
-                                color: Colors.overSurfaceVariant
-                                opacity: 0.8
+                            ToggleRow {
+                                label: "Auto-start Scanning"
+                                description: "Start scanning as soon as the lock screen appears"
+                                checked: Config.lockscreen.fingerprintAutoStart
+                                enabled: Config.lockscreen.enableFingerprint && FingerprintService.available
+                                onToggled: checked => {
+                                    Config.lockscreen.fingerprintAutoStart = checked;
+                                }
                             }
-                        }
 
-                        // Enable fingerprint auth toggle
-                        ToggleRow {
-                            Layout.fillWidth: true
-                            label: "Enable Fingerprint Auth"
-                            description: "Use fingerprint to unlock the lock screen"
-                            checked: Config.lockscreen.enableFingerprint
-                            enabled: FingerprintService.available
-                            onToggled: checked => {
-                                Config.lockscreen.enableFingerprint = checked;
+                            NumberInputRow {
+                                label: "Scan Timeout"
+                                description: "Give up and wait for another attempt"
+                                value: Config.lockscreen.fingerprintTimeout
+                                minValue: 5
+                                maxValue: 120
+                                suffix: "s"
+                                enabled: Config.lockscreen.enableFingerprint && FingerprintService.available
+                                onValueEdited: val => {
+                                    Config.lockscreen.fingerprintTimeout = val;
+                                }
                             }
-                        }
 
-                        // Auto-start fingerprint scanning
-                        ToggleRow {
-                            Layout.fillWidth: true
-                            label: "Auto-start Scanning"
-                            description: "Automatically start fingerprint scanning when the lock screen appears"
-                            checked: Config.lockscreen.fingerprintAutoStart
-                            enabled: Config.lockscreen.enableFingerprint && FingerprintService.available
-                            onToggled: checked => {
-                                Config.lockscreen.fingerprintAutoStart = checked;
+                            ToggleRow {
+                                label: "Fallback to Password"
+                                description: "Offer password entry when fingerprint fails"
+                                checked: Config.lockscreen.fingerprintFallbackToPassword
+                                enabled: Config.lockscreen.enableFingerprint && FingerprintService.available
+                                onToggled: checked => {
+                                    Config.lockscreen.fingerprintFallbackToPassword = checked;
+                                }
                             }
                         }
 
-                        // Fingerprint timeout
-                        NumberInputRow {
-                            Layout.fillWidth: true
-                            label: "Scan Timeout"
-                            value: Config.lockscreen.fingerprintTimeout
-                            minValue: 5
-                            maxValue: 120
-                            suffix: "s"
-                            enabled: Config.lockscreen.enableFingerprint && FingerprintService.available
-                            onValueEdited: val => {
-                                Config.lockscreen.fingerprintTimeout = val;
-                            }
-                        }
+                        SettingsGroup {
+                            title: "Dashboard Authentication"
+                            description: "Gate the dashboard behind the same unlock methods."
 
-                        // Fallback to password
-                        ToggleRow {
-                            Layout.fillWidth: true
-                            label: "Fallback to Password"
-                            description: "Fall back to password entry when fingerprint fails"
-                            checked: Config.lockscreen.fingerprintFallbackToPassword
-                            enabled: Config.lockscreen.enableFingerprint && FingerprintService.available
-                            onToggled: checked => {
-                                Config.lockscreen.fingerprintFallbackToPassword = checked;
-                            }
-                        }
-
-                        // Dashboard auth gate settings
-                        Text {
-                            text: "Dashboard Authentication"
-                            font.family: Config.theme.font
-                            font.pixelSize: Styling.fontSize(0)
-                            font.weight: Font.Medium
-                            color: Colors.overBackground
-                            Layout.topMargin: 16
-                        }
-
-                        ToggleRow {
-                            Layout.fillWidth: true
-                            label: "Require Auth for Dashboard"
-                            description: "Require fingerprint or password to open the dashboard"
-                            checked: Config.lockscreen.requireAuthForDashboard
-                            onToggled: checked => {
-                                Config.lockscreen.requireAuthForDashboard = checked;
-                            }
-                        }
-
-                        RowLayout {
-                            Layout.fillWidth: true
-                            spacing: 8
-                            enabled: Config.lockscreen.requireAuthForDashboard
-
-                            Text {
-                                text: "Auth Method"
-                                font.family: Config.theme.font
-                                font.pixelSize: Styling.fontSize(0)
-                                color: Colors.overBackground
-                                Layout.preferredWidth: 100
+                            ToggleRow {
+                                label: "Require Auth for Dashboard"
+                                description: "Ask for fingerprint or password before opening"
+                                checked: Config.lockscreen.requireAuthForDashboard
+                                onToggled: checked => {
+                                    Config.lockscreen.requireAuthForDashboard = checked;
+                                }
                             }
 
-                            Row {
-                                spacing: 8
+                            SettingsRow {
+                                label: "Auth Method"
+                                description: "How to unlock the dashboard"
+                                stacked: true
+                                enabled: Config.lockscreen.requireAuthForDashboard
 
-                                Repeater {
+                                SegmentedSwitch {
+                                    currentValue: Config.lockscreen.authMethod
                                     model: [
-                                        { id: "both", label: "Both" },
-                                        { id: "fingerprint", label: "Fingerprint" },
-                                        { id: "password", label: "Password" }
+                                        { value: "both", label: "Both" },
+                                        { value: "fingerprint", label: "Fingerprint" },
+                                        { value: "password", label: "Password" }
                                     ]
-
-                                    delegate: StyledRect {
-                                        required property var modelData
-                                        id: methodButton
-                                        property bool isSelected: Config.lockscreen.authMethod === modelData.id
-                                        property bool isHovered: false
-
-                                        variant: isSelected ? "primary" : (isHovered ? "focus" : "common")
-                                        width: methodLabel.width + 24
-                                        height: 36
-                                        radius: Styling.radius(-2)
-
-                                        Text {
-                                            id: methodLabel
-                                            anchors.centerIn: parent
-                                            text: modelData.label
-                                            font.family: Config.theme.font
-                                            font.pixelSize: Styling.fontSize(0)
-                                            font.bold: isSelected
-                                            color: methodButton.item
-                                        }
-
-                                        MouseArea {
-                                            anchors.fill: parent
-                                            hoverEnabled: true
-                                            cursorShape: Qt.PointingHandCursor
-                                            onEntered: methodButton.isHovered = true
-                                            onExited: methodButton.isHovered = false
-                                            onClicked: {
-                                                Config.lockscreen.authMethod = modelData.id;
-                                            }
-                                        }
+                                    onActivated: value => {
+                                        Config.lockscreen.authMethod = value;
                                     }
                                 }
                             }
@@ -1348,74 +1235,21 @@ Item {
     // HELPER COMPONENTS
     // =====================
 
-    // Inline component for number input rows
-    component NumberInputRow: RowLayout {
+    component NumberInputRow: SettingsRow {
         id: numberInputRowRoot
-        property string label: ""
         property int value: 0
         property int minValue: 0
         property int maxValue: 100
         property string suffix: ""
         signal valueEdited(int newValue)
 
-        Layout.fillWidth: true
-        spacing: 8
-
-        Text {
-            text: numberInputRowRoot.label
-            font.family: Config.theme.font
-            font.pixelSize: Styling.fontSize(0)
-            color: Colors.overBackground
-            Layout.fillWidth: true
-        }
-
-        StyledRect {
-            variant: "common"
-            Layout.preferredWidth: 60
-            Layout.preferredHeight: 32
-            radius: Styling.radius(-2)
-
-            TextInput {
-                id: numberTextInput
-                anchors.fill: parent
-                anchors.margins: 8
-                font.family: Config.theme.font
-                font.pixelSize: Styling.fontSize(0)
-                color: Colors.overBackground
-                selectByMouse: true
-                clip: true
-                verticalAlignment: TextInput.AlignVCenter
-                horizontalAlignment: TextInput.AlignHCenter
-                validator: IntValidator {
-                    bottom: numberInputRowRoot.minValue
-                    top: numberInputRowRoot.maxValue
-                }
-
-                // Sync text when external value changes
-                readonly property int configValue: numberInputRowRoot.value
-                onConfigValueChanged: {
-                    if (!activeFocus && text !== configValue.toString()) {
-                        text = configValue.toString();
-                    }
-                }
-                Component.onCompleted: text = configValue.toString()
-
-                onEditingFinished: {
-                    let newVal = parseInt(text);
-                    if (!isNaN(newVal)) {
-                        newVal = Math.max(numberInputRowRoot.minValue, Math.min(numberInputRowRoot.maxValue, newVal));
-                        numberInputRowRoot.valueEdited(newVal);
-                    }
-                }
-            }
-        }
-
-        Text {
-            text: numberInputRowRoot.suffix
-            font.family: Config.theme.font
-            font.pixelSize: Styling.fontSize(0)
-            color: Colors.overSurfaceVariant
-            visible: suffix !== ""
+        SettingsSpinBox {
+            value: numberInputRowRoot.value
+            from: numberInputRowRoot.minValue
+            to: numberInputRowRoot.maxValue
+            suffix: numberInputRowRoot.suffix
+            enabled: numberInputRowRoot.enabled
+            onValueEdited: newValue => numberInputRowRoot.valueEdited(newValue)
         }
     }
 
@@ -1531,86 +1365,15 @@ Item {
         }
     }
 
-    // ToggleRow component for boolean toggles
-    component ToggleRow: RowLayout {
-        property string label: ""
-        property string description: ""
+    component ToggleRow: SettingsRow {
+        id: toggleRow
         property bool checked: false
         signal toggled(bool checked)
 
-        spacing: 8
-
-        ColumnLayout {
-            Layout.fillWidth: true
-            spacing: 2
-
-            Text {
-                text: label
-                font.family: Config.theme.font
-                font.pixelSize: Styling.fontSize(0)
-                color: Colors.overBackground
-            }
-
-            Text {
-                visible: description !== ""
-                text: description
-                font.family: Config.theme.font
-                font.pixelSize: Styling.fontSize(-2)
-                color: Colors.overSurfaceVariant
-                opacity: 0.7
-            }
-        }
-
-        // Checkbox styled like in BindsPanel
-        Item {
-            Layout.preferredWidth: 32
-            Layout.preferredHeight: 32
-
-            Rectangle {
-                anchors.fill: parent
-                radius: Styling.radius(-4)
-                color: Colors.background
-                visible: !checked
-            }
-
-            StyledRect {
-                variant: "primary"
-                anchors.fill: parent
-                radius: Styling.radius(-4)
-                visible: checked
-                opacity: checked ? 1.0 : 0.0
-
-                Behavior on opacity {
-                    enabled: Config.animDuration > 0
-                    NumberAnimation {
-                        duration: Config.animDuration / 2
-                        easing.type: Styling.animEasing
-                    }
-                }
-
-                Text {
-                    anchors.centerIn: parent
-                    text: Icons.accept
-                    color: Styling.srItem("primary")
-                    font.family: Icons.font
-                    font.pixelSize: Styling.fontSize(2)
-                    scale: checked ? 1.0 : 0.0
-
-                    Behavior on scale {
-                        enabled: Config.animDuration > 0
-                        NumberAnimation {
-                            duration: Config.animDuration / 2
-                            easing.type: Styling.animEasing
-                        }
-                    }
-                }
-            }
-
-            MouseArea {
-                anchors.fill: parent
-                cursorShape: Qt.PointingHandCursor
-                onClicked: toggled(!checked)
-            }
+        SettingsSwitch {
+            checked: toggleRow.checked
+            enabled: toggleRow.enabled
+            onToggled: value => toggleRow.toggled(value)
         }
     }
 }

@@ -5,7 +5,18 @@ var data = {
     "defaultModel": "gemini-2.0-flash",
     "customEndpoint": "",
     "customCurlTemplate": "",
+    "customName": "",
+    "customModels": [],
+    "customModelsJson": "[]",
     "extraModels": [],
+    "defaultModels": {
+        "openai": "",
+        "anthropic": "",
+        "gemini": "",
+        "openrouter": "",
+        "ollama": "",
+        "custom": ""
+    },
     "workspace": "",
     "overlayWidth": 640,
     "overlayYFraction": 0.22,
