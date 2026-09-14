@@ -219,7 +219,7 @@ PanelWindow {
 
     ModelSelectorPopup {
         id: modelSelector
-        parent: assistantPopup.contentItem
+        parent: mainContainer
         onModelSelected: name => Ai.setModel(name)
     }
 

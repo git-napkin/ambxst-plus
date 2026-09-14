@@ -95,8 +95,6 @@ Singleton {
         LockscreenService.toString();
         // Fetch the active layout from the compositor
         getLayoutProcess.running = true;
-        // Seed assistant state if config already loaded (race guard)
-        _seedAssistantFromConfig();
     }
 
     // Persistent launcher state across monitors

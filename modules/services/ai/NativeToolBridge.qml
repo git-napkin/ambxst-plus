@@ -164,14 +164,14 @@ QtObject {
         }
     }
 
-    Process {
+    property Process copyProc: Process {
         id: copyProc
         property string callId: ""
         property string text: ""
         onExited: () => root.resultReady(copyProc.callId, { ok: true })
     }
 
-    Process {
+    property Process notesProc: Process {
         id: notesProc
         property string callId: ""
         command: ["python3", "-c", "import os,json; p=os.path.expanduser((os.environ.get('XDG_DATA_HOME') or os.path.expanduser('~/.local/share'))+'/ambxst+-notes/notes'); print(json.dumps(sorted(os.listdir(p))[:30] if os.path.isdir(p) else []))"]
