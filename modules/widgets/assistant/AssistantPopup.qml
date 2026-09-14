@@ -1,6 +1,5 @@
 import QtQuick
 import QtQuick.Controls
-import QtQuick.Layouts
 import QtQuick.Effects
 import Quickshell
 import Quickshell.Wayland
@@ -90,7 +89,7 @@ PanelWindow {
     Item {
         id: mainContainer
         width: assistantPopup.overlayWidth
-        height: bar.height + (footer.visible ? footer.height + 8 : 0) + body.height + ((idleList.visible || transcript.visible) ? 8 : 0)
+        height: bar.height + body.height + ((idleList.visible || transcript.visible) ? 8 : 0)
         x: Math.round((assistantPopup.width - width) / 2)
         y: Math.round(assistantPopup.overlayY)
 
@@ -119,80 +118,18 @@ PanelWindow {
             anchors.top: parent.top
             anchors.horizontalCenter: parent.horizontalCenter
             width: parent.width
-            implicitHeight: 56
+            implicitHeight: 52
+            idleOpen: idleList.visible
+            idleSelected: idleList.selectedIndex
             onOpenModelSelector: modelSelector.open()
             onRequestClose: Visibilities.setActiveModule("")
-        }
-
-        RowLayout {
-            id: footer
-            anchors.top: bar.bottom
-            anchors.topMargin: 8
-            anchors.horizontalCenter: parent.horizontalCenter
-            spacing: 8
-            visible: Ai.currentChat.length > 0 || Ai.isLoading
-            height: visible ? 24 : 0
-
-            StyledRect {
-                variant: "surface"
-                radius: Styling.radius(-4)
-                implicitHeight: 24
-                implicitWidth: modelLabel.implicitWidth + 16
-                scale: modelArea.pressed ? 0.96 : 1
-
-                Rectangle {
-                    anchors.fill: parent
-                    radius: parent.radius
-                    color: modelArea.containsMouse ? Styling.tint(Colors.overSurface, Styling.hoverAlpha) : "transparent"
-                }
-
-                Text {
-                    id: modelLabel
-                    anchors.centerIn: parent
-                    text: Ai.currentModel ? Ai.currentModel.name : qsTr("Select model")
-                    font.family: Config.theme.font
-                    font.pixelSize: Styling.fontSize(-3)
-                    color: Colors.overSurface
-                }
-
-                MouseArea {
-                    id: modelArea
-                    anchors.fill: parent
-                    hoverEnabled: true
-                    cursorShape: Qt.PointingHandCursor
-                    onClicked: modelSelector.open()
-                }
-            }
-
-            StyledRect {
-                variant: Ai.autoApprove ? "primary" : "surface"
-                radius: Styling.radius(-4)
-                implicitHeight: 24
-                implicitWidth: autoLabel.implicitWidth + 16
-                scale: autoArea.pressed ? 0.96 : 1
-
-                Text {
-                    id: autoLabel
-                    anchors.centerIn: parent
-                    text: Ai.autoApprove ? qsTr("Allow this chat") : qsTr("Ask to run")
-                    font.family: Config.theme.font
-                    font.pixelSize: Styling.fontSize(-3)
-                    color: Ai.autoApprove ? Colors.overPrimary : Colors.overSurface
-                }
-
-                MouseArea {
-                    id: autoArea
-                    anchors.fill: parent
-                    hoverEnabled: true
-                    cursorShape: Qt.PointingHandCursor
-                    onClicked: Ai.setAutoApprove(!Ai.autoApprove)
-                }
-            }
+            onIdleActivate: idleList.activateSelected()
+            onIdleMove: delta => idleList.moveSelection(delta)
         }
 
         Item {
             id: body
-            anchors.top: footer.visible ? footer.bottom : bar.bottom
+            anchors.top: bar.bottom
             anchors.topMargin: (idleList.visible || transcript.visible) ? 8 : 0
             anchors.horizontalCenter: parent.horizontalCenter
             width: parent.width
@@ -202,7 +139,7 @@ PanelWindow {
                 id: idleList
                 anchors.top: parent.top
                 width: parent.width
-                visible: Ai.currentChat.length === 0 && !Ai.isLoading
+                visible: Ai.currentChat.length === 0 && !Ai.isLoading && implicitHeight > 0
                 filterText: bar.inputText
                 onActivated: item => bar.activateIdle(item)
             }

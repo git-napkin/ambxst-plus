@@ -11,13 +11,16 @@ Spotlight-style AI overlay. Compact bar in the upper third of the focused monito
 | `AssistantBar.qml` | Search input, send/stop |
 | `AssistantIdleList.qml` | Recent chats, saved commands, slash hints |
 | `AssistantTranscript.qml` | Message list |
-| `AssistantMessage.qml` | User/assistant bubbles + fenced CodeBlock |
+| `AssistantMessage.qml` | Query + document rendering (markdown, math, tables, code) |
 | `ToolCallChip.qml` | Collapsed tool call |
 | `ApprovalCard.qml` | Approve / Reject |
 | `DiffPreviewCard.qml` | File edit preview |
 | `QuestionCard.qml` | `ask_user_question` multiple choice |
+| `message_content.js` | Split fenced code, display math, and GFM tables; convert LaTeX to unicode |
+| `MathBlock.qml` | Display-math block |
+| `MarkdownTable.qml` | Rendered markdown table |
 
-CodeBlock and ModelSelectorPopup live in `modules/sidebar/` and are imported from there.
+CodeBlock and ModelSelectorPopup live in `modules/sidebar/` and are imported from there. Slash hints in the idle list appear only when the input starts with `/`.
 
 ## WHERE TO LOOK
 

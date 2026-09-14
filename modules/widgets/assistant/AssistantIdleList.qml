@@ -11,20 +11,29 @@ StyledRect {
     radius: Styling.popupRadius()
 
     property string filterText: ""
+    property int selectedIndex: -1
     signal activated(var item)
 
+    readonly property bool slashMode: (filterText || "").trim().startsWith("/")
     readonly property var items: {
-        const q = (filterText || "").trim().toLowerCase();
+        const raw = (filterText || "").trim();
+        const q = raw.toLowerCase();
         const out = [];
-        const slashes = [
-            { kind: "slash", id: "/new", title: "/new", subtitle: qsTr("Start a fresh chat") },
-            { kind: "slash", id: "/model", title: "/model", subtitle: qsTr("Switch model") },
-            { kind: "slash", id: "/help", title: "/help", subtitle: qsTr("Show commands") }
-        ];
-        for (let i = 0; i < slashes.length; i++) {
-            if (!q || slashes[i].title.indexOf(q) !== -1 || slashes[i].subtitle.toLowerCase().indexOf(q) !== -1)
-                out.push(slashes[i]);
+
+        if (root.slashMode) {
+            const slashes = [
+                { kind: "slash", id: "/new", title: "/new", subtitle: qsTr("Start a fresh chat") },
+                { kind: "slash", id: "/model", title: "/model", subtitle: qsTr("Switch model") },
+                { kind: "slash", id: "/help", title: "/help", subtitle: qsTr("Show commands") }
+            ];
+            const needle = q === "/" ? "" : q;
+            for (let i = 0; i < slashes.length; i++) {
+                if (!needle || slashes[i].title.indexOf(needle) === 0 || slashes[i].title.indexOf(needle) !== -1)
+                    out.push(slashes[i]);
+            }
+            return out;
         }
+
         const cmds = Config.ai.commands || [];
         for (let i = 0; i < cmds.length; i++) {
             const c = cmds[i] || {};
@@ -36,7 +45,7 @@ StyledRect {
                     title: title,
                     subtitle: qsTr("Saved command"),
                     prompt: c.prompt || "",
-                    icon: c.icon || Icons.sparkle
+                    icon: c.icon || Icons.notepad
                 });
             }
         }
@@ -49,7 +58,7 @@ StyledRect {
                     kind: "chat",
                     id: h.id,
                     title: title,
-                    subtitle: qsTr("Recent chat"),
+                    subtitle: qsTr("Recent"),
                     icon: Icons.note
                 });
             }
@@ -57,11 +66,31 @@ StyledRect {
         return out;
     }
 
-    implicitHeight: Math.min((items.length * 42) + 16, 320)
+    implicitHeight: items.length > 0 ? Math.min((items.length * 42) + 16, 320) : 0
     visible: items.length > 0
 
     layer.enabled: true
     layer.effect: Shadow {}
+
+    onFilterTextChanged: selectedIndex = root.slashMode && items.length > 0 ? 0 : -1
+    onSlashModeChanged: selectedIndex = root.slashMode && items.length > 0 ? 0 : -1
+
+    function moveSelection(delta) {
+        if (items.length === 0)
+            return false;
+        const next = selectedIndex < 0 ? (delta > 0 ? 0 : items.length - 1) : selectedIndex + delta;
+        selectedIndex = Math.max(-1, Math.min(items.length - 1, next));
+        if (selectedIndex >= 0)
+            list.positionViewAtIndex(selectedIndex, ListView.Contain);
+        return selectedIndex >= 0;
+    }
+
+    function activateSelected() {
+        if (selectedIndex < 0 || selectedIndex >= items.length)
+            return false;
+        root.activated(items[selectedIndex]);
+        return true;
+    }
 
     ListView {
         id: list
@@ -79,16 +108,12 @@ StyledRect {
             width: list.width
             height: 40
 
-            StyledRect {
-                anchors.fill: parent
-                variant: "transparent"
-                radius: Styling.popupRadius() - 8
-            }
+            readonly property bool highlighted: rowArea.containsMouse || root.selectedIndex === row.index
 
             Rectangle {
                 anchors.fill: parent
                 radius: Styling.popupRadius() - 8
-                color: rowArea.containsMouse ? Styling.tint(Colors.overSurface, Styling.hoverAlpha) : "transparent"
+                color: row.highlighted ? Styling.tint(Colors.overSurface, Styling.hoverAlpha) : "transparent"
             }
 
             RowLayout {
@@ -98,10 +123,12 @@ StyledRect {
                 spacing: 10
 
                 Text {
-                    text: row.modelData.icon || (row.modelData.kind === "slash" ? Icons.sparkle : Icons.note)
-                    font.family: Icons.font
-                    font.pixelSize: Styling.fontSize(2)
-                    color: Styling.srItem("overprimary")
+                    text: row.modelData.kind === "slash" ? "/" : (row.modelData.icon || Icons.note)
+                    font.family: row.modelData.kind === "slash" ? Config.theme.monoFont : Icons.font
+                    font.pixelSize: Styling.fontSize(row.modelData.kind === "slash" ? 2 : 2)
+                    color: row.highlighted ? Colors.overSurface : Colors.outline
+                    Layout.preferredWidth: 16
+                    horizontalAlignment: Text.AlignHCenter
                 }
 
                 ColumnLayout {
@@ -109,7 +136,7 @@ StyledRect {
                     spacing: 0
                     Text {
                         text: row.modelData.title
-                        font.family: Config.theme.font
+                        font.family: row.modelData.kind === "slash" ? Config.theme.monoFont : Config.theme.font
                         font.pixelSize: Styling.fontSize(-1)
                         color: Colors.overSurface
                         elide: Text.ElideRight
@@ -132,6 +159,10 @@ StyledRect {
                 hoverEnabled: true
                 cursorShape: Qt.PointingHandCursor
                 onClicked: root.activated(row.modelData)
+                onContainsMouseChanged: {
+                    if (containsMouse)
+                        root.selectedIndex = row.index;
+                }
             }
         }
     }

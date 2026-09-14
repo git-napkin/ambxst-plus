@@ -1,5 +1,4 @@
 import QtQuick
-import QtQuick.Layouts
 import qs.modules.theme
 import qs.modules.services
 import qs.modules.components
@@ -10,7 +9,7 @@ StyledRect {
     variant: "popup"
     radius: Styling.popupRadius()
 
-    property int contentHeight: list.contentHeight + 16
+    property int contentHeight: list.contentHeight + 24
 
     layer.enabled: true
     layer.effect: Shadow {}
@@ -18,9 +17,9 @@ StyledRect {
     ListView {
         id: list
         anchors.fill: parent
-        anchors.margins: 8
+        anchors.margins: 12
         clip: true
-        spacing: 6
+        spacing: 12
         model: Ai.currentChat
         boundsBehavior: Flickable.StopAtBounds
 

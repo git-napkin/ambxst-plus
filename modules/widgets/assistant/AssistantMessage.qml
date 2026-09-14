@@ -1,131 +1,117 @@
 import QtQuick
-import QtQuick.Layouts
 import qs.modules.theme
-import qs.modules.services
-import qs.modules.components
 import qs.modules.sidebar
 import qs.config
+import "message_content.js" as MessageContent
 
-ColumnLayout {
+Column {
     id: root
     property var message: ({})
     property int messageIndex: -1
-    spacing: 6
+    width: parent ? parent.width : 200
+    spacing: 8
 
     readonly property string role: message.role || ""
     readonly property bool isUser: role === "user"
     readonly property bool isAssistant: role === "assistant" || role === "system"
+    readonly property var parts: MessageContent.splitParts(String(message.content || ""))
 
     ToolCallChip {
-        Layout.fillWidth: true
+        width: parent.width
         visible: role === "tool_call"
         call: root.message
     }
 
     ApprovalCard {
-        Layout.fillWidth: true
+        width: parent.width
         visible: role === "approval"
         call: root.message
     }
 
     DiffPreviewCard {
-        Layout.fillWidth: true
+        width: parent.width
         visible: role === "diff"
         call: root.message
     }
 
     QuestionCard {
-        Layout.fillWidth: true
+        width: parent.width
         visible: role === "question"
         call: root.message
     }
 
-    RowLayout {
-        Layout.fillWidth: true
+    Row {
+        id: bodyRow
         visible: root.isUser || root.isAssistant
-        layoutDirection: root.isUser ? Qt.RightToLeft : Qt.LeftToRight
-        spacing: 8
+        width: parent.width
+        spacing: root.isUser ? 10 : 0
 
-        Item {
-            Layout.fillWidth: true
+        Rectangle {
             visible: root.isUser
+            width: 2
+            height: Math.max(bodyCol.height, 12)
+            radius: 1
+            color: Colors.primary
+            opacity: 0.55
         }
 
-        StyledRect {
-            Layout.maximumWidth: root.width * 0.92
-            Layout.fillWidth: true
-            implicitHeight: bubbleCol.implicitHeight + 20
-            variant: root.isUser ? "primary" : "surface"
-            radius: Styling.popupRadius() - 8
+        Column {
+            id: bodyCol
+            width: bodyRow.width - (root.isUser ? 12 : 0)
+            spacing: root.isUser ? 6 : 8
 
-            ColumnLayout {
-                id: bubbleCol
-                anchors.left: parent.left
-                anchors.right: parent.right
-                anchors.top: parent.top
-                anchors.margins: 10
-                spacing: 8
-
-                Repeater {
-                    model: root._parts()
-                    delegate: ColumnLayout {
-                        required property var modelData
-                        Layout.fillWidth: true
-                        spacing: 0
-
-                        TextEdit {
-                            Layout.fillWidth: true
-                            visible: modelData.type === "text" && (modelData.content || "").length > 0
-                            readOnly: true
-                            wrapMode: TextEdit.Wrap
-                            textFormat: Text.MarkdownText
-                            text: modelData.content || ""
-                            color: root.isUser ? Colors.overPrimary : Colors.overSurface
-                            font.family: Config.theme.font
-                            font.pixelSize: Styling.fontSize(-1)
-                            selectByMouse: true
-                        }
-
-                        CodeBlock {
-                            Layout.fillWidth: true
-                            visible: modelData.type === "code"
-                            code: modelData.content || ""
-                            language: modelData.language || "text"
-                        }
-                    }
-                }
+            Repeater {
+                model: root.parts
+                delegate: PartBlock {}
             }
         }
     }
 
-    function _parts() {
-        const txt = String(root.message.content || "");
-        const parts = [];
-        const regex = /```(\w*)\n([\s\S]*?)```/g;
-        let lastIndex = 0;
-        let match;
-        while ((match = regex.exec(txt)) !== null) {
-            if (match.index > lastIndex) {
-                parts.push({
-                    type: "text",
-                    content: txt.substring(lastIndex, match.index),
-                    language: ""
-                });
-            }
-            parts.push({
-                type: "code",
-                content: match[2].trim(),
-                language: match[1] || "text"
-            });
-            lastIndex = regex.lastIndex;
+    component PartBlock: Column {
+        id: block
+        required property var modelData
+        width: parent ? parent.width : 100
+        spacing: 0
+
+        readonly property bool isText: !modelData.type || modelData.type === "text"
+        readonly property bool isCode: modelData.type === "code"
+        readonly property bool isMath: modelData.type === "math"
+        readonly property bool isTable: modelData.type === "table"
+
+        TextEdit {
+            visible: block.isText && String(modelData.content || "").length > 0
+            width: parent.width
+            readOnly: true
+            selectByMouse: true
+            wrapMode: TextEdit.Wrap
+            textFormat: Text.MarkdownText
+            text: modelData.content || ""
+            color: root.isUser ? Colors.outline : Colors.overSurface
+            font.family: Config.theme.font
+            font.pixelSize: Styling.fontSize(root.isUser ? -2 : -1)
+            height: Math.max(contentHeight, 1)
         }
-        if (parts.length === 0 || lastIndex < txt.length) {
-            parts.push({
-                type: "text",
-                content: lastIndex < txt.length ? txt.substring(lastIndex) : (parts.length === 0 ? txt : ""),
-                language: ""
-            });
+
+        CodeBlock {
+            visible: block.isCode
+            width: parent.width
+            code: modelData.content || ""
+            language: modelData.language || "text"
         }
-        return parts;
+
+        MathBlock {
+            visible: block.isMath
+            width: parent.width
+            content: modelData.content || ""
+            latex: modelData.latex || ""
+        }
+
+        MarkdownTable {
+            visible: block.isTable
+            width: parent.width
+            headers: modelData.headers || []
+            rows: modelData.rows || []
+            aligns: modelData.aligns || []
+        }
     }
 }

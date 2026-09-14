@@ -11,8 +11,12 @@ StyledRect {
     radius: Styling.popupRadius()
 
     property alias inputText: searchInput.text
+    property bool idleOpen: false
+    property int idleSelected: -1
     signal openModelSelector
     signal requestClose
+    signal idleActivate
+    signal idleMove(int delta)
 
     layer.enabled: true
     layer.effect: Shadow {}
@@ -50,51 +54,94 @@ StyledRect {
             return;
         }
         const text = searchInput.text.trim();
-        if (text.length === 0)
-            return;
+        if (text.length === 0 || text === "/") {
+            if (root.idleOpen && root.idleSelected >= 0) {
+                root.idleActivate();
+                return;
+            }
+            if (text.length === 0)
+                return;
+        }
         Ai.sendMessage(text);
         searchInput.clear();
     }
 
     RowLayout {
         anchors.fill: parent
-        anchors.leftMargin: 12
-        anchors.rightMargin: 12
+        anchors.leftMargin: 14
+        anchors.rightMargin: 10
         spacing: 8
-
-        Text {
-            text: Icons.sparkle
-            font.family: Icons.font
-            font.pixelSize: Styling.fontSize(8)
-            color: Styling.srItem("overprimary")
-            Layout.alignment: Qt.AlignVCenter
-        }
 
         SearchInput {
             id: searchInput
             Layout.fillWidth: true
             Layout.preferredHeight: 40
             Layout.alignment: Qt.AlignVCenter
-            variant: "common"
-            placeholderText: qsTr("Ask Ambxst[+]…")
+            variant: "transparent"
+            placeholderText: qsTr("Ask or type /")
             clearOnEscape: false
             handleTabNavigation: true
 
             onAccepted: root.sendOrStop()
             onEscapePressed: root.requestClose()
             onCtrlRPressed: Ai.regenerateLast()
+            onDownPressed: root.idleMove(1)
             onUpPressed: {
+                if (root.idleOpen) {
+                    root.idleMove(-1);
+                    return;
+                }
                 if (searchInput.text.length === 0)
                     searchInput.text = Ai.lastUserMessage();
             }
         }
 
+        Text {
+            Layout.alignment: Qt.AlignVCenter
+            Layout.maximumWidth: 148
+            Layout.preferredHeight: 40
+            verticalAlignment: Text.AlignVCenter
+            text: Ai.currentModel ? Ai.currentModel.name : qsTr("Model")
+            font.family: Config.theme.font
+            font.pixelSize: Styling.fontSize(-3)
+            color: modelArea.containsMouse ? Colors.overSurface : Colors.outline
+            elide: Text.ElideRight
+
+            MouseArea {
+                id: modelArea
+                anchors.fill: parent
+                hoverEnabled: true
+                cursorShape: Qt.PointingHandCursor
+                onClicked: root.openModelSelector()
+            }
+        }
+
+        Text {
+            Layout.alignment: Qt.AlignVCenter
+            Layout.preferredHeight: 40
+            verticalAlignment: Text.AlignVCenter
+            visible: Ai.currentChat.length > 0 || Ai.isLoading
+            text: Ai.autoApprove ? qsTr("Allow") : qsTr("Ask to run")
+            font.family: Config.theme.font
+            font.pixelSize: Styling.fontSize(-3)
+            color: autoArea.containsMouse ? Colors.overSurface : Colors.outline
+
+            MouseArea {
+                id: autoArea
+                anchors.fill: parent
+                hoverEnabled: true
+                cursorShape: Qt.PointingHandCursor
+                onClicked: Ai.setAutoApprove(!Ai.autoApprove)
+            }
+        }
+
         Item {
-            Layout.preferredWidth: 32
-            Layout.preferredHeight: 32
+            Layout.preferredWidth: 40
+            Layout.preferredHeight: 40
             Layout.alignment: Qt.AlignVCenter
 
             scale: sendArea.pressed ? 0.96 : 1
+            opacity: Ai.isLoading || searchInput.text.length > 0 ? 1 : 0.4
             Behavior on scale {
                 enabled: Config.animDuration > 0
                 NumberAnimation {
@@ -102,19 +149,20 @@ StyledRect {
                     easing.type: Styling.animEasingOut
                 }
             }
-
-            StyledRect {
-                anchors.fill: parent
-                variant: sendArea.containsMouse ? "primaryfocus" : "primary"
-                radius: Styling.radius(-2)
+            Behavior on opacity {
+                enabled: Config.animDuration > 0
+                NumberAnimation {
+                    duration: Styling.animQuick
+                    easing.type: Styling.animEasingOut
+                }
             }
 
             Text {
                 anchors.centerIn: parent
-                text: Ai.isLoading ? Icons.stop : Icons.paperPlane
+                text: Ai.isLoading ? Icons.stop : Icons.enter
                 font.family: Icons.font
                 font.pixelSize: Styling.fontSize(2)
-                color: Colors.overPrimary
+                color: Ai.isLoading ? Colors.overSurface : Colors.outline
             }
 
             MouseArea {
