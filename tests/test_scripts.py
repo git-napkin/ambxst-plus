@@ -969,6 +969,14 @@ class TestShellPermissions(unittest.TestCase):
         ctx = _ctx(".", execution_profile={"executeCommands": "AlwaysAsk"})
         self.assertEqual(can_autoexecute_command("ls -la", ctx.profile, ctx), "allow")
         self.assertEqual(can_autoexecute_command("python3 script.py", ctx.profile, ctx), ASK)
+        self.assertEqual(
+            can_autoexecute_command("uname -r", ctx.profile, ctx, is_read_only=True),
+            "allow",
+        )
+        self.assertEqual(
+            can_autoexecute_command("uname -r > /tmp/x", ctx.profile, ctx, is_read_only=True),
+            ASK,
+        )
 
     def test_risky_and_redirection_force_ask(self):
         ctx = _ctx(".", execution_profile={"executeCommands": "AgentDecides"})

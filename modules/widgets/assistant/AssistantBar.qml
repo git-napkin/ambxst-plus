@@ -116,15 +116,53 @@ StyledRect {
             }
         }
 
-        Text {
+        StyledRect {
+            id: allowChip
             Layout.alignment: Qt.AlignVCenter
-            Layout.preferredHeight: 40
-            verticalAlignment: Text.AlignVCenter
-            visible: Ai.currentChat.length > 0 || Ai.isLoading
-            text: Ai.autoApprove ? qsTr("Allow") : qsTr("Ask to run")
-            font.family: Config.theme.font
-            font.pixelSize: Styling.fontSize(-3)
-            color: autoArea.containsMouse ? Colors.overSurface : Colors.outline
+            Layout.preferredHeight: 28
+            implicitWidth: allowRow.implicitWidth + 16
+            radius: Styling.radius(-4)
+            variant: Ai.autoApprove ? "primary" : "internalbg"
+            scale: autoArea.pressed ? 0.96 : 1
+            opacity: autoArea.containsMouse || Ai.autoApprove ? 1 : 0.85
+
+            Behavior on scale {
+                enabled: Config.animDuration > 0
+                NumberAnimation {
+                    duration: Styling.animQuick
+                    easing.type: Styling.animEasingOut
+                }
+            }
+            Behavior on opacity {
+                enabled: Config.animDuration > 0
+                NumberAnimation {
+                    duration: Styling.animQuick
+                    easing.type: Styling.animEasingOut
+                }
+            }
+
+            Row {
+                id: allowRow
+                anchors.centerIn: parent
+                spacing: 5
+
+                Text {
+                    anchors.verticalCenter: parent.verticalCenter
+                    text: Ai.autoApprove ? Icons.lightning : Icons.shieldCheck
+                    font.family: Icons.font
+                    font.pixelSize: Styling.fontSize(-2)
+                    color: Ai.autoApprove ? Colors.overPrimary : Colors.outline
+                }
+
+                Text {
+                    anchors.verticalCenter: parent.verticalCenter
+                    text: Ai.autoApprove ? qsTr("Allow all") : qsTr("Auto-review")
+                    font.family: Config.theme.font
+                    font.pixelSize: Styling.fontSize(-3)
+                    font.weight: Font.Medium
+                    color: Ai.autoApprove ? Colors.overPrimary : Colors.outline
+                }
+            }
 
             MouseArea {
                 id: autoArea
@@ -132,6 +170,14 @@ StyledRect {
                 hoverEnabled: true
                 cursorShape: Qt.PointingHandCursor
                 onClicked: Ai.setAutoApprove(!Ai.autoApprove)
+            }
+
+            StyledToolTip {
+                tooltipText: Ai.autoApprove ? qsTr("Allow all for this chat") : qsTr("Auto-review")
+                description: Ai.autoApprove
+                    ? qsTr("Commands and tool actions run without asking. Click to require review again.")
+                    : qsTr("Safe actions may run; anything else asks first. Click to allow all for this chat only.")
+                show: autoArea.containsMouse
             }
         }
 

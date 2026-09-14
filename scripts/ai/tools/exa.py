@@ -7,6 +7,7 @@ import urllib.error
 import urllib.request
 
 from .registry import Tool
+from .friendly import labels, path_tick, tick
 from ..execution_profile import ALWAYS_ASK
 
 EXA_SEARCH_URL = "https://api.exa.ai/search"
@@ -93,6 +94,9 @@ class ExaSearchTool(Tool):
             return "ask"
         return True
 
+    def user_friendly_name_for(self, args):
+        return labels("Searching", "Searched", ask="Search the web")
+
     def execute(self, ctx, args):
         ok, info = _enabled(ctx)
         if not ok:
@@ -141,6 +145,27 @@ class ExaContentsTool(Tool):
         if ctx.profile.read_files == ALWAYS_ASK:
             return "ask"
         return True
+
+    def user_friendly_name_for(self, args):
+        ids = (args or {}).get("ids") or (args or {}).get("urls") or []
+        if isinstance(ids, str):
+            ids = [ids]
+        if len(ids) == 1:
+            label = path_tick(ids[0]) or tick(ids[0])
+            if label:
+                return labels(
+                    "Fetching %s" % label,
+                    "Fetched %s" % label,
+                    ask="Fetch %s" % label,
+                )
+        if len(ids) > 1:
+            n = len(ids)
+            return labels(
+                "Fetching %d pages" % n,
+                "Fetched %d pages" % n,
+                ask="Fetch %d pages" % n,
+            )
+        return labels("Fetching page", "Fetched page", ask="Fetch page")
 
     def execute(self, ctx, args):
         ok, info = _enabled(ctx)

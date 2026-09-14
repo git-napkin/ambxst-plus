@@ -335,7 +335,15 @@ class Agent:
                         "function": {"name": name, "arguments": json.dumps(args)},
                     }
                 )
-                self.emit({"type": "tool_call", "call_id": call_id, "name": name, "args": args})
+                self.emit(
+                    {
+                        "type": "tool_call",
+                        "call_id": call_id,
+                        "name": name,
+                        "args": args,
+                        **self._friendly_event_fields(name, args),
+                    }
+                )
                 result = self._dispatch_tool(name, args, call_id)
                 self.emit(
                     {
@@ -363,6 +371,23 @@ class Agent:
             self.messages.extend(tool_messages)
         self.emit({"type": "error", "error": "tool iteration limit"})
 
+    def _friendly_labels(self, name, args):
+        tool = self.registry.get(name)
+        if tool and hasattr(tool, "friendly_labels"):
+            return tool.friendly_labels(args)
+        return {
+            "running": getattr(tool, "user_friendly_name", None) or name,
+            "done": getattr(tool, "user_friendly_name", None) or name,
+            "ask": getattr(tool, "user_friendly_name", None) or name,
+        }
+
+    def _friendly_event_fields(self, name, args):
+        labels = self._friendly_labels(name, args)
+        return {
+            "user_friendly_name": labels["running"],
+            "user_friendly_done": labels["done"],
+        }
+
     def _dispatch_tool(self, name, args, call_id):
         tool = self.registry.get(name)
         self.ctx.current_call_id = call_id
@@ -374,6 +399,7 @@ class Agent:
         if decision == "deny":
             return {"status": "error", "error": "Permission denied"}
         if decision in (False, "ask"):
+            friendly = self._friendly_labels(name, args)
             if name == "apply_file_diffs" and hasattr(tool, "preview"):
                 preview = tool.preview(self.ctx, args)
                 self.emit(
@@ -383,21 +409,17 @@ class Agent:
                         "name": name,
                         "previews": preview.get("previews") or [],
                         "edits": preview.get("edits") or [],
-                        "user_friendly_name": getattr(tool, "user_friendly_name", name),
+                        "user_friendly_name": friendly["ask"],
                     }
                 )
             elif name != "ask_user_question":
-                friendly = getattr(tool, "user_friendly_name", name)
-                extra = getattr(tool, "user_friendly_name_for", None)
-                if extra:
-                    friendly = extra(args)
                 self.emit(
                     {
                         "type": "approval_required",
                         "call_id": call_id,
                         "name": name,
                         "args": args,
-                        "user_friendly_name": friendly,
+                        "user_friendly_name": friendly["ask"],
                     }
                 )
             if name == "ask_user_question":

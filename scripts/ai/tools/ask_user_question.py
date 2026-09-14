@@ -5,6 +5,7 @@ from __future__ import annotations
 import threading
 
 from .registry import AGENT_WAIT, Tool
+from .friendly import labels
 from ..execution_profile import ASK_EXCEPT_IN_AUTO_APPROVE, NEVER
 
 
@@ -125,8 +126,7 @@ class AskUserQuestionTool(Tool):
             "call_id": call_id,
             "items": items,
         }
-        n = len(items)
-        payload["user_friendly_name"] = "Ask user %s question(s)" % n
+        payload["user_friendly_name"] = self.friendly_labels(args)["ask"]
         ctx.emit(payload)
         if not ctx.wait_for_answers:
             return self.cancelled()
@@ -137,4 +137,11 @@ class AskUserQuestionTool(Tool):
 
     def user_friendly_name_for(self, args):
         items = parse_items(args)
-        return "Ask user %s question(s)" % len(items)
+        n = len(items)
+        if n == 1:
+            return labels("Asking a question", "Asked a question", ask="Answer a question")
+        return labels(
+            "Asking %d questions" % n,
+            "Asked %d questions" % n,
+            ask="Answer %d questions" % n,
+        )

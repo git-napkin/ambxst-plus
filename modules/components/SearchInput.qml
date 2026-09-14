@@ -9,7 +9,7 @@ StyledRect {
     variant: "pane"
 
     property alias text: textField.text
-    property alias placeholderText: textField.placeholderText
+    property string placeholderText: ""
     property string iconText: ""
     property string prefixText: ""  // Prefix indicator (e.g., "clip ")
     property string prefixIcon: ""  // Prefix icon (e.g., Icons.clipboard)
@@ -85,13 +85,42 @@ StyledRect {
         TextField {
             id: textField
             Layout.fillWidth: true
-            placeholderTextColor: Colors.outline
+            // Built-in placeholder sits under the caret; paint our own offset label instead.
+            placeholderText: ""
             font.family: Config.theme.font
             font.pixelSize: Config.theme.fontSize
             color: Colors.overBackground
+            selectedTextColor: Colors.background
+            selectionColor: Styling.srItem("overprimary")
             background: null
             echoMode: root.passwordMode ? TextInput.Password : TextInput.Normal
             horizontalAlignment: root.centerText ? TextInput.AlignHCenter : TextInput.AlignLeft
+            leftPadding: 0
+            rightPadding: 0
+            topPadding: 0
+            bottomPadding: 0
+
+            cursorDelegate: Rectangle {
+                width: 1.5
+                color: Colors.overBackground
+                radius: 0.75
+            }
+
+            Text {
+                id: placeholderLabel
+                anchors.left: parent.left
+                // Leave a gap after the caret so it never reads as “behind” the hint.
+                anchors.leftMargin: parent.activeFocus ? 10 : 0
+                anchors.right: parent.right
+                anchors.verticalCenter: parent.verticalCenter
+                text: root.placeholderText
+                font: parent.font
+                color: Colors.outline
+                elide: Text.ElideRight
+                visible: parent.text.length === 0 && root.placeholderText.length > 0
+                horizontalAlignment: root.centerText ? Text.AlignHCenter : Text.AlignLeft
+                opacity: 0.9
+            }
 
             onTextChanged: {
                 root.searchTextChanged(text);

@@ -10,6 +10,7 @@ import time
 from pathlib import Path
 
 from .registry import GLOB_TIMEOUT, Tool
+from .friendly import labels, tick
 from ..execution_profile import can_read_files, decision_to_autoexecute
 
 
@@ -137,3 +138,19 @@ class FileGlobTool(Tool):
 
     def execute(self, ctx, args):
         return file_glob(ctx, args)
+
+    def user_friendly_name_for(self, args):
+        patterns = (args or {}).get("patterns") or []
+        if isinstance(patterns, str):
+            patterns = [patterns]
+        if len(patterns) == 1:
+            label = tick(patterns[0])
+            if label:
+                return labels(
+                    "Finding %s" % label,
+                    "Found %s" % label,
+                    ask="Find %s" % label,
+                )
+        if len(patterns) > 1:
+            return labels("Finding files", "Found files", ask="Find files")
+        return labels("Finding files", "Found files", ask="Find files")

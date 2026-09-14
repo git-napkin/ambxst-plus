@@ -363,17 +363,17 @@ Singleton {
     }
 
     function approveTool(callId) {
-        markCall(callId, { pending: false, status: "approved" });
+        markCall(callId, { pending: false, status: "approved" }, ["approval", "diff"]);
         writeCmd({ cmd: "approve", call_id: callId });
     }
 
     function rejectTool(callId) {
-        markCall(callId, { pending: false, status: "rejected" });
+        markCall(callId, { pending: false, status: "rejected" }, ["approval", "diff"]);
         writeCmd({ cmd: "reject", call_id: callId });
     }
 
     function answerQuestions(callId, answers) {
-        markCall(callId, { pending: false, status: "answered" });
+        markCall(callId, { pending: false, status: "answered" }, ["question"]);
         writeCmd({ cmd: "answer_questions", call_id: callId, answers: answers });
     }
 
@@ -446,7 +446,11 @@ Singleton {
     function createNewChat() {
         currentChat = [];
         currentChatId = Date.now().toString();
-        autoApprove = false;
+        // Session-scoped: each new chat starts in auto-review (ask before risky actions).
+        if (autoApprove)
+            setAutoApprove(false);
+        else
+            autoApprove = false;
         chatModelChanged();
         if (agentReady)
             writeCmd({ cmd: "load_chat", messages: [] });
@@ -498,11 +502,23 @@ for f in files:
         loadChatProcess.running = true;
     }
 
-    function markCall(callId, patch) {
-        const next = currentChat.slice();
-        for (let i = 0; i < next.length; i++) {
-            if (next[i].call_id === callId)
-                next[i] = Object.assign({}, next[i], patch);
+    function markCall(callId, patch, roles) {
+        const next = [];
+        const dropResolvedGate = patch && patch.pending === false;
+        for (let i = 0; i < currentChat.length; i++) {
+            const msg = currentChat[i];
+            if (msg.call_id !== callId) {
+                next.push(msg);
+                continue;
+            }
+            if (roles && roles.indexOf(msg.role) < 0) {
+                next.push(msg);
+                continue;
+            }
+            // Drop resolved approval/diff/question cards so they don't leave blank ListView gaps.
+            if (dropResolvedGate && (msg.role === "approval" || msg.role === "diff" || msg.role === "question"))
+                continue;
+            next.push(Object.assign({}, msg, patch));
         }
         currentChat = next;
         chatModelChanged();
@@ -536,7 +552,8 @@ for f in files:
                     call_id: ev.call_id,
                     args: ev.args || {},
                     status: "running",
-                    user_friendly_name: ev.user_friendly_name || ev.name
+                    user_friendly_name: ev.user_friendly_name || ev.name,
+                    user_friendly_done: ev.user_friendly_done || ev.user_friendly_name || ev.name
                 });
                 currentChat = next;
                 chatModelChanged();
@@ -869,6 +886,9 @@ for f in files:
                 try {
                     root.currentChat = JSON.parse(loadOut.text);
                     root.currentChatId = targetId;
+                    // Allow-all is per chat session — reset when switching chats.
+                    if (root.autoApprove)
+                        root.setAutoApprove(false);
                     root.chatModelChanged();
                     root.writeCmd({ cmd: "load_chat", messages: root.currentChat });
                 } catch (e) {

@@ -14,7 +14,14 @@ Column {
     readonly property string role: message.role || ""
     readonly property bool isUser: role === "user"
     readonly property bool isAssistant: role === "assistant" || role === "system"
+    readonly property bool isGate: role === "approval" || role === "diff" || role === "question"
+    readonly property bool gateHidden: isGate && message.pending === false
     readonly property var parts: MessageContent.splitParts(String(message.content || ""))
+
+    // Collapsed gates must not reserve ListView space (that caused intermittent gaps).
+    visible: !gateHidden
+    height: gateHidden ? 0 : implicitHeight
+    clip: true
 
     ToolCallChip {
         width: parent.width
@@ -24,19 +31,19 @@ Column {
 
     ApprovalCard {
         width: parent.width
-        visible: role === "approval"
+        visible: role === "approval" && message.pending !== false
         call: root.message
     }
 
     DiffPreviewCard {
         width: parent.width
-        visible: role === "diff"
+        visible: role === "diff" && message.pending !== false
         call: root.message
     }
 
     QuestionCard {
         width: parent.width
-        visible: role === "question"
+        visible: role === "question" && message.pending !== false
         call: root.message
     }
 
@@ -84,8 +91,8 @@ Column {
             readOnly: true
             selectByMouse: true
             wrapMode: TextEdit.Wrap
-            textFormat: Text.MarkdownText
-            text: modelData.content || ""
+            textFormat: Text.RichText
+            text: MessageContent.markdownToRichText(modelData.content || "", Config.theme.monoFont)
             color: root.isUser ? Colors.outline : Colors.overSurface
             font.family: Config.theme.font
             font.pixelSize: Styling.fontSize(root.isUser ? -2 : -1)

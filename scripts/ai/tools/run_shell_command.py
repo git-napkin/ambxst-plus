@@ -10,6 +10,7 @@ import threading
 import time
 
 from .registry import SHELL_DEFAULT_TIMEOUT, SHELL_MAX_TIMEOUT, SHELL_OUTPUT_CAP, Tool
+from .friendly import command_tick, labels
 from ..execution_profile import can_autoexecute_command, decision_to_autoexecute
 
 
@@ -187,7 +188,7 @@ class RunShellCommandTool(Tool):
         return run_shell_command(ctx, args)
 
     def user_friendly_name_for(self, args):
-        command = ((args or {}).get("command") or "").strip()
-        if command:
-            return "Run command: %s" % command
-        return self.user_friendly_name
+        label = command_tick((args or {}).get("command") or "")
+        if not label:
+            return labels("Running command", "Ran command", ask="Run command")
+        return labels("Running %s" % label, "Ran %s" % label, ask="Run %s" % label)

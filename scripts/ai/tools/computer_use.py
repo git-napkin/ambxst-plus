@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from .registry import Tool
+from .friendly import labels
 from ..execution_profile import ALWAYS_ALLOW, NEVER
 
 
@@ -33,6 +34,13 @@ class RequestComputerUseTool(Tool):
             "error": "computer use is not implemented",
         }
 
+    def user_friendly_name_for(self, args):
+        return labels(
+            "Requesting computer use",
+            "Requested computer use",
+            ask="Allow computer use",
+        )
+
 
 class UseComputerTool(Tool):
     name = "use_computer"
@@ -57,3 +65,13 @@ class UseComputerTool(Tool):
 
     def execute(self, ctx, args):
         return {"status": "error", "error": "computer use is not implemented"}
+
+    def user_friendly_name_for(self, args):
+        summary = ((args or {}).get("action_summary") or "").strip()
+        if summary:
+            return labels(
+                "Using computer: %s" % summary,
+                "Used computer: %s" % summary,
+                ask="Use computer: %s" % summary,
+            )
+        return labels("Using computer", "Used computer", ask="Use computer")

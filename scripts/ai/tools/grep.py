@@ -10,6 +10,7 @@ import time
 from pathlib import Path
 
 from .registry import GREP_TIMEOUT, Tool
+from .friendly import labels, tick
 from ..execution_profile import can_read_files, decision_to_autoexecute
 
 
@@ -229,3 +230,17 @@ class GrepTool(Tool):
 
     def execute(self, ctx, args):
         return grep(ctx, args)
+
+    def user_friendly_name_for(self, args):
+        queries = (args or {}).get("queries") or []
+        if isinstance(queries, str):
+            queries = [queries]
+        if queries:
+            label = tick(queries[0])
+            if len(queries) == 1 and label:
+                return labels(
+                    "Searching for %s" % label,
+                    "Searched for %s" % label,
+                    ask="Search for %s" % label,
+                )
+        return labels("Searching code", "Searched code", ask="Search code")

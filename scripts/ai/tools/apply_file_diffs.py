@@ -8,6 +8,7 @@ from pathlib import Path
 from . import diff_validation as dv
 from .io_result import FOUND, NOT_FOUND, read_file, write_file
 from .registry import Tool
+from .friendly import labels, path_tick
 from ..execution_profile import ASK, DENY, can_write_files, decision_to_autoexecute
 
 
@@ -127,6 +128,7 @@ def preprocess_edits(ctx, args):
                 {
                     "file": file_name,
                     "unified_diff": _unified(file_name, old, create["content"]),
+                    "content": create["content"],
                     "kind": "create",
                 }
             )
@@ -155,6 +157,7 @@ def preprocess_edits(ctx, args):
             {
                 "file": file_name,
                 "unified_diff": _unified(file_name, io.content, new_content),
+                "content": new_content,
                 "kind": "str_replace",
             }
         )
@@ -246,3 +249,14 @@ class ApplyFileDiffsTool(Tool):
 
     def execute(self, ctx, args):
         return apply_file_diffs(ctx, args, write=True)
+
+    def user_friendly_name_for(self, args):
+        edits = parse_edits(args)
+        files = [e.get("file") for e in edits if e.get("file")]
+        if len(files) == 1:
+            label = path_tick(files[0])
+            return labels("Editing %s" % label, "Edited %s" % label, ask="Edit %s" % label)
+        if len(files) > 1:
+            n = len(files)
+            return labels("Editing %d files" % n, "Edited %d files" % n, ask="Edit %d files" % n)
+        return labels("Editing files", "Edited files", ask="Edit files")

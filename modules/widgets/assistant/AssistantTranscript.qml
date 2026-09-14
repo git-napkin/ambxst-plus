@@ -19,17 +19,17 @@ StyledRect {
         anchors.fill: parent
         anchors.margins: 12
         clip: true
-        spacing: 12
-        model: Ai.currentChat
-        boundsBehavior: Flickable.StopAtBounds
+    spacing: 10
+    model: Ai.currentChat
+    boundsBehavior: Flickable.StopAtBounds
 
-        delegate: AssistantMessage {
-            required property var modelData
-            required property int index
-            width: list.width
-            message: modelData
-            messageIndex: index
-        }
+    delegate: AssistantMessage {
+        required property var modelData
+        required property int index
+        width: list.width
+        message: modelData
+        messageIndex: index
+    }
 
         onCountChanged: Qt.callLater(() => list.positionViewAtEnd())
         onContentHeightChanged: {

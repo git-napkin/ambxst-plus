@@ -554,6 +554,69 @@ function _splitCode(text) {
     return out;
 }
 
+function escapeHtml(text) {
+    return String(text || "")
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;");
+}
+
+function markdownToRichText(text, monoFont) {
+    let s = String(text || "");
+    if (!s.length)
+        return "";
+
+    const mono = monoFont || "monospace";
+    const slots = [];
+
+    function stash(html) {
+        const idx = slots.length;
+        slots.push(html);
+        return "\uE200" + idx + "\uE201";
+    }
+
+    // Inline code first so inner markers stay literal.
+    s = s.replace(/`([^`\n]+)`/g, function (m, body) {
+        return stash(
+            "<span style=\"font-family:'" + escapeHtml(mono) + "'; background-color:rgba(127,127,127,0.22); padding:0 4px;\">"
+                + escapeHtml(body)
+                + "</span>"
+        );
+    });
+
+    // Links
+    s = s.replace(/\[([^\]]+)\]\(([^)\s]+)\)/g, function (m, label, url) {
+        return stash("<a href=\"" + escapeHtml(url) + "\">" + escapeHtml(label) + "</a>");
+    });
+
+    // Bold then italic
+    s = s.replace(/\*\*([^*\n]+)\*\*/g, function (m, body) {
+        return stash("<b>" + escapeHtml(body) + "</b>");
+    });
+    s = s.replace(/__([^_\n]+)__/g, function (m, body) {
+        return stash("<b>" + escapeHtml(body) + "</b>");
+    });
+    s = s.replace(/(^|[^\*])\*([^*\n]+)\*(?!\*)/g, function (m, pre, body) {
+        return pre + stash("<i>" + escapeHtml(body) + "</i>");
+    });
+    s = s.replace(/(^|[^_])_([^_\n]+)_(?!_)/g, function (m, pre, body) {
+        return pre + stash("<i>" + escapeHtml(body) + "</i>");
+    });
+
+    s = escapeHtml(s);
+
+    // Simple list markers → bullets (line-oriented)
+    s = s.replace(/(^|\n)\s*[\*\-]\s+/g, "$1• ");
+    s = s.replace(/(^|\n)\s*(\d+)\.\s+/g, "$1$2. ");
+    s = s.replace(/\n/g, "<br/>");
+
+    s = s.replace(/\uE200(\d+)\uE201/g, function (m, idx) {
+        return slots[Number(idx)] || "";
+    });
+    return s;
+}
+
 function splitParts(text) {
     const src = String(text || "");
     if (!src.length)
@@ -595,7 +658,7 @@ function splitParts(text) {
                     });
                     continue;
                 }
-                const content = substituteInlineMath(tt.content || "");
+                const content = String(substituteInlineMath(tt.content || "")).replace(/^\s*\n+/, "").replace(/\n+\s*$/, "\n");
                 if (content.trim().length)
                     out.push({
                         type: "text",

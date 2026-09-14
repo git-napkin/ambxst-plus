@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from .registry import Tool
+from .friendly import labels
 
 
 class CallMcpTool(Tool):
@@ -26,3 +27,11 @@ class CallMcpTool(Tool):
 
     def execute(self, ctx, args):
         return {"status": "error", "error": "MCP is not implemented"}
+
+    def user_friendly_name_for(self, args):
+        name = (args or {}).get("name") or "tool"
+        return labels(
+            "Calling %s" % name,
+            "Called %s" % name,
+            ask="Call %s" % name,
+        )

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from .io_result import FOUND, read_file
 from .registry import Tool
+from .friendly import labels, path_tick
 from ..execution_profile import ASK, DENY, can_read_files
 
 
@@ -131,3 +132,18 @@ class ReadFilesTool(Tool):
 
     def execute(self, ctx, args):
         return read_files(ctx, args)
+
+    def user_friendly_name_for(self, args):
+        locs = _locations(args)
+        names = []
+        for loc in locs:
+            name = loc.get("name") or loc.get("file") or loc.get("path") or ""
+            if name:
+                names.append(name)
+        if len(names) == 1:
+            label = path_tick(names[0])
+            return labels("Reading %s" % label, "Read %s" % label, ask="Read %s" % label)
+        if len(names) > 1:
+            n = len(names)
+            return labels("Reading %d files" % n, "Read %d files" % n, ask="Read %d files" % n)
+        return labels("Reading files", "Read files", ask="Read files")

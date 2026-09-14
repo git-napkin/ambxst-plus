@@ -4,6 +4,7 @@ import qs.modules.theme
 import qs.modules.services
 import qs.modules.components
 import qs.config
+import "message_content.js" as MessageContent
 
 StyledRect {
     id: root
@@ -12,6 +13,15 @@ StyledRect {
     radius: Styling.popupRadius() - 8
     implicitHeight: col.implicitHeight + 20
     implicitWidth: parent ? parent.width : 240
+
+    readonly property string titleText: call.user_friendly_name || qsTr("Approve tool")
+    readonly property string detailText: {
+        if (call.name === "run_shell_command" && call.args && call.args.command)
+            return String(call.args.command);
+        if (call.detail && String(call.detail).charAt(0) === "{")
+            return "";
+        return call.detail || "";
+    }
 
     ColumnLayout {
         id: col
@@ -23,7 +33,8 @@ StyledRect {
 
         Text {
             Layout.fillWidth: true
-            text: call.user_friendly_name || qsTr("Approve tool")
+            text: MessageContent.markdownToRichText(root.titleText, Config.theme.monoFont)
+            textFormat: Text.RichText
             font.family: Config.theme.font
             font.pixelSize: Styling.fontSize(-1)
             font.weight: Font.Medium
@@ -33,8 +44,8 @@ StyledRect {
 
         Text {
             Layout.fillWidth: true
-            visible: !!call.detail
-            text: call.detail || ""
+            visible: root.detailText.length > 0
+            text: root.detailText
             font.family: Config.theme.monoFont
             font.pixelSize: Styling.fontSize(-3)
             color: Colors.outline

@@ -4,11 +4,18 @@ import qs.modules.theme
 import qs.modules.services
 import qs.modules.components
 import qs.config
+import "message_content.js" as MessageContent
 
 Item {
     id: root
     property var call: ({})
     property bool expanded: false
+    readonly property bool isRunning: call.status === "running" || (!call.status && Ai.isLoading)
+    readonly property string label: {
+        if (root.isRunning)
+            return call.user_friendly_name || call.name || qsTr("Working");
+        return call.user_friendly_done || call.user_friendly_name || call.name || qsTr("Done");
+    }
     implicitHeight: body.implicitHeight
     implicitWidth: parent ? parent.width : 200
 
@@ -32,20 +39,13 @@ Item {
 
             Text {
                 Layout.fillWidth: true
-                text: root.call.user_friendly_name || root.call.name || qsTr("Tool")
-                font.family: Config.theme.monoFont
+                text: MessageContent.markdownToRichText(root.label, Config.theme.monoFont)
+                textFormat: Text.RichText
+                font.family: Config.theme.font
                 font.pixelSize: Styling.fontSize(-3)
                 color: Colors.outline
                 elide: Text.ElideRight
-            }
-
-            Text {
-                text: root.call.status || (Ai.isLoading ? qsTr("running") : qsTr("done"))
-                font.family: Config.theme.font
-                font.pixelSize: Styling.fontSize(-4)
-                font.weight: Font.Medium
-                color: Colors.outline
-                opacity: 0.8
+                maximumLineCount: 1
             }
         }
 

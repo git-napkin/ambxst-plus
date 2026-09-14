@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from .registry import AGENT_WAIT, Tool
+from .friendly import labels
 from ..execution_profile import ALWAYS_ALLOW, ALWAYS_ASK
 from ..protocol import NATIVE_READ_TOOLS, NATIVE_WRITE_TOOLS
 
@@ -10,26 +11,26 @@ READ_TOOLS = NATIVE_READ_TOOLS
 WRITE_TOOLS = NATIVE_WRITE_TOOLS
 
 FRIENDLY = {
-    "get_volume": "Get volume",
-    "get_brightness": "Get brightness",
-    "get_battery": "Get battery",
-    "get_weather": "Get weather",
-    "get_media": "Get media",
-    "get_wifi": "Get wifi",
-    "get_clipboard": "Get clipboard",
-    "get_windows": "Get windows",
-    "get_notifications": "Get notifications",
-    "get_notes": "Get notes",
-    "set_volume": "Set volume",
-    "set_brightness": "Set brightness",
-    "toggle_mute": "Toggle mute",
-    "notify": "Notify",
-    "toggle_night_light": "Toggle night light",
-    "lock": "Lock",
-    "screenshot": "Screenshot",
-    "focus_window": "Focus window",
-    "copy_to_clipboard": "Copy to clipboard",
-    "load_preset": "Load preset",
+    "get_volume": labels("Getting volume", "Got volume", ask="Get volume"),
+    "get_brightness": labels("Getting brightness", "Got brightness", ask="Get brightness"),
+    "get_battery": labels("Getting battery", "Got battery", ask="Get battery"),
+    "get_weather": labels("Getting weather", "Got weather", ask="Get weather"),
+    "get_media": labels("Getting media", "Got media", ask="Get media"),
+    "get_wifi": labels("Getting wifi", "Got wifi", ask="Get wifi"),
+    "get_clipboard": labels("Getting clipboard", "Got clipboard", ask="Get clipboard"),
+    "get_windows": labels("Getting windows", "Got windows", ask="Get windows"),
+    "get_notifications": labels("Getting notifications", "Got notifications", ask="Get notifications"),
+    "get_notes": labels("Getting notes", "Got notes", ask="Get notes"),
+    "set_volume": labels("Setting volume", "Set volume", ask="Set volume"),
+    "set_brightness": labels("Setting brightness", "Set brightness", ask="Set brightness"),
+    "toggle_mute": labels("Toggling mute", "Toggled mute", ask="Toggle mute"),
+    "notify": labels("Sending notification", "Sent notification", ask="Notify"),
+    "toggle_night_light": labels("Toggling night light", "Toggled night light", ask="Toggle night light"),
+    "lock": labels("Locking", "Locked", ask="Lock"),
+    "screenshot": labels("Taking screenshot", "Took screenshot", ask="Screenshot"),
+    "focus_window": labels("Focusing window", "Focused window", ask="Focus window"),
+    "copy_to_clipboard": labels("Copying to clipboard", "Copied to clipboard", ask="Copy to clipboard"),
+    "load_preset": labels("Loading preset", "Loaded preset", ask="Load preset"),
 }
 
 
@@ -59,7 +60,13 @@ class NativeTool(Tool):
     def __init__(self, name, write=False):
         self.name = name
         self.write = write
-        self.user_friendly_name = FRIENDLY.get(name, name)
+        bundle = FRIENDLY.get(name)
+        if isinstance(bundle, dict):
+            self.user_friendly_name = bundle.get("ask") or bundle.get("done") or name
+            self._friendly = bundle
+        else:
+            self.user_friendly_name = bundle or name
+            self._friendly = None
         self.schema = {
             "description": self.user_friendly_name,
             "parameters": {"type": "object", "properties": {"args": {"type": "object"}}},
@@ -83,6 +90,11 @@ class NativeTool(Tool):
         if "args" in payload and isinstance(payload["args"], dict) and set(payload.keys()) == {"args"}:
             payload = payload["args"]
         return native_request(ctx, self.name, payload)
+
+    def user_friendly_name_for(self, args):
+        if self._friendly:
+            return self._friendly
+        return self.user_friendly_name
 
 
 def native_tools():

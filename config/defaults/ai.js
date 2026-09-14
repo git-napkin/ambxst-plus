@@ -46,7 +46,7 @@ var data = {
     "executionProfile": {
         "readFiles": "AgentDecides",
         "applyCodeDiffs": "AlwaysAsk",
-        "executeCommands": "AlwaysAsk",
+        "executeCommands": "AgentDecides",
         "askUserQuestion": "AlwaysAsk",
         "computerUse": "Never",
         "commandAllowlist": [
@@ -55,7 +55,20 @@ var data = {
             "find .*",
             "grep(\\s.*)?",
             "ls(\\s.*)?",
-            "which .*"
+            "which .*",
+            "uname(\\s.*)?",
+            "hostname(\\s.*)?",
+            "whoami(\\s.*)?",
+            "pwd(\\s.*)?",
+            "date(\\s.*)?",
+            "id(\\s.*)?",
+            "df(\\s.*)?",
+            "free(\\s.*)?",
+            "uptime(\\s.*)?",
+            "arch(\\s.*)?",
+            "nproc(\\s.*)?",
+            "true(\\s.*)?",
+            "false(\\s.*)?"
         ],
         "commandDenylist": [
             "bash(\\s.*)?",

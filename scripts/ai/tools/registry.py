@@ -138,6 +138,23 @@ class Tool:
     def cancelled(self):
         return cancelled_result(self.name)
 
+    def friendly_labels(self, args=None):
+        """Return {running, done, ask} strings for the transcript / approval UI."""
+        fn = getattr(self, "user_friendly_name_for", None)
+        if callable(fn):
+            result = fn(args or {})
+            if isinstance(result, dict):
+                running = result.get("running") or self.user_friendly_name or self.name
+                done = result.get("done") or running
+                ask = result.get("ask")
+                if ask is None:
+                    ask = done
+                return {"running": running, "done": done, "ask": ask}
+            if result:
+                return {"running": result, "done": result, "ask": result}
+        base = self.user_friendly_name or self.name
+        return {"running": base, "done": base, "ask": base}
+
 
 def _unknown(name):
     class UnknownTool(Tool):
@@ -232,6 +249,12 @@ class UserArgvTool(Tool):
         from .run_shell_command import run_argv
 
         return run_argv(ctx, self._argv(args), timeout=SHELL_DEFAULT_TIMEOUT)
+
+    def user_friendly_name_for(self, args):
+        from .friendly import labels
+
+        base = self.user_friendly_name or self.name
+        return labels("Running %s" % base, "Ran %s" % base, ask=base)
 
     def cancelled(self):
         return {

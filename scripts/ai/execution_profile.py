@@ -214,8 +214,10 @@ def can_autoexecute_command(command, profile, ctx, is_read_only=None, is_risky=N
     if perm == ALWAYS_ALLOW:
         return ALLOW
     allowlisted = all(_matches_any(seg, profile._allow_re) for seg in segments)
+    safe_readonly = bool(is_read_only) and not bool(is_risky) and not has_redirection
     if perm == ALWAYS_ASK:
-        return ALLOW if allowlisted else ASK
+        # Auto-review: allowlist or clearly read-only (model-hinted) commands.
+        return ALLOW if allowlisted or safe_readonly else ASK
     if perm == AGENT_DECIDES:
         if is_risky or has_redirection:
             return ASK

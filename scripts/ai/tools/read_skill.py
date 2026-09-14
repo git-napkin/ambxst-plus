@@ -5,6 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from .registry import Tool
+from .friendly import labels, tick
 
 
 def discover_skills(skill_dirs):
@@ -71,3 +72,14 @@ class ReadSkillTool(Tool):
             "path": entry["path"],
             "content": entry["content"],
         }
+
+    def user_friendly_name_for(self, args):
+        name = (args or {}).get("skill") or (args or {}).get("name") or ""
+        label = tick(name)
+        if label:
+            return labels(
+                "Reading skill %s" % label,
+                "Read skill %s" % label,
+                ask="Read skill %s" % label,
+            )
+        return labels("Reading skill", "Read skill", ask="Read skill")

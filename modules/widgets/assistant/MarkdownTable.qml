@@ -3,6 +3,7 @@ import QtQuick.Layouts
 import qs.modules.theme
 import qs.modules.components
 import qs.config
+import "message_content.js" as MessageContent
 
 StyledRect {
     id: root
@@ -81,8 +82,8 @@ StyledRect {
                 Layout.row: Math.floor(index / root.colCount)
                 Layout.column: index % root.colCount
                 wrapMode: Text.Wrap
-                textFormat: Text.MarkdownText
-                text: modelData.text || ""
+                textFormat: Text.RichText
+                text: MessageContent.markdownToRichText(modelData.text || "", Config.theme.monoFont)
                 font.family: Config.theme.font
                 font.pixelSize: Styling.fontSize(-2)
                 font.weight: modelData.header ? Font.DemiBold : Font.Normal

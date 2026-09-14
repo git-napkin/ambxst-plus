@@ -1330,10 +1330,10 @@ Singleton {
             property JsonObject executionProfile: JsonObject {
                 property string readFiles: "AgentDecides"
                 property string applyCodeDiffs: "AlwaysAsk"
-                property string executeCommands: "AlwaysAsk"
+                property string executeCommands: "AgentDecides"
                 property string askUserQuestion: "AlwaysAsk"
                 property string computerUse: "Never"
-                property list<var> commandAllowlist: ["cat(\\s.*)?", "echo(\\s.*)?", "find .*", "grep(\\s.*)?", "ls(\\s.*)?", "which .*"]
+                property list<var> commandAllowlist: ["cat(\\s.*)?", "echo(\\s.*)?", "find .*", "grep(\\s.*)?", "ls(\\s.*)?", "which .*", "uname(\\s.*)?", "hostname(\\s.*)?", "whoami(\\s.*)?", "pwd(\\s.*)?", "date(\\s.*)?", "id(\\s.*)?", "df(\\s.*)?", "free(\\s.*)?", "uptime(\\s.*)?", "arch(\\s.*)?", "nproc(\\s.*)?", "true(\\s.*)?", "false(\\s.*)?"]
                 property list<var> commandDenylist: ["bash(\\s.*)?", "fish(\\s.*)?", "pwsh(\\s.*)?", "sh(\\s.*)?", "zsh(\\s.*)?", "curl(\\s.*)?", "eval(\\s.*)?", "exec(\\s.*)?", "source(\\s.*)?", "wget(\\s.*)?", "dig(\\s.*)?", "nslookup(\\s.*)?", "host(\\s.*)?", "ssh(\\s.*)?", "scp(\\s.*)?", "rsync(\\s.*)?", "telnet(\\s.*)?", "rm(\\s.*)?"]
                 property list<var> directoryAllowlist: []
                 property bool webSearchEnabled: true
