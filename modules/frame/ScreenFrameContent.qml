@@ -196,12 +196,11 @@ Item {
             maskInverted: true
             maskThresholdMin: 0.5
             maskSpreadAtMin: 1.0
-            brightnessEnabled: true
-            brightness: (root.cuGlow - 0.7) * 0.45
         }
 
         Shape {
             anchors.fill: parent
+            opacity: 0.72 + 0.28 * root.cuGlow
             preferredRendererType: Shape.CurveRenderer
 
             ShapePath {
