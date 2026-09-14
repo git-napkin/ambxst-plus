@@ -295,6 +295,16 @@ class TestJustWorksContracts(unittest.TestCase):
         colors = self._read("modules/theme/Colors.qml")
         self.assertIn("pywalZenGenerator.generate(colors)", colors)
 
+    def test_screen_recorder_uses_native_capture(self):
+        rec = self._read("modules/services/ScreenRecorder.qml")
+        tool = self._read("modules/tools/ScreenrecordTool.qml")
+        script = REPO_ROOT / "scripts" / "wf-record.sh"
+        self.assertIn("wf-record.sh", rec)
+        self.assertIn("-fallback-cpu-encoding yes", rec)
+        self.assertIn("Notifications.notifyInternal", rec)
+        self.assertNotIn('tooltip: "Portal"', tool)
+        subprocess.run(["bash", "-n", str(script)], check=True)
+
     def test_qml_toasts_use_in_shell_notifications(self):
         for rel in (
             "modules/services/PresetsService.qml",

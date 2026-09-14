@@ -41,7 +41,7 @@ in {
         RestartSec = 2;
         # systemd's default user PATH lacks /run/current-system/sw/bin;
         # the shell shells out to hyprctl, axctl, bash, and friends.
-        Environment = "PATH=/run/current-system/sw/bin:/run/current-system/sw/sbin:/usr/local/bin:/usr/bin:/bin";
+        Environment = "PATH=/run/wrappers/bin:/run/current-system/sw/bin:/run/current-system/sw/sbin:/usr/local/bin:/usr/bin:/bin";
       };
     };
 

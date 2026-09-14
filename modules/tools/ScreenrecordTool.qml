@@ -27,7 +27,7 @@ PanelWindow {
     exclusionMode: ExclusionMode.Ignore
 
     property string state: "idle" // idle, loading, active, processing
-    property string currentMode: "region" // region, window, screen, portal
+    property string currentMode: "region" // region, window, screen
     property var activeWindows: []
 
     property bool recordAudioOutput: false
@@ -57,33 +57,25 @@ PanelWindow {
             {
                 name: "region",
                 icon: Icons.regionScreenshot,
-                tooltip: ScreenRecorder.canRecordDirectly ? "Region" : "Region (Unavailable on NixOS without config)",
-                enabled: ScreenRecorder.canRecordDirectly
+                tooltip: "Region"
             },
             {
                 name: "window",
                 icon: Icons.windowScreenshot,
-                tooltip: ScreenRecorder.canRecordDirectly ? "Window" : "Window (Unavailable on NixOS without config)",
-                enabled: ScreenRecorder.canRecordDirectly
+                tooltip: "Window"
             },
             {
                 name: "screen",
                 icon: Icons.fullScreenshot,
-                tooltip: ScreenRecorder.canRecordDirectly ? "Screen" : "Screen (Unavailable on NixOS without config)",
-                enabled: ScreenRecorder.canRecordDirectly
-            },
-            {
-                name: "portal",
-                icon: Icons.aperture,
-                tooltip: "Portal"
+                tooltip: "Screen"
             }
         ];
     }
 
     function open() {
         if (modeGrid)
-            modeGrid.currentIndex = ScreenRecorder.canRecordDirectly ? 3 : 6; // Default to region (3) or portal (6)
-        screenrecordPopup.currentMode = ScreenRecorder.canRecordDirectly ? "region" : "portal";
+            modeGrid.currentIndex = 3; // region
+        screenrecordPopup.currentMode = "region";
         screenrecordPopup.recordAudioOutput = false;
         screenrecordPopup.recordAudioInput = false;
         
@@ -102,30 +94,40 @@ PanelWindow {
         screenrecordPopup.state = "idle";
     }
 
+    function targetMonitorName() {
+        if (screenrecordPopup.focusedMonitor && screenrecordPopup.focusedMonitor.name)
+            return screenrecordPopup.focusedMonitor.name;
+        if (AxctlService.focusedMonitor && AxctlService.focusedMonitor.name)
+            return AxctlService.focusedMonitor.name;
+        return screenrecordPopup.screen ? screenrecordPopup.screen.name : "";
+    }
+
+    function monitorOrigin() {
+        var mon = screenrecordPopup.focusedMonitor;
+        if (mon && (mon.x !== undefined || mon.y !== undefined))
+            return Qt.point(mon.x || 0, mon.y || 0);
+        if (screenrecordPopup.screen)
+            return Qt.point(screenrecordPopup.screen.x, screenrecordPopup.screen.y);
+        return Qt.point(0, 0);
+    }
+
+    function startCapture(mode, regionStr) {
+        ScreenRecorder.startRecording(screenrecordPopup.recordAudioOutput, screenrecordPopup.recordAudioInput, mode, regionStr || "", screenrecordPopup.targetMonitorName());
+        screenrecordPopup.close();
+    }
+
     function executeCapture() {
         if (screenrecordPopup.currentMode === "screen") {
-            ScreenRecorder.startRecording(screenrecordPopup.recordAudioOutput, screenrecordPopup.recordAudioInput, "screen", "");
-            screenrecordPopup.close();
+            screenrecordPopup.startCapture("screen", "");
         } else if (screenrecordPopup.currentMode === "region") {
             if (selectionRect.width > 0) {
                 var w = Math.round(selectionRect.width);
                 var h = Math.round(selectionRect.height);
-                var x = Math.round(selectionRect.x);
-                var y = Math.round(selectionRect.y);
-
-				x = x + screenrecordPopup.focusedMonitor.x;
-				y = y + screenrecordPopup.focusedMonitor.y;
-
-                var regionStr = w + "x" + h + "+" + x + "+" + y;
-
-                ScreenRecorder.startRecording(screenrecordPopup.recordAudioOutput, screenrecordPopup.recordAudioInput, "region", regionStr);
-                screenrecordPopup.close();
+                var origin = screenrecordPopup.monitorOrigin();
+                var x = Math.round(selectionRect.x) + origin.x;
+                var y = Math.round(selectionRect.y) + origin.y;
+                screenrecordPopup.startCapture("region", w + "x" + h + "+" + x + "+" + y);
             }
-        } else if (screenrecordPopup.currentMode === "window") {
-            // In window mode, capture handled by click
-        } else if (screenrecordPopup.currentMode === "portal") {
-            ScreenRecorder.startRecording(screenrecordPopup.recordAudioOutput, screenrecordPopup.recordAudioInput, "portal", "");
-            screenrecordPopup.close();
         }
     }
 
@@ -172,7 +174,7 @@ PanelWindow {
             anchors.fill: parent
             color: "black"
             opacity: screenrecordPopup.state === "active" ? 0.4 : 0
-            visible: screenrecordPopup.state === "active" && screenrecordPopup.currentMode !== "screen" && screenrecordPopup.currentMode !== "portal"
+            visible: screenrecordPopup.state === "active" && screenrecordPopup.currentMode !== "screen"
         }
 
         Item {
@@ -207,10 +209,7 @@ PanelWindow {
                             var x = Math.round(modelData.at[0]);
                             var y = Math.round(modelData.at[1]);
 
-                            var regionStr = w + "x" + h + "+" + x + "+" + y;
-
-                            ScreenRecorder.startRecording(screenrecordPopup.recordAudioOutput, screenrecordPopup.recordAudioInput, "region", regionStr);
-                            screenrecordPopup.close();
+                            screenrecordPopup.startCapture("region", w + "x" + h + "+" + x + "+" + y);
                         }
                     }
                 }
@@ -220,7 +219,7 @@ PanelWindow {
         MouseArea {
             id: regionArea
             anchors.fill: parent
-            enabled: screenrecordPopup.state === "active" && (screenrecordPopup.currentMode === "region" || screenrecordPopup.currentMode === "screen" || screenrecordPopup.currentMode === "portal")
+            enabled: screenrecordPopup.state === "active" && (screenrecordPopup.currentMode === "region" || screenrecordPopup.currentMode === "screen")
             hoverEnabled: true
             cursorShape: screenrecordPopup.currentMode === "region" ? Qt.CrossCursor : Qt.ArrowCursor
 
@@ -228,7 +227,7 @@ PanelWindow {
             property bool selecting: false
 
             onPressed: mouse => {
-                if (screenrecordPopup.currentMode === "screen" || screenrecordPopup.currentMode === "portal") {
+                if (screenrecordPopup.currentMode === "screen") {
                     return;
                 }
 
@@ -242,11 +241,7 @@ PanelWindow {
 
             onClicked: {
                 if (screenrecordPopup.currentMode === "screen") {
-                    ScreenRecorder.startRecording(screenrecordPopup.recordAudioOutput, screenrecordPopup.recordAudioInput, "screen", "");
-                    screenrecordPopup.close();
-                } else if (screenrecordPopup.currentMode === "portal") {
-                    ScreenRecorder.startRecording(screenrecordPopup.recordAudioOutput, screenrecordPopup.recordAudioInput, "portal", "");
-                    screenrecordPopup.close();
+                    screenrecordPopup.startCapture("screen", "");
                 }
             }
 
@@ -271,16 +266,10 @@ PanelWindow {
                 if (selectionRect.width > 5 && selectionRect.height > 5) {
                     var w = Math.round(selectionRect.width);
                     var h = Math.round(selectionRect.height);
-                    var x = Math.round(selectionRect.x);
-                    var y = Math.round(selectionRect.y);
-
-					x = x + screenrecordPopup.focusedMonitor.x;
-					y = y + screenrecordPopup.focusedMonitor.y;
-
-                    var regionStr = w + "x" + h + "+" + x + "+" + y;
-
-                    ScreenRecorder.startRecording(screenrecordPopup.recordAudioOutput, screenrecordPopup.recordAudioInput, "region", regionStr);
-                    screenrecordPopup.close();
+                    var origin = screenrecordPopup.monitorOrigin();
+                    var x = Math.round(selectionRect.x) + origin.x;
+                    var y = Math.round(selectionRect.y) + origin.y;
+                    screenrecordPopup.startCapture("region", w + "x" + h + "+" + x + "+" + y);
                 }
             }
         }
@@ -332,7 +321,7 @@ PanelWindow {
                     // Skip toggles and separator
                     if (currentIndex > 2) {
                         var captureIndex = currentIndex - 3;
-                        var captureOptions = ["region", "window", "screen", "portal"];
+                        var captureOptions = ["region", "window", "screen"];
                         if (captureIndex >= 0 && captureIndex < captureOptions.length) {
                             screenrecordPopup.currentMode = captureOptions[captureIndex];
                         }

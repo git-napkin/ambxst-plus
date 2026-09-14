@@ -56,6 +56,7 @@ declare -A BINARY_CHECK=(
   ["python-pipx"]="pipx"
   ["zenity"]="zenity"
   ["gpu-screen-recorder"]="gpu-screen-recorder"
+  ["wf-recorder"]="wf-recorder"
 )
 
 declare -A THEME_CHECK=(
@@ -129,7 +130,7 @@ install_dependencies() {
       google-roboto-fonts google-roboto-mono-fonts dejavu-sans-fonts liberation-fonts
       google-noto-fonts-common google-noto-cjk-fonts google-noto-emoji-fonts
       mpvpaper matugen R-CRAN-phosphoricons adw-gtk3-theme quickshell unzip curl
-      vulkan-loader
+      vulkan-loader wf-recorder
     )
 
     log_info "Installing dependencies..."
@@ -176,7 +177,7 @@ install_dependencies() {
       tesseract-data-chi_sim tesseract-data-chi_tra tesseract-data-kor tesseract-data-lat
       ttf-roboto ttf-roboto-mono ttf-dejavu ttf-liberation noto-fonts noto-fonts-cjk noto-fonts-emoji
       ttf-nerd-fonts-symbols
-      matugen gpu-screen-recorder wl-clip-persist mpvpaper gradia
+      matugen gpu-screen-recorder wf-recorder wl-clip-persist mpvpaper gradia
       quickshell ttf-phosphor-icons ttf-league-gothic adw-gtk-theme
       vulkan-icd-loader
     )

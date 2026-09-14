@@ -3,6 +3,7 @@
 
 with pkgs; [
   gpu-screen-recorder
+  wf-recorder
   mpvpaper
 
   ffmpeg
