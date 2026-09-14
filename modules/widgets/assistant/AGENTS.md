@@ -8,7 +8,7 @@ Spotlight-style AI overlay. Compact bar in the upper third of the focused monito
 | File | Role |
 |------|------|
 | `AssistantPopup.qml` | PanelWindow, Overlay, namespace `ambxst+:assistant`, FocusGrab, scrim |
-| `ComputerUseHud.qml` | HUD-sized PanelWindow, namespace `ambxst+:computer-use`; last assistant text only, auto-hides, Warp-style footer |
+| `ComputerUseHud.qml` | HUD-sized PanelWindow, namespace `ambxst+:computer-use`; last assistant text via `AssistantMessage` (tables, headings, code, math), 3s auto-hide, Warp-style footer |
 | `AssistantBar.qml` | Search input, send/stop |
 | `AssistantIdleList.qml` | Recent chats, saved commands, slash hints |
 | `AssistantTranscript.qml` | Message list |
@@ -38,7 +38,7 @@ CodeBlock and ModelSelectorPopup live in `modules/sidebar/` and are imported fro
 - Colors via `Colors.*`, radii via `Styling.popupRadius()`, no hardcoded hex
 - Hover/press: `Styling.hoverAlpha` / `pressAlpha`, icon buttons scale 0.96
 - Mutate `Ai.currentChat` from Process handlers only via `Qt.callLater`
-- Super+A and `ambxst+ run assistant` toggle `Visibilities` module `"assistant"`. During computer use the Spotlight scrim drops and `ComputerUseHud` takes over; Super+A still closes the session.
+- Super+A and `ambxst+ run assistant` toggle `Visibilities` module `"assistant"`. During computer use the Spotlight scrim drops and `ComputerUseHud` takes over; Super+A still closes the session. The screen frame ring animates for the whole session (`ScreenFrameContent` + `Config.theme.computerUseFrameColor1/2/3`).
 
 ## ANTI-PATTERNS
 

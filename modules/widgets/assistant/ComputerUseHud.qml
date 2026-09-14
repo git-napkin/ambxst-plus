@@ -7,7 +7,6 @@ import qs.modules.theme
 import qs.modules.services
 import qs.modules.components
 import qs.config
-import "message_content.js" as MessageContent
 import "."
 
 PanelWindow {
@@ -82,6 +81,9 @@ PanelWindow {
     }
     readonly property bool streaming: !!(Ai.isLoading && assistantText.length)
 
+    onAssistantTextChanged: hud.refreshPresence()
+    onStreamingChanged: hud.refreshPresence()
+
     onCardVisibleChanged: {
         if (!hud.cardVisible)
             ComputerUse.composerFocused = false;
@@ -108,6 +110,10 @@ PanelWindow {
             return;
         }
         hud.cardVisible = true;
+        if (hud.streaming) {
+            hideTimer.stop();
+            return;
+        }
         hideTimer.restart();
     }
 
@@ -119,7 +125,7 @@ PanelWindow {
 
     Timer {
         id: hideTimer
-        interval: 2500
+        interval: 3000
         repeat: false
         onTriggered: {
             if (Ai.approvalPending || ComputerUse.composerFocused)
@@ -314,18 +320,14 @@ PanelWindow {
                     call: Ai.pendingApproval || ({})
                 }
 
-                TextEdit {
+                AssistantMessage {
                     id: markdown
                     visible: !Ai.approvalPending
                     width: parent.width
-                    readOnly: true
-                    selectByMouse: true
-                    wrapMode: TextEdit.Wrap
-                    textFormat: Text.RichText
-                    text: MessageContent.markdownToRichText(hud.assistantText, Config.theme.monoFont)
-                    color: Colors.overSurface
-                    font.family: Config.theme.font
-                    font.pixelSize: Styling.fontSize(-1)
+                    message: ({
+                            role: "assistant",
+                            content: hud.assistantText
+                        })
                 }
 
                 Rectangle {

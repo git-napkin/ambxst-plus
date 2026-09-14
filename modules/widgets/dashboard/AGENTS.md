@@ -22,7 +22,7 @@ Central interactive hub of Ambxst[+]. Tabbed interface with LRU-based lazy-loadi
 |------|----------|-------|
 | **Tab loading** | `Dashboard.qml` | `TabLoader` + `shouldTabBeLoaded(index)` LRU logic |
 | **System settings** | `controls/ShellPanel.qml` | Bar, dock, notch configuration UI |
-| **Theme settings** | `controls/ThemePanel.qml` | Colors, gradients, fonts, opacity |
+| **Theme settings** | `controls/ThemePanel.qml` | Colors, gradients, fonts, opacity, computer-use frame ring |
 | **Keybindings** | `controls/BindsPanel.qml` | Compositor keybind editor |
 | **AI settings** | `modules/widgets/config/AiPanel.qml` | Keys, execution profile, overlay, tools. Chat UI is the Spotlight overlay |
 | **Clipboard** | `clipboard/ClipboardTab.qml` | Largest file (3615 lines). Category filtering |

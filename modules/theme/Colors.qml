@@ -314,4 +314,81 @@ FileView {
 
     // List of available color names for color pickers (excludes internal/source colors)
     readonly property var availableColorNames: ["background", "surface", "surfaceBright", "surfaceContainer", "surfaceContainerHigh", "surfaceContainerHighest", "surfaceContainerLow", "surfaceContainerLowest", "surfaceDim", "surfaceTint", "surfaceVariant", "primary", "primaryContainer", "primaryFixed", "primaryFixedDim", "secondary", "secondaryContainer", "secondaryFixed", "secondaryFixedDim", "tertiary", "tertiaryContainer", "tertiaryFixed", "tertiaryFixedDim", "error", "errorContainer", "overBackground", "overSurface", "overSurfaceVariant", "overPrimary", "overPrimaryContainer", "overPrimaryFixed", "overPrimaryFixedVariant", "overSecondary", "overSecondaryContainer", "overSecondaryFixed", "overSecondaryFixedVariant", "overTertiary", "overTertiaryContainer", "overTertiaryFixed", "overTertiaryFixedVariant", "overError", "overErrorContainer", "outline", "outlineVariant", "inversePrimary", "inverseSurface", "inverseOnSurface", "shadow", "scrim", "blue", "blueContainer", "overBlue", "overBlueContainer", "lightBlue", "cyan", "cyanContainer", "overCyan", "overCyanContainer", "lightCyan", "green", "greenContainer", "overGreen", "overGreenContainer", "lightGreen", "magenta", "magentaContainer", "overMagenta", "overMagentaContainer", "lightMagenta", "red", "redContainer", "overRed", "overRedContainer", "lightRed", "yellow", "yellowContainer", "overYellow", "overYellowContainer", "lightYellow", "white", "whiteContainer", "overWhite", "overWhiteContainer"]
+
+    function _srgbToLin(c) {
+        return c <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4);
+    }
+
+    function relativeLuminance(col) {
+        const c = Qt.color(col);
+        return 0.2126 * _srgbToLin(c.r) + 0.7152 * _srgbToLin(c.g) + 0.0722 * _srgbToLin(c.b);
+    }
+
+    function contrastRatio(a, b) {
+        const l1 = relativeLuminance(a);
+        const l2 = relativeLuminance(b);
+        const hi = Math.max(l1, l2);
+        const lo = Math.min(l1, l2);
+        return (hi + 0.05) / (lo + 0.05);
+    }
+
+    function _colorDist(a, b) {
+        const ca = Qt.color(a);
+        const cb = Qt.color(b);
+        const dr = ca.r - cb.r;
+        const dg = ca.g - cb.g;
+        const db = ca.b - cb.b;
+        return Math.sqrt(dr * dr + dg * dg + db * db);
+    }
+
+    // Three ring colors that follow the wallpaper/theme but stay readable
+    // against the background (avoids white-on-white / black-on-black).
+    function autoComputerUseFrameColors() {
+        const bg = background;
+        const candidates = [primary, tertiary, secondary, error, inversePrimary, primaryFixedDim, tertiaryFixedDim, blue, magenta, yellow];
+        const scored = [];
+        for (let i = 0; i < candidates.length; i++) {
+            scored.push({
+                c: candidates[i],
+                contrast: contrastRatio(candidates[i], bg)
+            });
+        }
+        scored.sort(function (a, b) {
+            return b.contrast - a.contrast;
+        });
+        const picked = [];
+        for (let i = 0; i < scored.length && picked.length < 3; i++) {
+            if (scored[i].contrast < 3 && picked.length > 0)
+                continue;
+            let distinct = true;
+            for (let j = 0; j < picked.length; j++) {
+                if (_colorDist(scored[i].c, picked[j]) < 0.2)
+                    distinct = false;
+            }
+            if (distinct)
+                picked.push(scored[i].c);
+        }
+        if (!picked.length)
+            picked.push(contrastRatio(error, bg) >= contrastRatio(primary, bg) ? error : primary);
+        if (picked.length === 1)
+            picked.push(tertiary);
+        if (picked.length === 2)
+            picked.push(secondary);
+        return picked;
+    }
+
+    readonly property var computerUseFramePalette: {
+        const auto = autoComputerUseFrameColors();
+        const keys = [
+            Config.theme ? Config.theme.computerUseFrameColor1 : "",
+            Config.theme ? Config.theme.computerUseFrameColor2 : "",
+            Config.theme ? Config.theme.computerUseFrameColor3 : ""
+        ];
+        const out = [];
+        for (let i = 0; i < 3; i++) {
+            const name = keys[i] ? String(keys[i]) : "";
+            out.push(name.length ? Config.resolveColor(name) : auto[i]);
+        }
+        return out;
+    }
 }

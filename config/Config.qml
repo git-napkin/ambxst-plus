@@ -223,6 +223,9 @@ Singleton {
             property int shadowXOffset: 0
             property int shadowYOffset: 0
             property real shadowBlur: 1
+            property string computerUseFrameColor1: ""
+            property string computerUseFrameColor2: ""
+            property string computerUseFrameColor3: ""
 
             property JsonObject srBg: JsonObject {
                 property string label: "Background"

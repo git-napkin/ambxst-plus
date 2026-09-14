@@ -64,6 +64,93 @@ Item {
         }
     }
 
+    component FrameColorRow: RowLayout {
+        id: colorRow
+        required property string label
+        required property string configKey
+        required property color autoColor
+
+        Layout.fillWidth: true
+        spacing: 8
+
+        readonly property string currentName: {
+            if (configKey === "computerUseFrameColor1")
+                return Config.theme.computerUseFrameColor1 || "";
+            if (configKey === "computerUseFrameColor2")
+                return Config.theme.computerUseFrameColor2 || "";
+            return Config.theme.computerUseFrameColor3 || "";
+        }
+        readonly property bool isAuto: !currentName.length
+        readonly property color previewColor: isAuto ? autoColor : Config.resolveColor(currentName)
+
+        Text {
+            text: colorRow.label
+            font.family: Config.theme.font
+            font.pixelSize: Styling.fontSize(0)
+            color: Colors.overBackground
+            Layout.preferredWidth: 80
+        }
+
+        StyledRect {
+            variant: "common"
+            Layout.fillWidth: true
+            Layout.preferredHeight: 32
+            radius: Styling.radius(-2)
+            property bool isHovered: false
+
+            RowLayout {
+                anchors.fill: parent
+                anchors.leftMargin: 8
+                anchors.rightMargin: 8
+                spacing: 8
+
+                Rectangle {
+                    Layout.preferredWidth: 16
+                    Layout.preferredHeight: 16
+                    radius: Styling.radius(-12)
+                    color: colorRow.previewColor
+                    border.width: 1
+                    border.color: Colors.outline
+                }
+
+                Text {
+                    Layout.fillWidth: true
+                    text: colorRow.isAuto ? qsTr("Auto") : colorRow.currentName
+                    font.family: Config.theme.font
+                    font.pixelSize: Styling.fontSize(0)
+                    color: Colors.overBackground
+                    elide: Text.ElideRight
+                }
+            }
+
+            Rectangle {
+                anchors.fill: parent
+                color: Styling.srItem("overprimary")
+                radius: parent.radius ?? 0
+                opacity: parent.isHovered ? 0.15 : 0
+                Behavior on opacity {
+                    enabled: (Config.animDuration ?? 0) > 0
+                    NumberAnimation {
+                        duration: (Config.animDuration ?? 0) / 2
+                    }
+                }
+            }
+
+            MouseArea {
+                anchors.fill: parent
+                hoverEnabled: true
+                cursorShape: Qt.PointingHandCursor
+                onEntered: parent.isHovered = true
+                onExited: parent.isHovered = false
+                onClicked: {
+                    root.openColorPicker(Colors.availableColorNames, colorRow.currentName || "primary", "Select " + colorRow.label, function (color) {
+                        root.setComputerUseFrameColor(colorRow.configKey, color);
+                    });
+                }
+            }
+        }
+    }
+
     // Color picker state
     property bool colorPickerActive: false
     property var colorPickerColorNames: []
@@ -89,6 +176,16 @@ Item {
             colorPickerCallback(color);
         }
         colorPickerCurrentColor = color;
+    }
+
+    function setComputerUseFrameColor(key, color) {
+        GlobalStates.markThemeChanged();
+        if (key === "computerUseFrameColor1")
+            Config.theme.computerUseFrameColor1 = color;
+        else if (key === "computerUseFrameColor2")
+            Config.theme.computerUseFrameColor2 = color;
+        else if (key === "computerUseFrameColor3")
+            Config.theme.computerUseFrameColor3 = color;
     }
 
     FileView {
@@ -256,6 +353,10 @@ Item {
                         SectionButton {
                             text: "Colors"
                             sectionId: "colors"
+                        }
+                        SectionButton {
+                            text: "Computer use"
+                            sectionId: "computer use"
                         }
                     }
 
@@ -986,6 +1087,75 @@ Item {
                                             });
                                         }
                                     }
+                                }
+                            }
+                        }
+                    }
+
+                    // Computer-use frame indicator
+                    Item {
+                        visible: root.currentSection === "computer use"
+                        Layout.fillWidth: true
+                        Layout.preferredHeight: computerUseContent.implicitHeight
+
+                        ColumnLayout {
+                            id: computerUseContent
+                            anchors.left: parent.left
+                            anchors.right: parent.right
+                            anchors.top: parent.top
+                            spacing: 8
+
+                            Text {
+                                text: "Computer use"
+                                font.family: Config.theme.font
+                                font.pixelSize: Styling.fontSize(-1)
+                                font.weight: Font.Medium
+                                color: Colors.overSurfaceVariant
+                                Layout.bottomMargin: -4
+                            }
+
+                            Text {
+                                text: qsTr("Screen-edge colors while computer-use is active. Empty slots use standout colors from the current wallpaper/theme.")
+                                font.family: Config.theme.font
+                                font.pixelSize: Styling.fontSize(-2)
+                                color: Colors.outline
+                                wrapMode: Text.WordWrap
+                                Layout.fillWidth: true
+                            }
+
+                            FrameColorRow {
+                                label: qsTr("Color 1")
+                                configKey: "computerUseFrameColor1"
+                                autoColor: {
+                                    const p = Colors.computerUseFramePalette;
+                                    return (p && p.length) ? p[0] : Colors.primary;
+                                }
+                            }
+                            FrameColorRow {
+                                label: qsTr("Color 2")
+                                configKey: "computerUseFrameColor2"
+                                autoColor: {
+                                    const p = Colors.computerUseFramePalette;
+                                    return (p && p.length > 1) ? p[1] : Colors.tertiary;
+                                }
+                            }
+                            FrameColorRow {
+                                label: qsTr("Color 3")
+                                configKey: "computerUseFrameColor3"
+                                autoColor: {
+                                    const p = Colors.computerUseFramePalette;
+                                    return (p && p.length > 2) ? p[2] : Colors.secondary;
+                                }
+                            }
+
+                            SettingsButton {
+                                text: qsTr("Reset to auto")
+                                enabled: !!(Config.theme.computerUseFrameColor1 || Config.theme.computerUseFrameColor2 || Config.theme.computerUseFrameColor3)
+                                onClicked: {
+                                    GlobalStates.markThemeChanged();
+                                    Config.theme.computerUseFrameColor1 = "";
+                                    Config.theme.computerUseFrameColor2 = "";
+                                    Config.theme.computerUseFrameColor3 = "";
                                 }
                             }
                         }

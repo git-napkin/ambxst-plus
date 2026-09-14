@@ -236,7 +236,8 @@ Singleton {
         "tintIcons", "enableCorners", "animDuration",
         "animInstant", "animQuick", "animStandard", "animConsidered", "animCinematic",
         "animEasingOut", "animEasingIn", "animEasingInOut",
-        "shadowOpacity", "shadowColor", "shadowXOffset", "shadowYOffset", "shadowBlur"
+        "shadowOpacity", "shadowColor", "shadowXOffset", "shadowYOffset", "shadowBlur",
+        "computerUseFrameColor1", "computerUseFrameColor2", "computerUseFrameColor3"
     ]
     readonly property var _srVariantProps: [
         "gradientType", "gradientAngle", "gradientCenterX", "gradientCenterY",

@@ -24,6 +24,7 @@ Dynamic theming layer providing colors, icons, and style utilities as singletons
 |------|----------|-------|
 | **Change colors** | `Colors.qml` | Modify `~/.cache/ambxst+/colors.json` or change color preset |
 | **Add StyledRect variant** | `Styling.qml` → `getStyledRectConfig()` | Returns gradient, border, opacity config per variant |
+| **Computer-use frame colors** | `Colors.qml` `computerUseFramePalette` + `Config.theme.computerUseFrameColor1/2/3` | Empty strings = auto, contrast-checked against background |
 | **Adjust radius/font** | `Styling.qml` | `radius(offset)` and `fontSize(offset)` apply global scaling |
 | **Add icon** | `Icons.qml` | Add Phosphor-Bold unicode mapping |
 | **Add app generator** | New `*Generator.qml` | Follow existing generator pattern, read from `Colors.*` |

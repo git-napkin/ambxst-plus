@@ -47,6 +47,12 @@ var data = {
     "shadowYOffset": 0,
     /** Shadow blur radius. @type {number} @min 0 @max 20 @default 1 */
     "shadowBlur": 1,
+    /** Computer-use frame color 1 (empty = auto from theme, contrast-checked). @type {string} @default "" */
+    "computerUseFrameColor1": "",
+    /** Computer-use frame color 2 (empty = auto from theme, contrast-checked). @type {string} @default "" */
+    "computerUseFrameColor2": "",
+    /** Computer-use frame color 3 (empty = auto from theme, contrast-checked). @type {string} @default "" */
+    "computerUseFrameColor3": "",
     "srBg": {
         "label": "Background",
         "gradient": [["background", 0.0]],

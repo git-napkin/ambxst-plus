@@ -606,6 +606,17 @@ function markdownToRichText(text, monoFont) {
 
     s = escapeHtml(s);
 
+    // Headings (GFM requires a space after #). Longest match first.
+    s = s.replace(/(^|\n)######[ \t]+([^\n]+)/g, "$1<span style=\"font-size:90%; font-weight:600; opacity:0.8\">$2</span>");
+    s = s.replace(/(^|\n)#####[ \t]+([^\n]+)/g, "$1<span style=\"font-size:95%; font-weight:600; opacity:0.85\">$2</span>");
+    s = s.replace(/(^|\n)####[ \t]+([^\n]+)/g, "$1<span style=\"font-size:100%; font-weight:700\">$2</span>");
+    s = s.replace(/(^|\n)###[ \t]+([^\n]+)/g, "$1<span style=\"font-size:110%; font-weight:700\">$2</span>");
+    s = s.replace(/(^|\n)##[ \t]+([^\n]+)/g, "$1<span style=\"font-size:125%; font-weight:700\">$2</span>");
+    s = s.replace(/(^|\n)#[ \t]+([^\n]+)/g, "$1<span style=\"font-size:140%; font-weight:700\">$2</span>");
+
+    // Blockquotes
+    s = s.replace(/(^|\n)&gt;[ \t]?([^\n]*)/g, "$1<span style=\"opacity:0.75\"><i>$2</i></span>");
+
     // Simple list markers → bullets (line-oriented)
     s = s.replace(/(^|\n)\s*[\*\-]\s+/g, "$1• ");
     s = s.replace(/(^|\n)\s*(\d+)\.\s+/g, "$1$2. ");
