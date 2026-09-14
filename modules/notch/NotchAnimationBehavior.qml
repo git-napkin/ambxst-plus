@@ -1,5 +1,6 @@
 import QtQuick
 import qs.config
+import qs.modules.theme
 
 // Standard animation behavior for elements appearing inside the notch
 Item {

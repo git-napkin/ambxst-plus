@@ -135,7 +135,7 @@ ShellRoot {
 
         Loader {
             id: overviewLoader
-            active: ((Config.overview && Config.overview.enabled !== undefined ? Config.overview.enabled : true)) && SuspendManager.wakeReady && (Visibilities.getForScreen(modelData.name) ? Visibilities.getForScreen(modelData.name).overview : false)
+            active: ((Config.overview && Config.overview.enabled !== undefined ? Config.overview.enabled : true)) && SuspendManager.wakeReady && Visibilities.currentActiveModule === "overview" && Visibilities.lastFocusedScreen === modelData.name
             required property ShellScreen modelData
             sourceComponent: OverviewPopup {
                 screen: overviewLoader.modelData
@@ -155,7 +155,7 @@ ShellRoot {
 
         Loader {
             id: assistantLoader
-            active: SuspendManager.wakeReady && (Visibilities.getForScreen(modelData.name) ? Visibilities.getForScreen(modelData.name).assistant : false)
+            active: SuspendManager.wakeReady && Visibilities.currentActiveModule === "assistant" && Visibilities.lastFocusedScreen === modelData.name
             required property ShellScreen modelData
             sourceComponent: AssistantPopup {
                 screen: assistantLoader.modelData
@@ -175,7 +175,7 @@ ShellRoot {
 
         Loader {
             id: presetsLoader
-            active: SuspendManager.wakeReady && (Visibilities.getForScreen(modelData.name) ? Visibilities.getForScreen(modelData.name).presets : false)
+            active: SuspendManager.wakeReady && Visibilities.currentActiveModule === "presets" && Visibilities.lastFocusedScreen === modelData.name
             required property ShellScreen modelData
             sourceComponent: PresetsPopup {
                 screen: presetsLoader.modelData

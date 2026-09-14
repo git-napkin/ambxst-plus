@@ -66,9 +66,11 @@ Singleton {
     // per-screen visibility state object.
     function ensureForScreen(screenName) {
         if (!screens[screenName]) {
-            screens[screenName] = screenPropertiesComponent.createObject(root, {
+            // Reassign `screens` so QML bindings that call getForScreen()
+            // re-evaluate; mutating the JS object in place is invisible to them.
+            screens = _updateMap(screens, screenName, screenPropertiesComponent.createObject(root, {
                 screenName: screenName
-            });
+            }));
         }
         return screens[screenName];
     }
