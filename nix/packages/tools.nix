@@ -13,10 +13,10 @@ with pkgs; [
 
   libnotify
   matugen
-  python3.withPackages (ps: [
+  (python3.withPackages (ps: [
     ps.cryptography
     ps.dbus-python
-  ])
+  ]))
   power-profiles-daemon
   slurp
   sqlite
