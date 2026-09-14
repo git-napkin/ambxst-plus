@@ -315,6 +315,7 @@ Singleton {
                     at: [win.metadata ? (win.metadata.x || 0) : 0, win.metadata ? (win.metadata.y || 0) : 0],
                     size: [win.metadata ? (win.metadata.width || 100) : 100, win.metadata ? (win.metadata.height || 100) : 100],
                     xwayland: (win.metadata ? win.metadata.xwayland : false) || false,
+                    pid: parseInt(win.metadata ? (win.metadata.pid || 0) : 0) || 0,
                     is_focused: win.is_focused || false,
                     focusHistoryID: newFocus
                 };
@@ -355,6 +356,8 @@ Singleton {
                 width: mon.width,
                 height: mon.height,
                 refreshRate: mon.refresh_rate,
+                x: mon.metadata ? (mon.metadata.x || 0) : 0,
+                y: mon.metadata ? (mon.metadata.y || 0) : 0,
                 scale: mon.scale,
                 activeWorkspace: { id: root.parseWorkspaceId(mon.metadata ? mon.metadata.active_workspace : 0), name: mon.metadata ? mon.metadata.active_workspace : "" }
             }));

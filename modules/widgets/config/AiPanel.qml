@@ -539,6 +539,7 @@ Item {
                 }
                 PolicyRow {
                     label: "Computer use"
+                    description: "See and control the desktop. Default is Never. Always ask shows a summary before the first session."
                     currentValue: Config.ai.executionProfile.computerUse
                     options: [
                         { value: "Never", label: "Never" },

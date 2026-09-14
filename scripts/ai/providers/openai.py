@@ -29,6 +29,19 @@ def _format_messages(messages):
                     "name": msg.get("name") or "",
                 }
             )
+            attachments = msg.get("attachments") or []
+            if attachments:
+                parts = [{"type": "text", "text": "Screenshot from %s" % (msg.get("name") or "tool")}]
+                for att in attachments:
+                    if att.get("type") == "image" and att.get("base64"):
+                        mime = att.get("mimeType") or att.get("mime_type") or "image/png"
+                        parts.append(
+                            {
+                                "type": "image_url",
+                                "image_url": {"url": "data:%s;base64,%s" % (mime, att["base64"])},
+                            }
+                        )
+                formatted.append({"role": "user", "content": parts})
             continue
         attachments = msg.get("attachments") or []
         if attachments:

@@ -8,6 +8,7 @@ Spotlight-style AI overlay. Compact bar in the upper third of the focused monito
 | File | Role |
 |------|------|
 | `AssistantPopup.qml` | PanelWindow, Overlay, namespace `ambxst+:assistant`, FocusGrab, scrim |
+| `ComputerUseHud.qml` | HUD-sized PanelWindow, namespace `ambxst+:computer-use`, noscreenshare, composer / take-control |
 | `AssistantBar.qml` | Search input, send/stop |
 | `AssistantIdleList.qml` | Recent chats, saved commands, slash hints |
 | `AssistantTranscript.qml` | Message list |
@@ -27,6 +28,7 @@ CodeBlock and ModelSelectorPopup live in `modules/sidebar/` and are imported fro
 | Task | File |
 |------|------|
 | Window recipe | `AssistantPopup.qml` (copy OverviewPopup: exclusive keyboard, ExclusionMode.Ignore) |
+| Computer-use HUD | `ComputerUseHud.qml` + `modules/services/ComputerUse.qml` |
 | Chat / agent IPC | `modules/services/Ai.qml` |
 | Native tools | `modules/services/ai/NativeToolBridge.qml` |
 | Config | `Config.ai.*` (`overlayWidth`, `overlayYFraction`, `showScrim`, `executionProfile`) |
@@ -36,7 +38,7 @@ CodeBlock and ModelSelectorPopup live in `modules/sidebar/` and are imported fro
 - Colors via `Colors.*`, radii via `Styling.popupRadius()`, no hardcoded hex
 - Hover/press: `Styling.hoverAlpha` / `pressAlpha`, icon buttons scale 0.96
 - Mutate `Ai.currentChat` from Process handlers only via `Qt.callLater`
-- Super+A and `ambxst+ run assistant` toggle `Visibilities` module `"assistant"`
+- Super+A and `ambxst+ run assistant` toggle `Visibilities` module `"assistant"`. During computer use the Spotlight scrim drops and `ComputerUseHud` takes over; Super+A still closes the session.
 
 ## ANTI-PATTERNS
 

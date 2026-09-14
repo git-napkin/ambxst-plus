@@ -25,7 +25,7 @@ PanelWindow {
 
     WlrLayershell.layer: WlrLayer.Overlay
     WlrLayershell.namespace: "ambxst+:assistant"
-    WlrLayershell.keyboardFocus: assistantOpen ? WlrKeyboardFocus.Exclusive : WlrKeyboardFocus.None
+    WlrLayershell.keyboardFocus: assistantOpen && !ComputerUse.sessionActive ? WlrKeyboardFocus.Exclusive : WlrKeyboardFocus.None
 
     readonly property var screenVisibilities: Visibilities.getForScreen(screen.name)
     readonly property bool assistantOpen: screenVisibilities ? screenVisibilities.assistant : false
@@ -35,11 +35,11 @@ PanelWindow {
     readonly property int barHeight: bar.implicitHeight
     readonly property int maxBodyHeight: Math.round(height * 0.6) - 56
 
-    visible: assistantOpen
+    visible: assistantOpen && !ComputerUse.sessionActive
     exclusionMode: ExclusionMode.Ignore
 
     mask: Region {
-        item: assistantOpen ? fullMask : emptyMask
+        item: assistantOpen && !ComputerUse.sessionActive ? fullMask : emptyMask
     }
 
     Item {
@@ -56,7 +56,7 @@ PanelWindow {
     FocusGrab {
         id: focusGrab
         windows: [assistantPopup]
-        active: assistantOpen
+        active: assistantOpen && !ComputerUse.sessionActive
 
         onCleared: {
             Qt.callLater(() => {
@@ -70,7 +70,7 @@ PanelWindow {
         id: backdrop
         anchors.fill: parent
         color: Colors.scrim
-        opacity: assistantOpen && (Config.ai.showScrim ?? true) ? 0.5 : 0
+        opacity: assistantOpen && !ComputerUse.sessionActive && (Config.ai.showScrim ?? true) ? 0.5 : 0
 
         Behavior on opacity {
             enabled: Config.animDuration > 0
@@ -93,8 +93,8 @@ PanelWindow {
         x: Math.round((assistantPopup.width - width) / 2)
         y: Math.round(assistantPopup.overlayY)
 
-        opacity: assistantOpen ? 1 : 0
-        scale: assistantOpen ? 1 : 0.96
+        opacity: assistantOpen && !ComputerUse.sessionActive ? 1 : 0
+        scale: assistantOpen && !ComputerUse.sessionActive ? 1 : 0.96
         transformOrigin: Item.Top
 
         Behavior on opacity {
@@ -168,25 +168,25 @@ PanelWindow {
     }
 
     onAssistantOpenChanged: {
-        if (assistantOpen) {
+        if (assistantOpen && !ComputerUse.sessionActive) {
             Qt.callLater(() => bar.focusInput());
         }
     }
 
     Component.onCompleted: {
-        if (assistantOpen)
+        if (assistantOpen && !ComputerUse.sessionActive)
             bar.focusInput();
     }
 
     Shortcut {
         sequence: "Ctrl+N"
-        enabled: assistantOpen
+        enabled: assistantOpen && !ComputerUse.sessionActive
         onActivated: Ai.createNewChat()
     }
 
     Shortcut {
         sequence: "Ctrl+R"
-        enabled: assistantOpen
+        enabled: assistantOpen && !ComputerUse.sessionActive
         onActivated: Ai.regenerateLast()
     }
 }

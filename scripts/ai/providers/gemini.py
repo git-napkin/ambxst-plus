@@ -32,19 +32,25 @@ def _contents(messages):
             contents.append({"role": "model", "parts": parts or [{"text": ""}]})
             continue
         if role in ("tool", "function"):
-            contents.append(
+            parts = [
                 {
-                    "role": "function",
-                    "parts": [
+                    "functionResponse": {
+                        "name": msg.get("name") or "",
+                        "response": {"content": msg.get("content") or ""},
+                    }
+                }
+            ]
+            for att in msg.get("attachments") or []:
+                if att.get("type") == "image" and att.get("base64"):
+                    parts.append(
                         {
-                            "functionResponse": {
-                                "name": msg.get("name") or "",
-                                "response": {"content": msg.get("content") or ""},
+                            "inline_data": {
+                                "mime_type": att.get("mimeType") or att.get("mime_type") or "image/png",
+                                "data": att["base64"],
                             }
                         }
-                    ],
-                }
-            )
+                    )
+            contents.append({"role": "function", "parts": parts})
             continue
         parts = [{"text": msg.get("content") or ""}]
         for att in msg.get("attachments") or []:

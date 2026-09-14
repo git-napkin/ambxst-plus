@@ -16,6 +16,26 @@ def _filter_messages(messages):
             system = msg.get("content") or system
             continue
         if role == "tool":
+            blocks = [
+                {
+                    "type": "text",
+                    "text": msg.get("content") or "",
+                }
+            ]
+            for att in msg.get("attachments") or []:
+                if att.get("type") == "image" and att.get("base64"):
+                    mime = att.get("mimeType") or att.get("mime_type") or "image/png"
+                    subtype = "jpeg" if "jpeg" in mime or "jpg" in mime else "png"
+                    blocks.append(
+                        {
+                            "type": "image",
+                            "source": {
+                                "type": "base64",
+                                "media_type": "image/%s" % subtype,
+                                "data": att["base64"],
+                            },
+                        }
+                    )
             filtered.append(
                 {
                     "role": "user",
@@ -23,7 +43,7 @@ def _filter_messages(messages):
                         {
                             "type": "tool_result",
                             "tool_use_id": msg.get("tool_call_id") or "",
-                            "content": msg.get("content") or "",
+                            "content": blocks if len(blocks) > 1 else (msg.get("content") or ""),
                         }
                     ],
                 }

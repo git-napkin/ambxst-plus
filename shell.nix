@@ -21,6 +21,7 @@ pkgs.mkShell {
     zbar
     zenity
     wtype
+    ydotool
     wlsunset
     inetutils
     jq

@@ -16,6 +16,16 @@ Item {
             return call.user_friendly_name || call.name || qsTr("Working");
         return call.user_friendly_done || call.user_friendly_name || call.name || qsTr("Done");
     }
+    readonly property string previewPath: {
+        if (call.previewPath)
+            return String(call.previewPath);
+        const result = call.result || {};
+        if (result.path)
+            return String(result.path);
+        if (result.screenshot && result.screenshot.path)
+            return String(result.screenshot.path);
+        return "";
+    }
     implicitHeight: body.implicitHeight
     implicitWidth: parent ? parent.width : 200
 
@@ -47,6 +57,17 @@ Item {
                 elide: Text.ElideRight
                 maximumLineCount: 1
             }
+        }
+
+        Image {
+            visible: root.previewPath.length > 0
+            Layout.fillWidth: true
+            Layout.preferredHeight: 72
+            fillMode: Image.PreserveAspectFit
+            asynchronous: true
+            sourceSize.width: 160
+            sourceSize.height: 72
+            source: root.previewPath.length ? ("file://" + root.previewPath) : ""
         }
 
         Text {

@@ -12,6 +12,7 @@ Backend singletons bridging Wayland protocols, CLI tools (nmcli, upower, wpctl, 
 | **Bluetooth** | `BluetoothService.qml` | Device listing, connect/disconnect |
 | **Brightness** | `Brightness.qml` | Per-monitor brightness via `brightnessctl` |
 | **AI Assistant** | `Ai.qml` + `scripts/ai/` | Spotlight overlay agent. Python NDJSON loop, Warp-shaped tools, native bridge |
+| **Computer use** | `ComputerUse.qml` + `scripts/ai/computer_use/` | Session HUD, silent grim, Hyprland movecursor / sendshortcut, ydotool clicks |
 
 | **Clipboard** | `ClipboardService.qml` | Persistent clipboard via `clipboard.db` + helper scripts |
 | **Media** | `MprisController.qml` | MPRIS D-Bus player control |

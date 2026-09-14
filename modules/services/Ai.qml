@@ -28,9 +28,31 @@ Singleton {
     property string currentChatId: ""
     property var chatHistory: []
 
+    readonly property var pendingApproval: {
+        const chat = currentChat || [];
+        for (let i = chat.length - 1; i >= 0; i--) {
+            const msg = chat[i];
+            if ((msg.role === "approval" || msg.role === "diff") && msg.pending !== false)
+                return msg;
+        }
+        return null;
+    }
+    readonly property bool approvalPending: pendingApproval !== null
+
     signal chatModelChanged
     signal historyModelChanged
     signal modelSelectionRequested
+
+    onChatModelChanged: ComputerUse.syncFromChat(approvalPending)
+    onApprovalPendingChanged: ComputerUse.syncFromChat(approvalPending)
+
+    Connections {
+        target: ComputerUse
+        function onSessionActiveChanged() {
+            if (!ComputerUse.sessionActive)
+                root.endComputerUseGrant();
+        }
+    }
 
     NativeToolBridge {
         id: nativeBridge
@@ -372,6 +394,26 @@ Singleton {
         writeCmd({ cmd: "reject", call_id: callId });
     }
 
+    function approvePendingApproval() {
+        if (pendingApproval && pendingApproval.call_id)
+            approveTool(pendingApproval.call_id);
+    }
+
+    function rejectPendingApproval() {
+        if (pendingApproval && pendingApproval.call_id)
+            rejectTool(pendingApproval.call_id);
+    }
+
+    function endComputerUseGrant() {
+        writeCmd({ cmd: "end_computer_use" });
+    }
+
+    function stopComputerUse() {
+        cancel();
+        endComputerUseGrant();
+        ComputerUse.end({ restoreSpotlight: true });
+    }
+
     function answerQuestions(callId, answers) {
         markCall(callId, { pending: false, status: "answered" }, ["question"]);
         writeCmd({ cmd: "answer_questions", call_id: callId, answers: answers });
@@ -444,6 +486,10 @@ Singleton {
     }
 
     function createNewChat() {
+        if (ComputerUse.sessionActive) {
+            endComputerUseGrant();
+            ComputerUse.end({ restoreSpotlight: true });
+        }
         currentChat = [];
         currentChatId = Date.now().toString();
         // Session-scoped: each new chat starts in auto-review (ask before risky actions).
@@ -560,7 +606,12 @@ for f in files:
             }
             break;
         case "tool_result":
-            markCall(ev.call_id, { status: ev.status || "done", result: ev.result });
+            {
+                const patch = { status: ev.status || "done", result: ev.result };
+                if (ev.result && ev.result.path)
+                    patch.previewPath = ev.result.path;
+                markCall(ev.call_id, patch);
+            }
             break;
         case "approval_required":
             {

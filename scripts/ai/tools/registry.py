@@ -55,6 +55,8 @@ class ToolContext:
         self.wait_for_answers = None
         self.register_process = None
         self.computer_use_approved = False
+        self.computer_use_nodes = []
+        self.computer_use_last_shot = None
         self.current_call_id = ""
         self.api_keys = {}
         self._listed_keys = {}
@@ -319,6 +321,12 @@ def advertised_tool_names(ctx):
     if "native" in enabled:
         names.extend(NATIVE_READ_TOOLS)
         names.extend(NATIVE_WRITE_TOOLS)
+    from ..execution_profile import NEVER
+
+    if getattr(ctx.profile, "computer_use", NEVER) != NEVER:
+        for reserved in ("request_computer_use", "use_computer"):
+            if reserved not in names:
+                names.append(reserved)
     seen = set()
     out = []
     for name in names:

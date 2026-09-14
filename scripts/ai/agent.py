@@ -70,6 +70,9 @@ class Agent:
         self.temperature = None
         self.max_tokens = None
         self.chat_id = ""
+        self.computer_use_approved = False
+        self.computer_use_nodes = []
+        self.computer_use_last_shot = None
         self._lock = threading.Lock()
         self._busy = threading.Event()
 
@@ -100,6 +103,9 @@ class Agent:
         self.ctx.wait_for_native = self.wait_for_native
         self.ctx.wait_for_answers = self.wait_for_answers
         self.ctx.register_process = self._register_process
+        self.ctx.computer_use_approved = self.computer_use_approved
+        self.ctx.computer_use_nodes = list(self.computer_use_nodes)
+        self.ctx.computer_use_last_shot = self.computer_use_last_shot
         user_tools_dir = payload.get("user_tools_dir")
         self.registry = build_registry(self.ctx, user_tools_dir=user_tools_dir)
         self.system_prompt = payload.get("system_prompt") or payload.get("systemPrompt") or DEFAULT_SYSTEM
@@ -114,8 +120,25 @@ class Agent:
             "Use grep to locate, then read_files with line ranges. "
             "Edit via apply_file_diffs, not whole-file rewrites."
         )
+        from ai.execution_profile import NEVER
+
+        if self.ctx.profile.computer_use != NEVER:
+            extra.append(
+                "Computer use is available. Call request_computer_use first, then use_computer. "
+                "Start with action=snapshot. Click coordinates are in the returned image space "
+                "(coordinate_width x coordinate_height). Prefer accessibility element_index over pixels. "
+                "The user-only HUD will not appear in screenshots. Read the computer-use skill for details."
+            )
         if extra:
             self.system_prompt = self.system_prompt.rstrip() + "\n\n" + "\n".join(extra)
+
+    def _clear_computer_use(self):
+        self.computer_use_approved = False
+        self.computer_use_nodes = []
+        self.computer_use_last_shot = None
+        self.ctx.computer_use_approved = False
+        self.ctx.computer_use_nodes = []
+        self.ctx.computer_use_last_shot = None
 
     def _apply_sampling(self, payload):
         if "temperature" in payload:
@@ -182,6 +205,12 @@ class Agent:
         if cmd == "cancel":
             self.cancel_event.set()
             self._kill_running()
+            try:
+                from ai.computer_use.input import release_held
+
+                release_held()
+            except Exception:
+                pass
             for pending in list(self.pending.values()):
                 pending.resolve("cancel")
             self.emit({"type": "cancelled"})
@@ -222,7 +251,19 @@ class Agent:
             return
         if cmd == "load_chat":
             self.messages = list(payload.get("messages") or [])
+            if not self.messages or payload.get("end_computer_use"):
+                self._clear_computer_use()
             self.emit({"type": "done", "reason": "load_chat"})
+            return
+        if cmd == "end_computer_use":
+            self._clear_computer_use()
+            try:
+                from ai.computer_use.input import release_held
+
+                release_held()
+            except Exception:
+                pass
+            self.emit({"type": "done", "reason": "end_computer_use"})
             return
         if cmd == "list_models":
             try:
@@ -247,12 +288,6 @@ class Agent:
 
     def _tool_schemas(self):
         names = advertised_tool_names(self.ctx)
-        extra = [t.name for t in self.registry._tools.values() if t.name not in names and t.name not in (
-            "call_mcp_tool",
-            "request_computer_use",
-            "use_computer",
-        ) and not t.name.startswith("get_") and not t.name.startswith("set_")]
-        # user tools
         for tool in self.registry._tools.values():
             if tool.name not in names and getattr(tool, "command", None):
                 names.append(tool.name)
@@ -345,22 +380,38 @@ class Agent:
                     }
                 )
                 result = self._dispatch_tool(name, args, call_id)
+                self.computer_use_approved = bool(getattr(self.ctx, "computer_use_approved", False))
+                self.computer_use_nodes = list(getattr(self.ctx, "computer_use_nodes", None) or [])
+                self.computer_use_last_shot = getattr(self.ctx, "computer_use_last_shot", None)
+                emit_result = dict(result) if isinstance(result, dict) else result
+                attachments = []
+                if isinstance(emit_result, dict):
+                    b64 = emit_result.pop("image_base64", None)
+                    if b64:
+                        attachments.append(
+                            {
+                                "type": "image",
+                                "base64": b64,
+                                "mimeType": emit_result.get("mime_type") or "image/png",
+                            }
+                        )
                 self.emit(
                     {
                         "type": "tool_result",
                         "call_id": call_id,
                         "name": name,
-                        "result": result,
+                        "result": emit_result,
                     }
                 )
-                tool_messages.append(
-                    {
-                        "role": "tool",
-                        "tool_call_id": call_id,
-                        "name": name,
-                        "content": json.dumps(result, ensure_ascii=False),
-                    }
-                )
+                tool_msg = {
+                    "role": "tool",
+                    "tool_call_id": call_id,
+                    "name": name,
+                    "content": json.dumps(emit_result, ensure_ascii=False),
+                }
+                if attachments:
+                    tool_msg["attachments"] = attachments
+                tool_messages.append(tool_msg)
             self.messages.append(
                 {
                     "role": "assistant",
@@ -451,6 +502,7 @@ class Agent:
                 "answer_questions",
                 "native_result",
                 "cancel",
+                "end_computer_use",
             ):
                 self.handle_command(payload)
             else:
@@ -465,7 +517,7 @@ class Agent:
             except Empty:
                 continue
             cmd = payload.get("cmd")
-            if cmd in ("approve", "reject", "answer_questions", "native_result", "cancel"):
+            if cmd in ("approve", "reject", "answer_questions", "native_result", "cancel", "end_computer_use"):
                 self.handle_command(payload)
                 continue
             self.handle_command(payload)

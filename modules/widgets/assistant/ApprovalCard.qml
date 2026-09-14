@@ -16,6 +16,10 @@ StyledRect {
 
     readonly property string titleText: call.user_friendly_name || qsTr("Approve tool")
     readonly property string detailText: {
+        if (call.name === "request_computer_use" && call.args && call.args.task_summary)
+            return String(call.args.task_summary);
+        if (call.name === "use_computer" && call.args)
+            return String(call.args.action_summary || call.args.action || "");
         if (call.name === "run_shell_command" && call.args && call.args.command)
             return String(call.args.command);
         if (call.detail && String(call.detail).charAt(0) === "{")

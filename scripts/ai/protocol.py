@@ -19,6 +19,7 @@ COMMANDS = frozenset(
         "shutdown",
         "set_autoapprove",
         "list_models",
+        "end_computer_use",
     }
 )
 

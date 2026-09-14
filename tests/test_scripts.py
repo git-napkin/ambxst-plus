@@ -1113,5 +1113,203 @@ class TestExaMockHttp(unittest.TestCase):
         self.assertEqual(denied["status"], "error")
 
 
+PNG_1X1 = (
+    b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01"
+    b"\x08\x06\x00\x00\x00\x1f\x15\xc4\x89\x00\x00\x00\nIDATx\x9cc\x00\x01"
+    b"\x00\x00\x05\x00\x01\r\n-\xb4\x00\x00\x00\x00IEND\xaeB`\x82"
+)
+
+
+class TestComputerUse(unittest.TestCase):
+    def test_policy_advertise(self):
+        from ai.tools.registry import advertised_tool_names
+        from ai.tools.computer_use import RequestComputerUseTool, UseComputerTool
+
+        never = _ctx(".", execution_profile={"computerUse": "Never"})
+        names = advertised_tool_names(never)
+        self.assertNotIn("request_computer_use", names)
+        self.assertNotIn("use_computer", names)
+        self.assertEqual(RequestComputerUseTool().should_autoexecute(never, {"task_summary": "x"}), "deny")
+        denied = RequestComputerUseTool().execute(never, {"task_summary": "x"})
+        self.assertEqual(denied["status"], "error")
+
+        ask = _ctx(".", execution_profile={"computerUse": "AlwaysAsk"})
+        names = advertised_tool_names(ask)
+        self.assertIn("request_computer_use", names)
+        self.assertIn("use_computer", names)
+        self.assertEqual(RequestComputerUseTool().should_autoexecute(ask, {"task_summary": "x"}), "ask")
+        self.assertEqual(UseComputerTool().should_autoexecute(ask, {"action": "snapshot"}), "ask")
+        ask.computer_use_approved = True
+        self.assertEqual(UseComputerTool().should_autoexecute(ask, {"action": "snapshot"}), True)
+
+        allow = _ctx(".", execution_profile={"computerUse": "AlwaysAllow"})
+        self.assertEqual(RequestComputerUseTool().should_autoexecute(allow, {"task_summary": "x"}), True)
+        self.assertEqual(UseComputerTool().should_autoexecute(allow, {"action": "click"}), True)
+
+    def test_grant_survives_apply_init(self):
+        from io import StringIO
+        from ai.agent import Agent
+
+        agent = Agent(stdin=StringIO(), stdout=StringIO())
+        payload = {
+            "execution_profile": {"computerUse": "AlwaysAsk"},
+            "enabled_tools": ["native"],
+            "system_prompt": "hi",
+        }
+        agent.apply_init(payload)
+        agent.computer_use_approved = True
+        agent.computer_use_nodes = [{"index": 0, "name": "Save"}]
+        agent.computer_use_last_shot = {"scale": 0.5, "monitor_scale": 1}
+        agent.apply_init(payload)
+        self.assertTrue(agent.computer_use_approved)
+        self.assertTrue(agent.ctx.computer_use_approved)
+        self.assertEqual(agent.ctx.computer_use_nodes[0]["name"], "Save")
+        self.assertEqual(agent.ctx.computer_use_last_shot["scale"], 0.5)
+        self.assertIn("Computer use is available", agent.system_prompt)
+
+        agent.handle_command({"cmd": "end_computer_use"})
+        self.assertFalse(agent.computer_use_approved)
+        self.assertEqual(agent.computer_use_nodes, [])
+
+    def test_preview_to_logical_per_monitor(self):
+        from ai.computer_use.coords import preview_to_logical
+
+        x, y = preview_to_logical(
+            100,
+            50,
+            {
+                "scale": 0.5,
+                "monitor_scale": 1,
+                "origin_x": 0,
+                "origin_y": 0,
+                "crop_x": 0,
+                "crop_y": 0,
+            },
+        )
+        self.assertEqual((x, y), (200, 100))
+        x, y = preview_to_logical(
+            10,
+            10,
+            {
+                "scale": 0.5,
+                "monitor_scale": 2,
+                "origin_x": 100,
+                "origin_y": 200,
+                "crop_x": 40,
+                "crop_y": 80,
+            },
+        )
+        self.assertEqual((x, y), (100 + int(round((10 / 0.5 + 40) / 2)), 200 + int(round((10 / 0.5 + 80) / 2))))
+
+    def test_payload_caps(self):
+        from ai.computer_use.screenshot import (
+            ABSOLUTE_MAX_BYTES,
+            ABSOLUTE_MAX_DIMENSION,
+            DEFAULT_MAX_BYTES,
+            MIN_MAX_BYTES,
+            _clamp_bytes,
+            _clamp_dim,
+            identify_size,
+            prepare_payload,
+        )
+
+        self.assertEqual(_clamp_dim(99999, 1920), ABSOLUTE_MAX_DIMENSION)
+        self.assertEqual(_clamp_bytes(10), MIN_MAX_BYTES)
+        self.assertEqual(_clamp_bytes(None), DEFAULT_MAX_BYTES)
+        self.assertEqual(_clamp_bytes(99 * 1024 * 1024), ABSOLUTE_MAX_BYTES)
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "px.png"
+            path.write_bytes(PNG_1X1)
+            self.assertEqual(identify_size(str(path)), (1, 1))
+            payload = prepare_payload(str(path), max_width=1920, max_bytes=2 * 1024 * 1024)
+            self.assertEqual(payload["coordinate_width"], 1)
+            self.assertEqual(payload["scale"], 1.0)
+            self.assertNotIn("\n", payload["image_base64"])
+            self.assertLessEqual(payload["bytes"], payload["max_bytes"])
+            self.assertEqual(payload["mime_type"], "image/png")
+
+    def test_compact_tree_and_selectors(self):
+        from ai.computer_use.atspi import _states_from_flags, compact_tree, resolve_node
+
+        nodes = [
+            {"index": 0, "depth": 0, "parent_index": None, "name": "App", "role": "application", "actions": [], "text": "", "states": []},
+            {"index": 1, "depth": 2, "parent_index": 0, "name": "", "role": "filler", "actions": [], "text": "", "states": []},
+            {"index": 2, "depth": 2, "parent_index": 0, "name": "Save", "role": "push button", "actions": [{"name": "click"}], "text": "", "states": []},
+        ]
+        out = compact_tree(nodes)
+        self.assertEqual([n["index"] for n in out], list(range(len(out))))
+        self.assertTrue(any(n.get("name") == "Save" for n in out))
+        self.assertFalse(any(n.get("role") == "filler" for n in out))
+        node, err = resolve_node([], {"element_index": 0})
+        self.assertIsNone(node)
+        self.assertIn("snapshot", err.lower())
+        twins = [
+            {"index": 0, "role": "push button", "name": "OK", "text": "", "states": []},
+            {"index": 1, "role": "push button", "name": "OK", "text": "", "states": []},
+        ]
+        node, err = resolve_node(twins, {"role": "push button", "name": "OK"})
+        self.assertIsNone(node)
+        self.assertIn("Ambiguous", err)
+        self.assertIn("focused", _states_from_flags([1 << 12, 0]))
+
+    def test_doctor_shape_includes_noscreenshare(self):
+        from ai.computer_use.doctor import doctor_report
+
+        report = doctor_report(
+            native={
+                "noscreenshare": True,
+                "screens": [{"name": "eDP-1", "scale": 1}],
+                "focused_window": {"title": "Kitty"},
+                "locked": False,
+            },
+            atspi_ok=False,
+        )
+        self.assertTrue(report["noscreenshare"])
+        self.assertFalse(report["locked"])
+        self.assertEqual(report["screens"][0]["name"], "eDP-1")
+        self.assertIn("coordinate_space", report)
+        self.assertIn("can_screenshot", report)
+        self.assertIn("recommended_next_step", report)
+
+    def test_provider_image_fixtures(self):
+        from ai.providers.anthropic import _filter_messages
+        from ai.providers.gemini import _contents
+        from ai.providers.openai import _format_messages
+
+        tool_msg = {
+            "role": "tool",
+            "tool_call_id": "c1",
+            "name": "use_computer",
+            "content": "{\"status\": \"ok\"}",
+            "attachments": [{"type": "image", "base64": "aaa", "mimeType": "image/png"}],
+        }
+        _system, anthropic = _filter_messages([tool_msg])
+        block = anthropic[0]["content"][0]
+        self.assertEqual(block["type"], "tool_result")
+        self.assertTrue(any(item.get("type") == "image" for item in block["content"]))
+
+        openai = _format_messages([tool_msg])
+        self.assertEqual(openai[0]["role"], "tool")
+        self.assertEqual(openai[1]["role"], "user")
+        self.assertTrue(any(p.get("type") == "image_url" for p in openai[1]["content"]))
+
+        _sys, gemini = _contents([tool_msg])
+        kinds = [list(p.keys())[0] for p in gemini[0]["parts"]]
+        self.assertIn("functionResponse", kinds)
+        self.assertIn("inline_data", kinds)
+
+    def test_window_resolve_priority(self):
+        from ai.computer_use.windows import resolve_window
+
+        windows = [
+            {"address": "0x1", "class": "firefox", "title": "Mozilla Firefox", "pid": 10},
+            {"address": "0x2", "class": "kitty", "title": "zsh", "pid": 20, "terminal": {"tty": "/dev/pts/3", "pid": 20, "command": "zsh", "cwd": "/tmp"}},
+        ]
+        self.assertEqual(resolve_window(windows, {"address": "0x2"})["pid"], 20)
+        self.assertEqual(resolve_window(windows, {"tty": "pts/3"})["address"], "0x2")
+        self.assertEqual(resolve_window(windows, {"pid": 10})["class"], "firefox")
+        self.assertEqual(resolve_window(windows, {"title": "firefox"})["address"], "0x1")
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

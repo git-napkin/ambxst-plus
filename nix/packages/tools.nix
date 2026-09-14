@@ -25,6 +25,7 @@ with pkgs; [
   wl-clipboard
   wlsunset
   wtype
+  ydotool
   xdg-utils
   zbar
   zenity

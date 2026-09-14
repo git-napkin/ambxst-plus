@@ -163,6 +163,19 @@ ShellRoot {
         }
     }
 
+    Variants {
+        model: Quickshell.screens
+
+        Loader {
+            id: computerUseHudLoader
+            active: SuspendManager.wakeReady && ComputerUse.sessionActive && ComputerUse.hudScreen === modelData.name
+            required property ShellScreen modelData
+            sourceComponent: ComputerUseHud {
+                screen: computerUseHudLoader.modelData
+            }
+        }
+    }
+
     // Presets popup
     Variants {
         model: {

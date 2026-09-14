@@ -539,4 +539,105 @@ QtObject {
             }
         }
     }
+
+    // Silent computer-use capture. Never opens the human overlay.
+    signal silentCaptureReady(var result)
+
+    property bool _silentBusy: false
+    property var _silentQueue: []
+    property var _silentMeta: ({})
+    property string _silentRaw: ""
+    property string _silentOut: ""
+
+    function captureSilent(opts) {
+        opts = opts || {};
+        if (root._silentBusy) {
+            root._silentQueue = root._silentQueue.concat([opts]);
+            return;
+        }
+        root._silentBusy = true;
+        root._silentMeta = opts;
+        const stamp = Date.now();
+        root._silentRaw = "/tmp/ambxst+_cu_" + stamp + "_raw.png";
+        root._silentOut = "/tmp/ambxst+_cu_" + stamp + ".png";
+        const cmd = ["grim"];
+        if (opts.includeCursor !== false)
+            cmd.push("-c");
+        if (opts.fullScreen) {
+            cmd.push(root._silentRaw);
+        } else if (opts.monitor) {
+            cmd.push("-o", String(opts.monitor), root._silentRaw);
+        } else {
+            cmd.push(root._silentRaw);
+        }
+        silentGrim.command = cmd;
+        silentGrim.running = true;
+    }
+
+    function _silentDone(result) {
+        root._silentBusy = false;
+        root.silentCaptureReady(result);
+        if (root._silentQueue.length > 0) {
+            const next = root._silentQueue[0];
+            root._silentQueue = root._silentQueue.slice(1);
+            Qt.callLater(() => root.captureSilent(next));
+        }
+    }
+
+    property Process silentGrim: Process {
+        id: silentGrim
+        onExited: exitCode => {
+            if (exitCode !== 0) {
+                root._silentDone({ error: "Failed to capture screen (grim)" });
+                return;
+            }
+            const opts = root._silentMeta || {};
+            const cropW = Number(opts.cropW || 0);
+            const cropH = Number(opts.cropH || 0);
+            if (cropW > 0 && cropH > 0) {
+                const geom = Math.round(cropW) + "x" + Math.round(cropH) + "+" + Math.round(opts.cropX || 0) + "+" + Math.round(opts.cropY || 0);
+                silentCrop.command = ["convert", root._silentRaw, "-crop", geom, "+repage", root._silentOut];
+                silentCrop.running = true;
+                return;
+            }
+            silentCrop.command = ["cp", root._silentRaw, root._silentOut];
+            silentCrop.running = true;
+        }
+    }
+
+    property Process silentCrop: Process {
+        id: silentCrop
+        onExited: exitCode => {
+            if (exitCode !== 0) {
+                root._silentDone({
+                    path: root._silentRaw,
+                    origin_x: root._silentMeta.origin_x || 0,
+                    origin_y: root._silentMeta.origin_y || 0,
+                    monitor_scale: root._silentMeta.monitor_scale || 1,
+                    monitor: root._silentMeta.monitor || "",
+                    crop_x: 0,
+                    crop_y: 0,
+                    cropped_to_window: false,
+                    window_title: root._silentMeta.window_title || "",
+                    window_off_screen: !!root._silentMeta.window_off_screen,
+                    include_cursor: root._silentMeta.includeCursor !== false
+                });
+                return;
+            }
+            const opts = root._silentMeta || {};
+            root._silentDone({
+                path: root._silentOut,
+                origin_x: opts.origin_x || 0,
+                origin_y: opts.origin_y || 0,
+                monitor_scale: opts.monitor_scale || 1,
+                monitor: opts.monitor || "",
+                crop_x: opts.cropX || 0,
+                crop_y: opts.cropY || 0,
+                cropped_to_window: !!opts.cropped_to_window,
+                window_title: opts.window_title || "",
+                window_off_screen: !!opts.window_off_screen,
+                include_cursor: opts.includeCursor !== false
+            });
+        }
+    }
 }

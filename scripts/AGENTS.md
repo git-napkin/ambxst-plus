@@ -27,9 +27,10 @@ Python and Bash backend utilities invoked by QML services via `Quickshell.Io.Pro
 | `daemon_priority.sh` | Bash | Shell init | Process priority adjustment |
 | `camera_monitor.py` | Python | `CameraService.qml` | Long-running camera enumeration + in-use detection via /proc fd scan |
 | `ai/agent.py` | Python | `Ai.qml` | NDJSON agent loop, providers, Warp-shaped tools |
+| `ai/computer_use/` | Python | `use_computer` | Coords, screenshot downscale, input, AT-SPI, window targeting, doctor |
 
 ## CONVENTIONS
 - **Communication**: Scripts output to stdout; QML reads via `Process` + `SplitParser` or `StdioCollector`.
 - **Format**: Python scripts output JSON; Bash scripts output line-delimited text.
-- **Dependencies**: Scripts assume tools are installed (`wl-paste`, `wl-copy`, `hyprpicker`, `grim`, `slurp`, `tesseract`, `brightnessctl`). Nix/install.sh handles dependencies.
+- **Dependencies**: Scripts assume tools are installed (`wl-paste`, `wl-copy`, `hyprpicker`, `grim`, `slurp`, `tesseract`, `brightnessctl`, `wtype`, `ydotool`). Nix/install.sh handles dependencies.
 - **Error handling**: Scripts should exit cleanly on missing tools; QML services provide fallback values.

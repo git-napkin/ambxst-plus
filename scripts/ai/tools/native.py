@@ -35,7 +35,10 @@ FRIENDLY = {
 
 
 def native_request(ctx, name, args):
-    call_id = ctx.current_call_id or ""
+    import uuid
+
+    base = ctx.current_call_id or "native"
+    call_id = "%s:%s" % (base, uuid.uuid4().hex[:8])
     event = {
         "type": "native_request",
         "call_id": call_id,

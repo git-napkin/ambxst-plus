@@ -9,7 +9,8 @@ StyledRect {
     variant: "popup"
     radius: Styling.popupRadius()
 
-    property int contentHeight: list.contentHeight + 24
+    property int contentHeight: list.contentHeight + (compact ? 16 : 24)
+    property bool compact: false
 
     layer.enabled: true
     layer.effect: Shadow {}
@@ -17,7 +18,7 @@ StyledRect {
     ListView {
         id: list
         anchors.fill: parent
-        anchors.margins: 12
+        anchors.margins: root.compact ? 8 : 12
         clip: true
     spacing: 10
     model: Ai.currentChat

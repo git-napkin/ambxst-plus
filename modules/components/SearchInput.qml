@@ -43,6 +43,12 @@ StyledRect {
         textField.forceActiveFocus();
     }
 
+    function blurInput() {
+        textField.focus = false;
+    }
+
+    readonly property bool inputActive: textField.activeFocus
+
     function clear() {
         textField.text = "";
     }

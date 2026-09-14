@@ -35,6 +35,14 @@ QtObject {
             Qt.callLater(() => root.resultReady(callId, { ok: true, opened: true }));
             return;
         }
+        if (name === "computer_use_session") {
+            Qt.callLater(() => root.resultReady(callId, ComputerUse.handleSession(a)));
+            return;
+        }
+        if (name === "use_computer") {
+            ComputerUse.handleAction(a, result => root.resultReady(callId, result || {}));
+            return;
+        }
         let result = {};
         try {
             result = dispatch(name, a);
@@ -118,17 +126,7 @@ QtObject {
                 return { items: items };
             }
         case "get_windows":
-            {
-                const clients = AxctlService.clients.values || [];
-                return {
-                    windows: clients.map(c => ({
-                        address: c.address,
-                        title: c.title,
-                        class_name: c.class_name || c.className,
-                        focused: !!c.is_focused
-                    }))
-                };
-            }
+            return { windows: ComputerUse.windowsPayload() };
         case "get_notifications":
             {
                 const list = (Notifications.list || []).slice(0, 15).map(n => ({
