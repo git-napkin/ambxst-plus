@@ -1205,7 +1205,9 @@ class TestComputerUse(unittest.TestCase):
         from ai.computer_use.screenshot import (
             ABSOLUTE_MAX_BYTES,
             ABSOLUTE_MAX_DIMENSION,
+            DEFAULT_JPEG_QUALITY,
             DEFAULT_MAX_BYTES,
+            DEFAULT_MAX_DIMENSION,
             MIN_MAX_BYTES,
             _clamp_bytes,
             _clamp_dim,
@@ -1213,6 +1215,8 @@ class TestComputerUse(unittest.TestCase):
             prepare_payload,
         )
 
+        self.assertEqual(DEFAULT_MAX_DIMENSION, 1280)
+        self.assertEqual(DEFAULT_JPEG_QUALITY, 70)
         self.assertEqual(_clamp_dim(99999, 1920), ABSOLUTE_MAX_DIMENSION)
         self.assertEqual(_clamp_bytes(10), MIN_MAX_BYTES)
         self.assertEqual(_clamp_bytes(None), DEFAULT_MAX_BYTES)
@@ -1252,24 +1256,135 @@ class TestComputerUse(unittest.TestCase):
         self.assertIn("Ambiguous", err)
         self.assertIn("focused", _states_from_flags([1 << 12, 0]))
 
-    def test_doctor_shape_includes_noscreenshare(self):
-        from ai.computer_use.doctor import doctor_report
+    def test_select_app_roots_pid_and_public_tree(self):
+        from ai.computer_use.atspi import public_tree, select_app_roots, slim_node, tree_usable
 
-        report = doctor_report(
-            native={
-                "noscreenshare": True,
-                "screens": [{"name": "eDP-1", "scale": 1}],
-                "focused_window": {"title": "Kitty"},
-                "locked": False,
-            },
-            atspi_ok=False,
-        )
-        self.assertTrue(report["noscreenshare"])
-        self.assertFalse(report["locked"])
-        self.assertEqual(report["screens"][0]["name"], "eDP-1")
+        apps = [
+            {"path": "/a", "pid": 10, "name": "Firefox", "role": "application"},
+            {"path": "/b", "pid": 20, "name": "Kitty", "role": "application"},
+        ]
+        self.assertEqual(select_app_roots(apps, want_pid=20), ["/b"])
+        self.assertEqual(select_app_roots(apps, want_name="firefox"), ["/a"])
+        fat = {
+            "index": 3,
+            "parent_index": 0,
+            "role": "push button",
+            "name": "Save",
+            "states": ["enabled", "sensitive", "showing", "visible"],
+            "actions": [{"name": "click", "description": "press"}],
+            "text": "x" * 500,
+            "object_ref": "/org/a11y/atspi/accessible/3",
+            "bounds": {"x": 1, "y": 2, "width": 3, "height": 4},
+        }
+        slim = slim_node(fat)
+        self.assertNotIn("object_ref", slim)
+        self.assertNotIn("bounds", slim)
+        self.assertEqual(slim["actions"], ["click"])
+        self.assertEqual(len(slim["text"]), 200)
+        public = public_tree([fat] * 200)
+        self.assertEqual(len(public), 150)
+        self.assertTrue(tree_usable([fat]))
+        self.assertFalse(tree_usable([{"name": "", "actions": [], "text": ""}]))
+
+    def test_snapshot_has_no_image_by_default(self):
+        from unittest.mock import patch
+        from ai.tools.computer_use import UseComputerTool, _maybe_shot
+
+        ctx = _ctx(".", execution_profile={"computerUse": "AlwaysAllow"})
+        ctx.computer_use_approved = True
+        ctx.computer_use_nodes = []
+        windows = [{"address": "0x1", "title": "Kitty", "class": "kitty", "pid": 9, "focused": True}]
+        tree = [
+            {
+                "index": 0,
+                "role": "push button",
+                "name": "Save",
+                "actions": [{"name": "click"}],
+                "text": "",
+                "states": ["enabled"],
+                "object_ref": "/a",
+                "bounds": {"x": 1, "y": 1, "width": 8, "height": 8},
+            }
+        ]
+        with patch("ai.tools.computer_use._native", return_value={"windows": windows}), patch(
+            "ai.tools.computer_use.atspi.snapshot_tree", return_value=tree
+        ), patch("ai.tools.computer_use.atspi.focused_element", return_value={"role": "push button", "name": "Save"}):
+            out = UseComputerTool()._dispatch(ctx, "snapshot", {})
+        self.assertEqual(out["status"], "ok")
+        self.assertNotIn("image_base64", out)
+        self.assertTrue(out["tree_usable"])
+        self.assertEqual(out["accessibility_tree"][0]["name"], "Save")
+        self.assertNotIn("object_ref", out["accessibility_tree"][0])
+        follow = _maybe_shot(ctx, {"action": "click"}, {"status": "ok", "implemented": "atspi"})
+        self.assertNotIn("image_base64", follow)
+
+    def test_doctor_socket_probe_order_and_unverified_noscreenshare(self):
+        from unittest.mock import patch
+        from ai.computer_use.doctor import doctor_report, parse_layers_noscreenshare, ydotool_socket_candidates
+
+        cands = ydotool_socket_candidates("/pref.sock")
+        self.assertEqual(cands[0], "/pref.sock")
+        self.assertIn("/tmp/.ydotool_socket", cands)
+        with patch("ai.computer_use.doctor.find_ydotool_socket", return_value=""), patch(
+            "ai.computer_use.doctor.layer_noscreenshare", return_value=False
+        ):
+            report = doctor_report(
+                native={
+                    "noscreenshare": True,
+                    "screens": [{"name": "eDP-1", "scale": 1}],
+                    "focused_window": {"title": "Kitty"},
+                    "locked": False,
+                },
+                atspi_ok=False,
+            )
+        self.assertFalse(report["noscreenshare"])
+        self.assertTrue(report["hide_for_capture"])
+        self.assertFalse(report["can_click"])
         self.assertIn("coordinate_space", report)
-        self.assertIn("can_screenshot", report)
-        self.assertIn("recommended_next_step", report)
+        flagged, found = parse_layers_noscreenshare(
+            {"eDP-1": [{"levels": {"2": [{"namespace": "ambxst+:computer-use", "no_screen_share": True}]}}]},
+        )
+        self.assertTrue(found)
+        self.assertTrue(flagged)
+
+    def test_computer_use_iter_cap(self):
+        from io import StringIO
+        from unittest.mock import patch
+        from ai.agent import MAX_COMPUTER_USE_ITERS, MAX_TOOL_ITERS, Agent
+
+        agent = Agent(stdin=StringIO(), stdout=StringIO())
+        payload = {
+            "execution_profile": {"computerUse": "AlwaysAsk"},
+            "enabled_tools": ["native"],
+            "system_prompt": "hi",
+            "model": {"provider": "openai", "model": "x"},
+        }
+        agent.apply_init(payload)
+        agent.computer_use_approved = True
+        self.assertEqual(agent._max_tool_iters(), MAX_COMPUTER_USE_ITERS)
+        agent.computer_use_approved = False
+        self.assertEqual(agent._max_tool_iters(), MAX_TOOL_ITERS)
+
+        class Prov:
+            def __init__(self):
+                self.n = 0
+
+            def stream_chat(self, *a, **k):
+                self.n += 1
+                if self.n <= 26:
+                    yield {"type": "tool_call", "id": "c%d" % self.n, "name": "wait", "args": {}}
+                else:
+                    yield {"type": "token", "text": "ok"}
+
+        agent.computer_use_approved = True
+        agent.messages = [{"role": "user", "content": "hi"}]
+        events = []
+        agent.emit = lambda ev: events.append(ev)
+        agent._dispatch_tool = lambda *a, **k: {"status": "ok"}
+        with patch("ai.agent.get_provider", return_value=Prov()):
+            agent._run_turn()
+        self.assertFalse(any(ev.get("error") == "tool iteration limit" for ev in events))
+        self.assertTrue(any(ev.get("type") == "done" for ev in events))
 
     def test_provider_image_fixtures(self):
         from ai.providers.anthropic import _filter_messages

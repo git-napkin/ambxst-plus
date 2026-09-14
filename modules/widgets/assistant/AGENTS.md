@@ -8,7 +8,7 @@ Spotlight-style AI overlay. Compact bar in the upper third of the focused monito
 | File | Role |
 |------|------|
 | `AssistantPopup.qml` | PanelWindow, Overlay, namespace `ambxst+:assistant`, FocusGrab, scrim |
-| `ComputerUseHud.qml` | HUD-sized PanelWindow, namespace `ambxst+:computer-use`, noscreenshare, composer / take-control |
+| `ComputerUseHud.qml` | HUD-sized PanelWindow, namespace `ambxst+:computer-use`; last assistant text only, auto-hides, Warp-style footer |
 | `AssistantBar.qml` | Search input, send/stop |
 | `AssistantIdleList.qml` | Recent chats, saved commands, slash hints |
 | `AssistantTranscript.qml` | Message list |

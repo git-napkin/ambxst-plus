@@ -27,6 +27,7 @@ Singleton {
     property var currentChat: []
     property string currentChatId: ""
     property var chatHistory: []
+    property real lastHudActivityAt: 0
 
     readonly property var pendingApproval: {
         const chat = currentChat || [];
@@ -361,6 +362,7 @@ Singleton {
             return;
         isLoading = true;
         lastError = "";
+        lastHudActivityAt = Date.now();
         const userMsg = { role: "user", content: text };
         if (attachments && attachments.length > 0)
             userMsg.attachments = attachments;
@@ -571,6 +573,7 @@ for f in files:
     }
 
     function appendToken(text) {
+        lastHudActivityAt = Date.now();
         const next = currentChat.slice();
         const last = next.length ? next[next.length - 1] : null;
         if (last && last.role === "assistant" && last.streaming) {

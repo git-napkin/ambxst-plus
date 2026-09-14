@@ -11,6 +11,9 @@ HARD_MAX_DEPTH = 64
 SNAPSHOT_TIMEOUT = 10
 MAX_TEXT = 4096
 MAX_DISCOVERY_ROOTS = 256
+MODEL_MAX_NODES = 150
+MODEL_MAX_TEXT = 200
+A11Y_HINT = "export GTK_A11Y=atspi and QT_LINUX_ACCESSIBILITY_ALWAYS_ON=1"
 
 CLICK_ACTIONS = ("click", "press", "toggle")
 
@@ -236,8 +239,93 @@ def _node_from_proxy(bus, path, index, parent_index, depth):
         "value": value,
         "text": text[:MAX_TEXT],
         "supports_editable_text": editable,
+        "pid": 0,
         "_children": children,
     }
+
+
+def _process_id(bus, path):
+    try:
+        obj = bus.get_object("org.a11y.atspi.Registry", path)
+        acc = _iface(obj, "org.a11y.atspi.Accessible")
+        return int(acc.GetProcessId())
+    except Exception:
+        return 0
+
+
+def _app_meta(bus, path):
+    node = _node_from_proxy(bus, path, 0, None, 0)
+    pid = _process_id(bus, path)
+    node["pid"] = pid
+    return {
+        "path": path,
+        "pid": pid,
+        "name": node.get("name") or "",
+        "role": node.get("role") or "",
+    }
+
+
+def select_app_roots(apps, want_pid=None, want_name=""):
+    apps = list(apps or [])
+    want_name = _norm(want_name or "")
+    if want_pid not in (None, ""):
+        try:
+            want_pid = int(want_pid)
+        except (TypeError, ValueError):
+            want_pid = None
+    if want_pid:
+        hits = [a.get("path") for a in apps if a.get("pid") == want_pid and a.get("path")]
+        if hits:
+            return hits[:1]
+    if want_name:
+        hits = []
+        for app in apps:
+            blob = " ".join([_norm(app.get("name") or ""), _norm(app.get("role") or "")])
+            if want_name in blob and app.get("path"):
+                hits.append(app.get("path"))
+        if hits:
+            return hits[:1]
+    return [a.get("path") for a in apps[:8] if a.get("path")]
+
+
+def slim_node(node, max_text=MODEL_MAX_TEXT):
+    node = node or {}
+    text = str(node.get("text") or "")
+    if len(text) > max_text:
+        text = text[:max_text]
+    actions = []
+    for item in node.get("actions") or []:
+        if isinstance(item, dict):
+            name = str(item.get("name") or "").strip()
+        else:
+            name = str(item or "").strip()
+        if name:
+            actions.append(name)
+    return {
+        "index": node.get("index"),
+        "parent_index": node.get("parent_index"),
+        "role": node.get("role") or "",
+        "name": node.get("name") or "",
+        "states": list(node.get("states") or [])[:12],
+        "actions": actions[:8],
+        "text": text,
+    }
+
+
+def public_tree(nodes, max_nodes=MODEL_MAX_NODES, max_text=MODEL_MAX_TEXT):
+    out = []
+    for node in list(nodes or []):
+        if len(out) >= max_nodes:
+            break
+        out.append(slim_node(node, max_text=max_text))
+    return out
+
+
+def tree_usable(nodes):
+    for node in list(nodes or []):
+        if (node.get("name") or "").strip() or node.get("actions") or (node.get("text") or "").strip():
+            return True
+    return False
 
 
 def snapshot_tree(pid=None, app_name=None, max_nodes=None, max_depth=None):
@@ -252,28 +340,17 @@ def snapshot_tree(pid=None, app_name=None, max_nodes=None, max_depth=None):
         apps = list(acc.GetChildren())[:MAX_DISCOVERY_ROOTS]
     except Exception as exc:
         raise RuntimeError("AT-SPI registry has no children: %s" % exc) from exc
-    roots = []
-    want_pid = None if pid in (None, "") else int(pid)
-    want_name = _norm(app_name or "")
+    metas = []
     for app in apps:
         path = str(app[1] if isinstance(app, (list, tuple)) and len(app) > 1 else app)
         try:
-            node = _node_from_proxy(bus, path, 0, None, 0)
+            metas.append(_app_meta(bus, path))
         except Exception:
             continue
-        if want_pid is not None:
-            # AT-SPI application nodes sometimes expose pid in name/description; skip strict pid if missing
-            pass
-        if want_name and want_name not in _norm(node.get("name") or "") and want_name not in _norm(node.get("role") or ""):
-            continue
-        roots.append(path)
-        if want_name or want_pid is not None:
-            break
+    roots = select_app_roots(metas, want_pid=pid, want_name=app_name)
     if not roots:
-        roots = [
-            str(app[1] if isinstance(app, (list, tuple)) and len(app) > 1 else app)
-            for app in apps[:8]
-        ]
+        roots = [m["path"] for m in metas[:8] if m.get("path")]
+    pid_by_path = {m["path"]: m.get("pid") or 0 for m in metas}
     nodes = []
     queue = [(path, None, 0) for path in roots]
     seen = set()
@@ -286,6 +363,7 @@ def snapshot_tree(pid=None, app_name=None, max_nodes=None, max_depth=None):
             node = _node_from_proxy(bus, path, len(nodes), parent, depth)
         except Exception:
             continue
+        node["pid"] = pid_by_path.get(path) or (pid if depth == 0 else 0) or 0
         children = node.pop("_children", [])
         nodes.append(node)
         if depth < cap_depth:

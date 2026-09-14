@@ -7,6 +7,7 @@ import qs.modules.theme
 import qs.modules.services
 import qs.modules.components
 import qs.config
+import "message_content.js" as MessageContent
 import "."
 
 PanelWindow {
@@ -32,13 +33,13 @@ PanelWindow {
     WlrLayershell.keyboardFocus: {
         if (!ComputerUse.sessionActive)
             return WlrKeyboardFocus.None;
-        if (ComputerUse.sessionState === "approvalWait" || ComputerUse.composerFocused)
+        if (ComputerUse.sessionState === "approvalWait" || (hud.cardVisible && ComputerUse.composerFocused))
             return WlrKeyboardFocus.Exclusive;
         return WlrKeyboardFocus.None;
     }
 
     mask: Region {
-        item: hud.visible ? hudRoot : emptyMask
+        item: hud.clickThrough ? emptyMask : hudRoot
     }
 
     Item {
@@ -48,17 +49,66 @@ PanelWindow {
     }
 
     readonly property int minWidth: 280
-    readonly property int maxWidth: 480
-    readonly property int headerHeight: 40
-    readonly property int composerHeight: ComputerUse.userHasControl || ComputerUse.hudCollapsed ? 0 : 52
+    readonly property int maxWidth: 420
+    readonly property int pad: 10
     readonly property int screenH: screen ? screen.height : 900
-    readonly property int maxHudHeight: Math.round(screenH * 0.5)
-    readonly property int bodyMax: {
-        if (ComputerUse.hudCollapsed)
-            return 0;
-        if (Ai.approvalPending)
-            return Math.max(120, maxHudHeight - headerHeight - composerHeight - 16);
-        return 280;
+    readonly property int bodyMax: Math.round(screenH * 0.4)
+    readonly property int innerRadius: Math.max(0, Styling.popupRadius() - pad)
+    property bool cardVisible: false
+    readonly property bool showChip: ComputerUse.sessionActive && ComputerUse.userHasControl
+    readonly property bool clickThrough: !hud.cardVisible && !hud.showChip
+    readonly property string assistantText: {
+        const chat = Ai.currentChat || [];
+        for (let i = chat.length - 1; i >= 0; i--) {
+            const msg = chat[i];
+            if (msg.role === "assistant") {
+                const text = String(msg.content || "").trim();
+                if (text.length)
+                    return String(msg.content || "");
+            }
+        }
+        return "";
+    }
+    readonly property string steerText: {
+        const chat = Ai.currentChat || [];
+        for (let i = chat.length - 1; i >= 0; i--) {
+            const msg = chat[i];
+            if (msg.role === "user")
+                return String(msg.content || "").trim();
+            if (msg.role === "assistant" && String(msg.content || "").trim().length)
+                break;
+        }
+        return "";
+    }
+    readonly property bool streaming: !!(Ai.isLoading && assistantText.length)
+
+    onCardVisibleChanged: {
+        if (!hud.cardVisible)
+            ComputerUse.composerFocused = false;
+    }
+
+    function refreshPresence() {
+        if (!ComputerUse.sessionActive || ComputerUse.hudHiddenForCapture) {
+            hud.cardVisible = false;
+            return;
+        }
+        if (Ai.approvalPending || ComputerUse.composerFocused) {
+            ComputerUse.hudCollapsed = false;
+            hud.cardVisible = true;
+            hideTimer.stop();
+            return;
+        }
+        if (ComputerUse.userHasControl || ComputerUse.hudCollapsed) {
+            hud.cardVisible = false;
+            hideTimer.stop();
+            return;
+        }
+        if (!hud.assistantText.length) {
+            hud.cardVisible = false;
+            return;
+        }
+        hud.cardVisible = true;
+        hideTimer.restart();
     }
 
     FocusGrab {
@@ -67,12 +117,62 @@ PanelWindow {
         active: ComputerUse.sessionState === "approvalWait"
     }
 
+    Timer {
+        id: hideTimer
+        interval: 2500
+        repeat: false
+        onTriggered: {
+            if (Ai.approvalPending || ComputerUse.composerFocused)
+                return;
+            hud.cardVisible = false;
+        }
+    }
+
+    Connections {
+        target: Ai
+        function onLastHudActivityAtChanged() {
+            ComputerUse.hudCollapsed = false;
+            hud.refreshPresence();
+        }
+        function onApprovalPendingChanged() {
+            hud.refreshPresence();
+        }
+        function onChatModelChanged() {
+            hud.refreshPresence();
+        }
+        function onIsLoadingChanged() {
+            hud.refreshPresence();
+        }
+    }
+
+    Connections {
+        target: ComputerUse
+        function onSessionActiveChanged() {
+            hud.refreshPresence();
+        }
+        function onUserHasControlChanged() {
+            hud.refreshPresence();
+        }
+        function onComposerFocusedChanged() {
+            hud.refreshPresence();
+        }
+        function onHudCollapsedChanged() {
+            hud.refreshPresence();
+        }
+    }
+
     Item {
         id: hudRoot
         width: Math.round(Math.min(hud.maxWidth, Math.max(hud.minWidth, ComputerUse.hudWidth)))
-        height: header.height + (body.visible ? body.height + 8 : 0) + (composer.visible ? composer.height + 8 : 0)
-        opacity: ComputerUse.sessionActive ? 1 : 0
-        y: ComputerUse.sessionActive ? 0 : 18
+        height: {
+            if (hud.showChip && !hud.cardVisible)
+                return chip.height;
+            if (!hud.cardVisible)
+                return 1;
+            return card.height;
+        }
+        opacity: (hud.cardVisible || hud.showChip) ? 1 : 0
+        y: (hud.cardVisible || hud.showChip) ? 0 : 12
 
         Behavior on opacity {
             enabled: Config.animDuration > 0
@@ -89,73 +189,40 @@ PanelWindow {
             }
         }
 
-        StyledRect {
-            anchors.fill: parent
-            variant: "popup"
-            radius: Styling.popupRadius()
-            layer.enabled: true
-            layer.effect: Shadow {}
-        }
-
-        MouseArea {
-            id: resizeEdge
-            anchors.left: parent.left
-            anchors.top: parent.top
-            anchors.bottom: parent.bottom
-            width: 8
-            cursorShape: Qt.SizeHorCursor
-            property real startW: 360
-            onPressed: startW = ComputerUse.hudWidth
-            onPositionChanged: ComputerUse.hudWidth = Math.min(hud.maxWidth, Math.max(hud.minWidth, startW - mouseX))
-        }
-
         Item {
-            id: header
-            anchors.top: parent.top
-            anchors.left: parent.left
-            anchors.right: parent.right
-            height: hud.headerHeight
+            id: chip
+            visible: hud.showChip && !hud.cardVisible
+            width: parent.width
+            height: visible ? 44 : 0
+
+            StyledRect {
+                anchors.fill: parent
+                variant: "popup"
+                radius: Styling.popupRadius()
+                layer.enabled: true
+                layer.effect: Shadow {}
+            }
 
             RowLayout {
                 anchors.fill: parent
-                anchors.leftMargin: 10
-                anchors.rightMargin: 6
-                spacing: 6
+                anchors.leftMargin: hud.pad
+                anchors.rightMargin: 4
+                spacing: 4
 
                 Text {
-                    text: Icons.mouse
-                    font.family: Icons.font
-                    font.pixelSize: Styling.fontSize(-1)
-                    color: Colors.primary
-                }
-
-                Column {
                     Layout.fillWidth: true
-                    spacing: 0
-                    Text {
-                        width: parent.width
-                        text: ComputerUse.userHasControl ? qsTr("You have control") : qsTr("Using computer")
-                        font.family: Config.theme.font
-                        font.pixelSize: Styling.fontSize(-2)
-                        font.weight: Font.Medium
-                        color: Colors.overSurface
-                        elide: Text.ElideRight
-                    }
-                    Text {
-                        width: parent.width
-                        visible: (ComputerUse.lastAction || "").length > 0
-                        text: ComputerUse.lastAction
-                        font.family: Config.theme.font
-                        font.pixelSize: Styling.fontSize(-4)
-                        color: Colors.outline
-                        elide: Text.ElideRight
-                    }
+                    text: qsTr("You have control")
+                    font.family: Config.theme.font
+                    font.pixelSize: Styling.fontSize(-2)
+                    font.weight: Font.Medium
+                    color: Colors.overSurface
+                    elide: Text.ElideRight
                 }
 
                 HudIconButton {
-                    icon: ComputerUse.userHasControl ? Icons.handGrab : Icons.hand
-                    tooltip: ComputerUse.userHasControl ? qsTr("Hand back") : qsTr("Take control")
-                    onClicked: ComputerUse.userHasControl ? ComputerUse.handBack() : ComputerUse.takeControl()
+                    icon: Icons.handGrab
+                    tooltip: qsTr("Hand back")
+                    onClicked: ComputerUse.handBack()
                 }
 
                 HudIconButton {
@@ -163,81 +230,218 @@ PanelWindow {
                     tooltip: qsTr("Stop")
                     onClicked: Ai.stopComputerUse()
                 }
-
-                HudIconButton {
-                    icon: ComputerUse.hudCollapsed ? Icons.caretUp : Icons.caretDown
-                    tooltip: ComputerUse.hudCollapsed ? qsTr("Expand") : qsTr("Collapse")
-                    onClicked: ComputerUse.hudCollapsed = !ComputerUse.hudCollapsed
-                }
             }
         }
 
         Item {
-            id: body
-            visible: !ComputerUse.hudCollapsed
-            anchors.top: header.bottom
-            anchors.topMargin: 8
-            anchors.left: parent.left
-            anchors.right: parent.right
-            anchors.leftMargin: 8
-            anchors.rightMargin: 8
-            height: Math.min(transcript.contentHeight, hud.bodyMax)
-            clip: true
-
-            AssistantTranscript {
-                id: transcript
-                anchors.fill: parent
-                compact: true
-            }
-        }
-
-        Item {
-            id: composer
-            visible: !ComputerUse.userHasControl && !ComputerUse.hudCollapsed
-            anchors.top: body.visible ? body.bottom : header.bottom
-            anchors.topMargin: 8
-            anchors.left: parent.left
-            anchors.right: parent.right
-            anchors.leftMargin: 8
-            anchors.rightMargin: 8
-            height: hud.composerHeight
+            id: card
+            visible: hud.cardVisible
+            width: parent.width
+            height: visible ? (header.height + body.height + 8 + footer.height + (composer.visible ? composer.height + 8 : 0) + hud.pad) : 0
 
             StyledRect {
                 anchors.fill: parent
-                variant: "internalbg"
-                radius: Math.max(0, Styling.popupRadius() - 8)
+                variant: "popup"
+                radius: Styling.popupRadius()
+                layer.enabled: true
+                layer.effect: Shadow {}
             }
 
-            SearchInput {
-                id: steerInput
-                anchors.fill: parent
-                variant: "transparent"
-                placeholderText: qsTr("Steer the agent…")
-                clearOnEscape: false
-                onAccepted: {
-                    const text = steerInput.text.trim();
-                    if (Ai.isLoading) {
-                        Ai.cancel();
-                        return;
+            MouseArea {
+                id: resizeEdge
+                anchors.left: parent.left
+                anchors.top: parent.top
+                anchors.bottom: parent.bottom
+                width: 8
+                cursorShape: Qt.SizeHorCursor
+                property real startW: 360
+                onPressed: startW = ComputerUse.hudWidth
+                onPositionChanged: ComputerUse.hudWidth = Math.min(hud.maxWidth, Math.max(hud.minWidth, startW - mouseX))
+            }
+
+            Item {
+                id: header
+                anchors.top: parent.top
+                anchors.left: parent.left
+                anchors.right: parent.right
+                anchors.topMargin: 6
+                height: hud.steerText.length && !Ai.approvalPending ? 28 : 0
+
+                Rectangle {
+                    visible: header.height > 0
+                    anchors.left: parent.left
+                    anchors.right: parent.right
+                    anchors.verticalCenter: parent.verticalCenter
+                    anchors.leftMargin: hud.pad
+                    anchors.rightMargin: hud.pad
+                    height: 22
+                    radius: Math.max(0, hud.innerRadius - 6)
+                    color: Styling.tint(Colors.primary, 0.18)
+
+                    Text {
+                        anchors.fill: parent
+                        anchors.leftMargin: 8
+                        anchors.rightMargin: 8
+                        text: hud.steerText
+                        font.family: Config.theme.font
+                        font.pixelSize: Styling.fontSize(-3)
+                        color: Colors.primary
+                        elide: Text.ElideRight
+                        verticalAlignment: Text.AlignVCenter
                     }
-                    if (!text.length)
-                        return;
-                    Ai.sendMessage(text);
-                    steerInput.clear();
-                }
-                onEscapePressed: {
-                    if (Ai.approvalPending)
-                        Ai.rejectPendingApproval();
-                    else
-                        steerInput.blurInput();
                 }
             }
 
-            Binding {
-                target: ComputerUse
-                property: "composerFocused"
-                value: steerInput.inputActive
-                when: hud.visible
+            Item {
+                id: body
+                anchors.top: header.bottom
+                anchors.topMargin: header.height > 0 ? 4 : 0
+                anchors.left: parent.left
+                anchors.right: parent.right
+                anchors.leftMargin: hud.pad
+                anchors.rightMargin: hud.pad
+                height: {
+                    if (Ai.approvalPending)
+                        return Math.min(approvalLoader.implicitHeight, hud.bodyMax);
+                    return Math.min(markdown.implicitHeight, hud.bodyMax);
+                }
+                clip: true
+
+                ApprovalCard {
+                    id: approvalLoader
+                    visible: Ai.approvalPending
+                    width: parent.width
+                    call: Ai.pendingApproval || ({})
+                }
+
+                TextEdit {
+                    id: markdown
+                    visible: !Ai.approvalPending
+                    width: parent.width
+                    readOnly: true
+                    selectByMouse: true
+                    wrapMode: TextEdit.Wrap
+                    textFormat: Text.RichText
+                    text: MessageContent.markdownToRichText(hud.assistantText, Config.theme.monoFont)
+                    color: Colors.overSurface
+                    font.family: Config.theme.font
+                    font.pixelSize: Styling.fontSize(-1)
+                }
+
+                Rectangle {
+                    visible: !Ai.approvalPending && markdown.implicitHeight > body.height
+                    anchors.left: parent.left
+                    anchors.right: parent.right
+                    anchors.bottom: parent.bottom
+                    height: 28
+                    gradient: Gradient {
+                        GradientStop {
+                            position: 0
+                            color: Qt.rgba(Colors.background.r, Colors.background.g, Colors.background.b, 0)
+                        }
+                        GradientStop {
+                            position: 1
+                            color: Styling.tint(Colors.background, 0.92)
+                        }
+                    }
+                }
+            }
+
+            Item {
+                id: footer
+                anchors.top: body.bottom
+                anchors.topMargin: 8
+                anchors.left: parent.left
+                anchors.right: parent.right
+                anchors.leftMargin: 4
+                anchors.rightMargin: 4
+                height: 40
+
+                RowLayout {
+                    anchors.fill: parent
+                    spacing: 2
+
+                    HudIconButton {
+                        icon: ComputerUse.userHasControl ? Icons.handGrab : Icons.hand
+                        tooltip: ComputerUse.userHasControl ? qsTr("Hand back") : qsTr("Take control")
+                        onClicked: ComputerUse.userHasControl ? ComputerUse.handBack() : ComputerUse.takeControl()
+                    }
+
+                    HudIconButton {
+                        icon: Icons.stop
+                        tooltip: qsTr("Stop")
+                        onClicked: Ai.stopComputerUse()
+                    }
+
+                    Item { Layout.fillWidth: true }
+
+                    Text {
+                        visible: hud.streaming
+                        text: qsTr("Waiting")
+                        font.family: Config.theme.font
+                        font.pixelSize: Styling.fontSize(-4)
+                        color: Colors.outline
+                    }
+
+                    HudIconButton {
+                        icon: Icons.minusCircle
+                        tooltip: qsTr("Hide")
+                        onClicked: {
+                            ComputerUse.hudCollapsed = true;
+                            hud.cardVisible = false;
+                        }
+                    }
+                }
+            }
+
+            Item {
+                id: composer
+                visible: !ComputerUse.userHasControl && hud.cardVisible
+                anchors.top: footer.bottom
+                anchors.topMargin: 8
+                anchors.left: parent.left
+                anchors.right: parent.right
+                anchors.leftMargin: hud.pad
+                anchors.rightMargin: hud.pad
+                height: 44
+
+                StyledRect {
+                    anchors.fill: parent
+                    variant: "internalbg"
+                    radius: hud.innerRadius
+                }
+
+                SearchInput {
+                    id: steerInput
+                    anchors.fill: parent
+                    variant: "transparent"
+                    placeholderText: qsTr("Steer the agent…")
+                    clearOnEscape: false
+                    onAccepted: {
+                        const text = steerInput.text.trim();
+                        if (Ai.isLoading) {
+                            Ai.cancel();
+                            return;
+                        }
+                        if (!text.length)
+                            return;
+                        Ai.sendMessage(text);
+                        steerInput.clear();
+                    }
+                    onEscapePressed: {
+                        if (Ai.approvalPending)
+                            Ai.rejectPendingApproval();
+                        else
+                            steerInput.blurInput();
+                    }
+                }
+
+                Binding {
+                    target: ComputerUse
+                    property: "composerFocused"
+                    value: steerInput.inputActive
+                    when: hud.visible && hud.cardVisible
+                }
             }
         }
     }
@@ -258,30 +462,37 @@ PanelWindow {
         onActivated: Ai.rejectPendingApproval()
     }
 
-    component HudIconButton: StyledRect {
+    component HudIconButton: Item {
         id: btn
         property string icon: ""
         property string tooltip: ""
         signal clicked
-        variant: "internalbg"
-        radius: Styling.radius(-4)
-        implicitWidth: 28
-        implicitHeight: 28
+        implicitWidth: 40
+        implicitHeight: 40
         scale: area.pressed ? 0.96 : 1
 
-        Rectangle {
-            anchors.fill: parent
-            radius: parent.radius
-            color: area.containsMouse ? Styling.tint(Colors.overSurface, Styling.hoverAlpha) : "transparent"
+        StyledRect {
+            anchors.centerIn: parent
+            width: 28
+            height: 28
+            variant: "internalbg"
+            radius: Styling.radius(-4)
+
+            Rectangle {
+                anchors.fill: parent
+                radius: parent.radius
+                color: area.containsMouse ? Styling.tint(Colors.overSurface, Styling.hoverAlpha) : "transparent"
+            }
+
+            Text {
+                anchors.centerIn: parent
+                text: btn.icon
+                font.family: Icons.font
+                font.pixelSize: Styling.fontSize(-2)
+                color: Colors.overSurface
+            }
         }
 
-        Text {
-            anchors.centerIn: parent
-            text: btn.icon
-            font.family: Icons.font
-            font.pixelSize: Styling.fontSize(-2)
-            color: Colors.overSurface
-        }
         MouseArea {
             id: area
             anchors.fill: parent

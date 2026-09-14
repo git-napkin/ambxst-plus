@@ -31,6 +31,7 @@ DEFAULT_SYSTEM = (
 )
 
 MAX_TOOL_ITERS = 25
+MAX_COMPUTER_USE_ITERS = 500
 
 
 class Pending:
@@ -125,8 +126,8 @@ class Agent:
         if self.ctx.profile.computer_use != NEVER:
             extra.append(
                 "Computer use is available. Call request_computer_use first, then use_computer. "
-                "Start with action=snapshot. Click coordinates are in the returned image space "
-                "(coordinate_width x coordinate_height). Prefer accessibility element_index over pixels. "
+                "Start with action=snapshot to read the accessibility tree, windows, and focused text. "
+                "Click by element_index. Call action=screenshot only if tree_usable is false or you need pixels. "
                 "The user-only HUD will not appear in screenshots. Read the computer-use skill for details."
             )
         if extra:
@@ -321,12 +322,17 @@ class Agent:
         except Exception as exc:
             self.emit({"type": "error", "error": str(exc)})
 
+    def _max_tool_iters(self):
+        if self.computer_use_approved:
+            return MAX_COMPUTER_USE_ITERS
+        return MAX_TOOL_ITERS
+
     def _run_turn(self):
         provider = get_provider(self.model, custom_endpoint=self.ctx.custom_endpoint)
         tools = self._tool_schemas()
         api_key = self._api_key()
         endpoint = self.ctx.custom_endpoint or self.model.get("endpoint") or ""
-        for _ in range(MAX_TOOL_ITERS):
+        for _ in range(self._max_tool_iters()):
             if self.cancel_event.is_set():
                 self.emit({"type": "cancelled"})
                 return

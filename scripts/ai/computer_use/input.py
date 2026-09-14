@@ -8,12 +8,12 @@ import subprocess
 import threading
 import time
 
-from .doctor import ydotool_socket_path
+from .doctor import find_ydotool_socket, ydotool_socket_path
 
 INPUT_LOCK = threading.Lock()
 MOVE_SETTLE = 0.03
 CLICK_HOLD = 0.035
-FOCUS_SETTLE = 0.12
+FOCUS_SETTLE = 0.05
 YDOTOOL_CLICK = {
     "left": "0xC0",
     "primary": "0xC0",
@@ -23,6 +23,16 @@ YDOTOOL_CLICK = {
     "extra": "0xC4",
     "forward": "0xC5",
     "back": "0xC6",
+}
+YDOTOOL_CLICK_NAME = {
+    "left": "BTN_LEFT",
+    "primary": "BTN_LEFT",
+    "right": "BTN_RIGHT",
+    "middle": "BTN_MIDDLE",
+    "side": "BTN_SIDE",
+    "extra": "BTN_EXTRA",
+    "forward": "BTN_FORWARD",
+    "back": "BTN_BACK",
 }
 YDOTOOL_DOWN = {
     "left": "0x40",
@@ -76,6 +86,7 @@ HYPR_MOD = {
 }
 
 _held = []
+_click_form = None
 
 
 def _run(argv, timeout=10, stdin_data=None, env=None):
@@ -101,34 +112,68 @@ def movecursor(x, y):
             return True
     axctl = shutil.which("axctl")
     if axctl:
-        result = _run([axctl, "system", "execute", "movecursor %s %s" % (int(x), int(y))])
-        time.sleep(MOVE_SETTLE)
-        return result.returncode == 0
+        result = _run([axctl, "system", "move-cursor", str(int(x)), str(int(y))])
+        if result.returncode == 0 and b"Error" not in (result.stderr or b"") + (result.stdout or b""):
+            time.sleep(MOVE_SETTLE)
+            return True
     return False
 
 
 def _ydotool_env():
-    return {"YDOTOOL_SOCKET": ydotool_socket_path()}
+    path = find_ydotool_socket() or ydotool_socket_path()
+    return {"YDOTOOL_SOCKET": path}
 
 
 def _ydotool(args, timeout=10):
     exe = shutil.which("ydotool")
     if not exe:
         raise RuntimeError("ydotool is not installed")
-    result = _run([exe] + list(args), timeout=timeout, env=_ydotool_env())
+    sock = find_ydotool_socket()
+    if not sock:
+        raise RuntimeError("ydotool socket is not connected (is ydotoold running?)")
+    result = _run([exe] + list(args), timeout=timeout, env={"YDOTOOL_SOCKET": sock})
     if result.returncode != 0:
         err = (result.stderr or result.stdout or b"").decode("utf-8", "replace").strip()
         raise RuntimeError(err or "ydotool failed")
     return True
 
 
-def click(button="left", count=1):
-    code = YDOTOOL_CLICK.get(str(button or "left").lower())
-    if not code:
+def _click_code(button):
+    global _click_form
+    key = str(button or "left").lower()
+    hex_code = YDOTOOL_CLICK.get(key)
+    name_code = YDOTOOL_CLICK_NAME.get(key)
+    if not hex_code and not name_code:
         raise RuntimeError("unsupported mouse button: %s" % button)
+    if _click_form is None:
+        exe = shutil.which("ydotool")
+        help_text = ""
+        if exe:
+            result = _run([exe, "click", "--help"], timeout=4)
+            help_text = ((result.stdout or b"") + (result.stderr or b"")).decode("utf-8", "replace")
+        if "BTN_LEFT" in help_text and "0xC0" not in help_text:
+            _click_form = "name"
+        else:
+            _click_form = "hex"
+    if _click_form == "name":
+        return name_code or hex_code
+    return hex_code or name_code
+
+
+def click(button="left", count=1):
+    global _click_form
+    code = _click_code(button)
     repeats = max(1, min(10, int(count or 1)))
     with INPUT_LOCK:
-        _ydotool(["click", "--repeat", str(repeats), code])
+        try:
+            _ydotool(["click", "--repeat", str(repeats), code])
+        except RuntimeError as exc:
+            alt = YDOTOOL_CLICK_NAME.get(str(button or "left").lower()) if _click_form != "name" else YDOTOOL_CLICK.get(str(button or "left").lower())
+            if alt and alt != code:
+                _click_form = "name" if _click_form != "name" else "hex"
+                _ydotool(["click", "--repeat", str(repeats), alt])
+                return
+            raise RuntimeError("click failed: %s" % exc) from exc
 
 
 def scroll(direction="down", pages=1):
@@ -237,20 +282,22 @@ def parse_chord(spec):
 
 def press_key(spec, address=""):
     mods, key = parse_chord(spec)
+    modmask = ",".join(HYPR_MOD[m] for m in mods if m in HYPR_MOD)
+    target = address or "activewindow"
+    if not str(target).startswith("address:") and target != "activewindow":
+        target = "address:%s" % target
     hypr = shutil.which("hyprctl")
     if hypr:
-        modmask = ",".join(HYPR_MOD[m] for m in mods if m in HYPR_MOD)
-        target = address or "activewindow"
-        if not str(target).startswith("address:") and target != "activewindow":
-            target = "address:%s" % target
-        args = [hypr, "dispatch", "sendshortcut"]
-        chord = "%s,%s,%s" % (modmask, key, target) if modmask else "%s,%s" % (key, target)
-        # hyprctl sendshortcut: [modmask,]key,window
         if modmask:
             result = _run([hypr, "dispatch", "sendshortcut", modmask, key, target])
         else:
             result = _run([hypr, "dispatch", "sendshortcut", key, target])
         if result.returncode == 0 and b"Invalid" not in (result.stdout or b"") + (result.stderr or b""):
+            return True
+    axctl = shutil.which("axctl")
+    if axctl:
+        result = _run([axctl, "system", "send-shortcut", modmask, key, target])
+        if result.returncode == 0 and b"Error" not in (result.stderr or b"") + (result.stdout or b""):
             return True
     wtype = shutil.which("wtype")
     with INPUT_LOCK:

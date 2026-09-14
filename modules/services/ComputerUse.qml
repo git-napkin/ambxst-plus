@@ -17,11 +17,11 @@ Singleton {
     property bool noscreenshare: false
     property bool composerFocused: false
     property bool ydotoolStarted: false
+    property string ydotoolSocket: ""
     property string lastAction: ""
     property string taskSummary: ""
     property string hudScreen: ""
     property real hudWidth: 360
-    property var pidByAddress: ({})
 
     property var _actionCb: null
     property var _pendingCapture: null
@@ -82,7 +82,7 @@ Singleton {
         if (!c)
             return null;
         const addr = c.address || "";
-        const pid = c.pid || root.pidByAddress[addr] || 0;
+        const pid = c.pid || 0;
         return {
             address: addr,
             title: c.title || "",
@@ -142,6 +142,7 @@ Singleton {
         return {
             locked: !!GlobalStates.lockscreenVisible,
             noscreenshare: root.noscreenshare,
+            ydotool_socket: root.ydotoolSocket,
             screens: root.screenList(),
             focused_window: focused,
             windows: root.windowsPayload()
@@ -149,17 +150,14 @@ Singleton {
     }
 
     function applyNoscreenshare() {
-        Quickshell.execDetached(["hyprctl", "keyword", "layerrule", "noscreenshare,ambxst+:computer-use"]);
-        root.noscreenshare = true;
+        Quickshell.execDetached(["hyprctl", "keyword", "layerrule", "no_screen_share,ambxst\\+:computer-use"]);
+        root.noscreenshare = false;
     }
 
     function ensureYdotoold() {
-        if (root.ydotoolStarted || ydoProc.running)
+        if (root.ydotoolStarted || ydoProc.running || ydoProbeProc.running)
             return;
-        const runtime = Quickshell.env("XDG_RUNTIME_DIR") || "/tmp";
-        ydoProc.command = ["ydotoold", "--socket", runtime + "/.ydotool_socket"];
-        ydoProc.running = true;
-        root.ydotoolStarted = true;
+        ydoProbeProc.running = true;
     }
 
     function begin(summary) {
@@ -174,7 +172,6 @@ Singleton {
         root.hudScreen = Visibilities.lastFocusedScreen || (root.pickScreen("") ? root.pickScreen("").name : "");
         root.applyNoscreenshare();
         root.ensureYdotoold();
-        root.refreshPids();
         root.sessionState = "agentDriving";
         if (Visibilities.currentActiveModule !== "assistant")
             Visibilities.setActiveModule("assistant");
@@ -358,13 +355,9 @@ Singleton {
             }
         }
         root._actionCb = cb;
-        if (!root.noscreenshare) {
-            root.hudHiddenForCapture = true;
-            root._pendingCapture = { opts: opts, cb: cb };
-            hideTimer.restart();
-            return;
-        }
-        Screenshot.captureSilent(opts);
+        root.hudHiddenForCapture = true;
+        root._pendingCapture = { opts: opts, cb: cb };
+        hideTimer.restart();
     }
 
     function focusWindow(args, warp, cb) {
@@ -401,18 +394,94 @@ Singleton {
         cb({ ok: true, address: win.address });
     }
 
+    function parseCursorText(text) {
+        const raw = String(text || "").trim();
+        if (raw.charAt(0) === "{") {
+            try {
+                const obj = JSON.parse(raw);
+                return { x: Number(obj.x) || 0, y: Number(obj.y) || 0, raw: raw };
+            } catch (e) {
+            }
+        }
+        const parts = raw.split(",");
+        const x = parseInt(parts[0], 10);
+        const y = parseInt(parts[1], 10);
+        return { x: isNaN(x) ? 0 : x, y: isNaN(y) ? 0 : y, raw: raw };
+    }
+
     function readCursor(cb) {
         root._actionCb = cb;
         cursorProc.running = true;
     }
 
-    function refreshPids() {
-        pidProc.running = true;
+    Process {
+        id: ydoProc
+        running: false
+    }
+
+    Process {
+        id: ydoProbeProc
+        running: false
+        command: ["sh", "-c", "for s in \"${YDOTOOL_SOCKET}\" \"${XDG_RUNTIME_DIR:-/tmp}/.ydotool_socket\" /tmp/.ydotool_socket; do [ -S \"$s\" ] && printf '%s' \"$s\" && exit 0; done; exit 1"]
+        stdout: StdioCollector {}
+        onExited: code => {
+            const found = ((ydoProbeProc.stdout && ydoProbeProc.stdout.text) || "").trim();
+            if (code === 0 && found) {
+                root.ydotoolSocket = found;
+                root.ydotoolStarted = true;
+                return;
+            }
+            const runtime = Quickshell.env("XDG_RUNTIME_DIR") || "/tmp";
+            const sock = runtime + "/.ydotool_socket";
+            root.ydotoolSocket = sock;
+            ydoProc.command = ["ydotoold", "--socket", sock];
+            ydoProc.running = true;
+            ydoWaitTimer.tries = 0;
+            ydoWaitTimer.restart();
+        }
+    }
+
+    Timer {
+        id: ydoWaitTimer
+        interval: 120
+        repeat: true
+        property int tries: 0
+        onTriggered: {
+            tries += 1;
+            ydoReadyProc.running = true;
+            if (tries >= 25)
+                ydoWaitTimer.stop();
+        }
+    }
+
+    Process {
+        id: ydoReadyProc
+        running: false
+        command: ["sh", "-c", "sock=\"" + root.ydotoolSocket + "\"; [ -n \"$sock\" ] && [ -S \"$sock\" ]"]
+        onExited: code => {
+            if (code === 0) {
+                root.ydotoolStarted = true;
+                ydoWaitTimer.stop();
+            }
+        }
+    }
+
+    Process {
+        id: cursorProc
+        command: ["axctl", "system", "get-cursor-position"]
+        stdout: StdioCollector {}
+        onExited: () => {
+            const cb = root._actionCb;
+            root._actionCb = null;
+            const parsed = root.parseCursorText((cursorProc.stdout && cursorProc.stdout.text) || "");
+            if (cb)
+                cb(parsed);
+        }
     }
 
     Timer {
         id: hideTimer
-        interval: 40
+        interval: 50
         repeat: false
         onTriggered: {
             const pending = root._pendingCapture;
@@ -424,7 +493,7 @@ Singleton {
 
     Timer {
         id: raiseTimer
-        interval: 250
+        interval: 80
         repeat: false
         onTriggered: {
             const pending = root._pendingCapture;
@@ -450,51 +519,6 @@ Singleton {
                 root._actionCb = null;
                 if (cb)
                     cb({ ok: true, address: root._focusAddress, verified: !!match });
-            }
-        }
-    }
-
-    Process {
-        id: ydoProc
-        running: false
-    }
-
-    Process {
-        id: cursorProc
-        command: ["axctl", "system", "get-cursor-position"]
-        stdout: StdioCollector {}
-        onExited: () => {
-            const cb = root._actionCb;
-            root._actionCb = null;
-            const text = ((cursorProc.stdout && cursorProc.stdout.text) || "").trim();
-            const parts = text.split(",");
-            const x = parseInt(parts[0], 10);
-            const y = parseInt(parts[1], 10);
-            if (cb)
-                cb({ x: isNaN(x) ? 0 : x, y: isNaN(y) ? 0 : y, raw: text });
-        }
-    }
-
-    Process {
-        id: pidProc
-        command: ["hyprctl", "clients", "-j"]
-        stdout: StdioCollector {}
-        onExited: exitCode => {
-            if (exitCode !== 0)
-                return;
-            try {
-                const clients = JSON.parse(pidProc.stdout.text || "[]");
-                const map = {};
-                for (let i = 0; i < clients.length; i++) {
-                    const item = clients[i] || {};
-                    const addr = String(item.address || "");
-                    if (addr)
-                        map[addr] = item.pid || 0;
-                }
-                Qt.callLater(() => {
-                    root.pidByAddress = map;
-                });
-            } catch (e) {
             }
         }
     }

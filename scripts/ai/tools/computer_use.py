@@ -71,19 +71,17 @@ def _native(ctx, name, args):
 def _maybe_shot(ctx, args, result):
     if not isinstance(result, dict) or result.get("status") == "error":
         return result
-    if args.get("screenshot") is False:
+    if args.get("screenshot") is not True:
         return result
     action = args.get("action")
     if action in ("screenshot", "snapshot", "cursor", "wait"):
-        return result
-    if action not in MUTATING:
         return result
     shot = _capture(ctx, args, raise_window=False)
     if shot.get("status") != "error":
         result["screenshot"] = {k: v for k, v in shot.items() if k != "image_base64"}
         if shot.get("image_base64"):
             result["image_base64"] = shot["image_base64"]
-            result["mime_type"] = shot.get("mime_type") or "image/png"
+            result["mime_type"] = shot.get("mime_type") or "image/jpeg"
             result["path"] = shot.get("path")
     return result
 
@@ -108,12 +106,12 @@ def _capture(ctx, args, raise_window=None):
     try:
         prepared = cu_shot.prepare_payload(
             path,
-            max_width=args.get("max_width"),
-            max_height=args.get("max_height"),
+            max_width=args.get("max_width") or 1280,
+            max_height=args.get("max_height") or 1280,
             max_bytes=args.get("max_bytes"),
             scale=args.get("scale"),
-            fmt=args.get("format") or "png",
-            quality=args.get("quality"),
+            fmt=args.get("format") or "jpeg",
+            quality=args.get("quality") if args.get("quality") is not None else 70,
         )
     except Exception as exc:
         return _error(str(exc))
@@ -175,6 +173,37 @@ def _resolve_point(ctx, args):
         lx, ly = coords.preview_to_logical(x, y, meta)
         return lx, ly, "", None
     return int(x), int(y), "", None
+
+
+def _slim_windows(windows):
+    out = []
+    for win in windows or []:
+        out.append(
+            {
+                "address": win.get("address") or "",
+                "title": win.get("title") or "",
+                "class": win.get("class") or win.get("class_name") or "",
+                "pid": win.get("pid") or 0,
+                "focused": bool(win.get("focused") or win.get("is_focused")),
+                "at": win.get("at") or [],
+                "size": win.get("size") or [],
+            }
+        )
+    return out
+
+
+def _a11y_followup(ctx, node=None):
+    payload = {}
+    if node:
+        payload["element"] = atspi.slim_node(node)
+        payload["element_index"] = node.get("index")
+    try:
+        focused = atspi.focused_element(max_nodes=120, max_depth=10)
+    except Exception:
+        focused = None
+    if focused:
+        payload["focused"] = focused
+    return payload
 
 
 class RequestComputerUseTool(Tool):
@@ -241,9 +270,9 @@ class UseComputerTool(Tool):
     user_friendly_name = "Use computer"
     schema = {
         "description": (
-            "Control the local desktop. Prefer snapshot before clicking. Coordinates are in the "
-            "returned image space (coordinate_width x coordinate_height). One primary action per call. "
-            "Mutating actions return a follow-up screenshot unless screenshot=false."
+            "Control the local desktop. Observe with action=snapshot (accessibility tree, windows, "
+            "focused text — no screenshot). Click by element_index. Use action=screenshot only when "
+            "the tree is empty or you need pixels. Coordinates are in the returned image space."
         ),
         "parameters": {
             "type": "object",
@@ -361,13 +390,15 @@ class UseComputerTool(Tool):
         if action == "screenshot":
             return _capture(ctx, args, raise_window=args.get("raise_window"))
         if action == "snapshot":
-            shot = _capture(ctx, args, raise_window=False)
+            windows = _slim_windows(_window_list(ctx))
+            win = None
+            if args.get("address") or args.get("pid") or args.get("title") or args.get("class"):
+                win = cu_windows.resolve_window(_window_list(ctx), args)
+            elif windows:
+                win = next((w for w in _window_list(ctx) if w.get("focused") or w.get("is_focused")), None)
             tree = []
             tree_error = ""
             try:
-                win = None
-                if args.get("address") or args.get("pid") or args.get("title") or args.get("class"):
-                    win = cu_windows.resolve_window(_window_list(ctx), args)
                 tree = atspi.snapshot_tree(
                     pid=(win or {}).get("pid") if win else args.get("pid"),
                     app_name=(win or {}).get("class") or args.get("class") or args.get("name"),
@@ -378,11 +409,33 @@ class UseComputerTool(Tool):
             except Exception as exc:
                 tree_error = str(exc)
                 ctx.computer_use_nodes = []
-            out = dict(shot)
-            out["accessibility_tree"] = tree
-            out["accessibility_tree_raw_count"] = len(tree)
+            focused = None
+            try:
+                focused = atspi.focused_element(max_nodes=200, max_depth=12)
+            except Exception:
+                focused = None
+            usable = atspi.tree_usable(tree)
+            out = _ok(
+                {
+                    "windows": windows,
+                    "focused_window": _slim_windows([win])[0] if win else next((w for w in windows if w.get("focused")), None),
+                    "accessibility_tree": atspi.public_tree(tree),
+                    "accessibility_tree_raw_count": len(tree),
+                    "tree_usable": usable,
+                    "focused": focused,
+                }
+            )
             if tree_error:
                 out["accessibility_error"] = tree_error
+            if not usable:
+                out["accessibility_hint"] = atspi.A11Y_HINT
+            if args.get("screenshot") is True:
+                shot = _capture(ctx, args, raise_window=False)
+                if shot.get("status") != "error":
+                    out.update({k: v for k, v in shot.items() if k != "status"})
+                    out["status"] = shot.get("status") or "ok"
+                else:
+                    out["screenshot_error"] = shot.get("error")
             return out
         if action == "click":
             node = None
@@ -398,7 +451,9 @@ class UseComputerTool(Tool):
                 eq = atspi.click_equivalent(node)
                 if eq is not None:
                     atspi.perform_action(node, eq)
-                    return _ok({"implemented": "atspi", "element_index": node.get("index")})
+                    follow = _a11y_followup(ctx, node)
+                    follow.update({"implemented": "atspi", "element_index": node.get("index")})
+                    return _ok(follow)
             x, y, err, node = _resolve_point(ctx, args)
             if err:
                 return _error(err)
@@ -476,13 +531,17 @@ class UseComputerTool(Tool):
             if err or not node:
                 return _error(err or "call snapshot first")
             atspi.perform_action(node, args.get("atspi_action") or args.get("perform"))
-            return _ok({"implemented": "atspi"})
+            follow = _a11y_followup(ctx, node)
+            follow["implemented"] = "atspi"
+            return _ok(follow)
         if action == "set_value":
             node, err = atspi.resolve_node(ctx.computer_use_nodes, args)
             if err or not node:
                 return _error(err or "call snapshot first")
             atspi.set_value(node, args.get("value"))
-            return _ok({"implemented": "atspi"})
+            follow = _a11y_followup(ctx, node)
+            follow["implemented"] = "atspi"
+            return _ok(follow)
         return _error("unhandled action")
 
     def user_friendly_name_for(self, args):

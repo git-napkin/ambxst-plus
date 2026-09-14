@@ -415,7 +415,7 @@ Singleton {
         toml += "\n[[layer_rules]]\n";
         toml += "namespace = \"ambxst+:computer-use\"\n";
         toml += "no_anim = true\n";
-        toml += "noscreenshare = true\n";
+        toml += "no_screen_share = true\n";
 
         toml += "\n[[layer_rules]]\n";
         toml += "namespace = \"overview\"\n";

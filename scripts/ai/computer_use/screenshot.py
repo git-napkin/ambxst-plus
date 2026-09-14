@@ -9,12 +9,12 @@ import struct
 import subprocess
 import tempfile
 
-DEFAULT_MAX_DIMENSION = 1920
+DEFAULT_MAX_DIMENSION = 1280
 ABSOLUTE_MAX_DIMENSION = 4096
 DEFAULT_MAX_BYTES = 2 * 1024 * 1024
 ABSOLUTE_MAX_BYTES = 4 * 1024 * 1024
 MIN_MAX_BYTES = 1024
-DEFAULT_JPEG_QUALITY = 80
+DEFAULT_JPEG_QUALITY = 70
 
 
 def _clamp_dim(value, default):
@@ -111,12 +111,16 @@ def prepare_payload(
     fmt = "jpeg" if str(fmt).lower() in ("jpg", "jpeg") else "png"
     q = DEFAULT_JPEG_QUALITY if quality is None else max(1, min(95, int(quality)))
     original_bytes = os.path.getsize(path)
-    if fit >= 0.999 and fmt == "png" and original_bytes <= cap_bytes:
+    if fit >= 0.999 and original_bytes <= cap_bytes and (
+        (fmt == "png" and path.lower().endswith(".png"))
+        or (fmt == "jpeg" and path.lower().endswith((".jpg", ".jpeg")))
+    ):
         with open(path, "rb") as fh:
             data = fh.read()
+        ext = "jpg" if fmt == "jpeg" else "png"
         durable = os.path.join(
             tempfile.gettempdir(),
-            "ambxst+_cu_vision_%s.png" % os.path.basename(path).replace(".", "_"),
+            "ambxst+_cu_vision_%s.%s" % (os.path.basename(path).replace(".", "_"), ext),
         )
         with open(durable, "wb") as fh:
             fh.write(data)
@@ -131,9 +135,9 @@ def prepare_payload(
             "bytes": len(data),
             "original_bytes": original_bytes,
             "max_bytes": cap_bytes,
-            "format": "png",
-            "quality": None,
-            "mime_type": "image/png",
+            "format": fmt,
+            "quality": q if fmt == "jpeg" else None,
+            "mime_type": "image/jpeg" if fmt == "jpeg" else "image/png",
             "image_base64": base64.b64encode(data).decode("ascii"),
         }
     work = path
