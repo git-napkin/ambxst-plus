@@ -29,14 +29,21 @@ Singleton {
     // restored later. If no window is currently focused (e.g. the active
     // workspace is empty), nothing is saved so closing the overlay leaves the
     // user where they are instead of pulling focus to a stale window.
+    // overlayFocusHeld stays true for the whole overlay even when no window was
+    // saved: exclusive grabs keep the previous client marked focused/urgent,
+    // which must not be treated as activation.
+    property bool overlayFocusHeld: false
+
     function saveFocus() {
         let clients = root.clients.values || [];
         let current = clients.find(c => c.is_focused);
         root.savedFocusAddress = (current && current.address) ? current.address : "";
+        root.overlayFocusHeld = true;
     }
 
     // Re-focus the saved window after an overlay closes. Deferred (see below).
     function restoreFocus() {
+        root.overlayFocusHeld = false;
         if (root.savedFocusAddress)
             restoreFocusTimer.restart();
     }
@@ -106,6 +113,7 @@ Singleton {
     function clearSavedFocus() {
         restoreFocusTimer.stop();
         root.savedFocusAddress = "";
+        root.overlayFocusHeld = false;
     }
 
     property QtObject clients: QtObject {
@@ -367,6 +375,7 @@ Singleton {
     // switch, so identical follow targets are throttled to once per window.
     property string _lastFollowKey: ""
     property int _lastFollowTime: 0
+    property string _lastFocusedAddress: ""
 
     // Mirrors KDE/GNOME behaviour: when a window is activated on a workspace
     // that isn't the active one of its monitor, follow it there. Hyprland only
@@ -383,22 +392,35 @@ Singleton {
             return;
 
         const monitors = root.monitors.values || [];
+        const focused = root.focusedClient;
+        const focusedAddr = (focused && focused.is_focused && focused.address) ? String(focused.address) : "";
+
+        // Exclusive overlays keep the previous client marked focused/urgent.
+        // Chasing that after a user workspace switch snaps back a frame later.
+        if (root.overlayFocusHeld) {
+            if (focusedAddr)
+                root._lastFocusedAddress = focusedAddr;
+            return;
+        }
 
         // Path 1 — the compositor actually focused a window on a non-active
         // workspace (xdg-activation succeeded, e.g. misc:focus_on_activate is
-        // enabled). The focusedClient fallback in applyState() keeps the last
-        // real focus around for restoreFocus(), but that window may live on a
-        // workspace the user just left (e.g. an empty workspace has no focused
-        // window) — following it would yank the user straight back to the old
-        // workspace. Only follow a window the compositor reports as focused.
-        const focused = root.focusedClient;
+        // enabled). Only follow when THIS window newly became focused. The same
+        // client staying focused while the active workspace changes is a user
+        // switch (or an empty workspace), not an activation.
         if (focused && focused.is_focused && (focused.workspace?.id ?? 0) > 0) {
             const fmon = monitors.find(m => m.id === focused.monitor);
             if (fmon && fmon.activeWorkspace && fmon.activeWorkspace.id !== focused.workspace.id) {
-                root.followTo(focused.address, focused.workspace.id, focused.monitor, false);
-                return;
+                if (focusedAddr && focusedAddr !== root._lastFocusedAddress) {
+                    root.followTo(focused.address, focused.workspace.id, focused.monitor, false);
+                    root._lastFocusedAddress = focusedAddr;
+                    return;
+                }
             }
         }
+
+        if (focusedAddr)
+            root._lastFocusedAddress = focusedAddr;
 
         // Path 2 — a window is demanding attention (urgent) on a non-active
         // workspace. This is what Hyprland reports when an activation request
