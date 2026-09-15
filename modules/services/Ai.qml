@@ -9,7 +9,6 @@ import "ai"
 Singleton {
     id: root
 
-    property string chatDir: Quickshell.env("HOME") + "/.local/share/ambxst+/chats"
     property string agentScript: Qt.resolvedUrl("../../scripts/ai/agent.py").toString().replace("file://", "")
     property string bundledSkills: Qt.resolvedUrl("../../assets/ai/skills").toString().replace("file://", "")
 
@@ -26,7 +25,6 @@ Singleton {
     property string lastError: ""
     property var currentChat: []
     property string currentChatId: ""
-    property var chatHistory: []
     property real lastHudActivityAt: 0
 
     readonly property var pendingApproval: {
@@ -41,7 +39,6 @@ Singleton {
     readonly property bool approvalPending: pendingApproval !== null
 
     signal chatModelChanged
-    signal historyModelChanged
     signal modelSelectionRequested
 
     onChatModelChanged: ComputerUse.syncFromChat(approvalPending)
@@ -267,7 +264,6 @@ Singleton {
     Component.onCompleted: {
         if (StateService.initialized)
             restoreModel();
-        reloadHistory();
         createNewChat();
         agentProc.running = true;
         if (models.length === 0)
@@ -404,7 +400,6 @@ Singleton {
         next.push(userMsg);
         currentChat = next;
         chatModelChanged();
-        saveCurrentChat();
         sendInit();
         const ctx = desktopContext();
         writeCmd({
@@ -559,7 +554,6 @@ Singleton {
         for (let i = endExclusive; i < chat.length; i++)
             next.push(chat[i]);
         currentChat = next;
-        saveCurrentChat();
         chatModelChanged();
     }
 
@@ -569,7 +563,6 @@ Singleton {
         const next = currentChat.slice();
         next[index] = Object.assign({}, next[index], { content: newContent });
         currentChat = next;
-        saveCurrentChat();
         chatModelChanged();
     }
 
@@ -595,52 +588,6 @@ Singleton {
         chatModelChanged();
         if (agentReady)
             writeCmd({ cmd: "load_chat", messages: [] });
-    }
-
-    function deleteChat(id) {
-        if (id === currentChatId)
-            createNewChat();
-        deleteChatProcess.command = ["rm", chatDir + "/" + id + ".json"];
-        deleteChatProcess.running = true;
-    }
-
-    function saveCurrentChat() {
-        if (currentChat.length === 0)
-            return;
-        saveChatProcess.filePath = chatDir + "/" + currentChatId + ".json";
-        saveChatProcess.data = JSON.stringify(currentChat, null, 2);
-        saveChatProcess.command = ["/usr/bin/mkdir", "-p", chatDir];
-        saveChatProcess.running = true;
-    }
-
-    function reloadHistory() {
-        const py = `import os, json, glob
-chat_dir = ${JSON.stringify(chatDir)}
-os.makedirs(chat_dir, exist_ok=True)
-files = sorted(glob.glob(chat_dir + "/*.json"), key=os.path.getmtime, reverse=True)
-for f in files:
-    id = os.path.basename(f)[:-5]
-    title = "New Chat"
-    try:
-        with open(f) as fp:
-            data = json.load(fp)
-            for msg in data:
-                if msg.get("role") == "user":
-                    title = msg.get("content", "")[:40].replace("\\n", " ").strip()
-                    if len(msg.get("content", "")) > 40: title += "..."
-                    break
-    except Exception:
-        pass
-    print(f"{id}|{title}")
-`;
-        listHistoryProcess.command = ["python3", "-c", py];
-        listHistoryProcess.running = true;
-    }
-
-    function loadChat(id) {
-        loadChatProcess.targetId = id;
-        loadChatProcess.command = ["cat", chatDir + "/" + id + ".json"];
-        loadChatProcess.running = true;
     }
 
     function markCall(callId, patch, roles) {
@@ -770,8 +717,6 @@ for f in files:
                 if (next.length && next[next.length - 1].streaming)
                     next[next.length - 1] = Object.assign({}, next[next.length - 1], { streaming: false });
                 currentChat = next;
-                saveCurrentChat();
-                reloadHistory();
                 chatModelChanged();
             }
             break;
@@ -1002,73 +947,6 @@ for f in files:
         interval: 800
         repeat: false
         onTriggered: agentProc.running = true
-    }
-
-    FileView {
-        id: chatFileView
-        printErrors: false
-    }
-
-    Process {
-        id: saveChatProcess
-        property string filePath: ""
-        property string data: ""
-        onExited: exitCode => {
-            if (exitCode === 0 && filePath.length > 0) {
-                chatFileView.path = filePath;
-                if (data.length > 0)
-                    chatFileView.setText(data);
-            }
-        }
-    }
-
-    Process {
-        id: listHistoryProcess
-        stdout: StdioCollector {
-            id: historyOut
-        }
-        onExited: () => {
-            Qt.callLater(() => {
-                const lines = historyOut.text.trim().split("\n").filter(l => l.length);
-                const hist = [];
-                for (let i = 0; i < lines.length; i++) {
-                    const sp = lines[i].split("|");
-                    hist.push({ id: sp[0], title: sp.slice(1).join("|") });
-                }
-                root.chatHistory = hist;
-                root.historyModelChanged();
-            });
-        }
-    }
-
-    Process {
-        id: loadChatProcess
-        property string targetId: ""
-        stdout: StdioCollector {
-            id: loadOut
-        }
-        onExited: exitCode => {
-            if (exitCode !== 0)
-                return;
-            Qt.callLater(() => {
-                try {
-                    root.currentChat = JSON.parse(loadOut.text);
-                    root.currentChatId = targetId;
-                    // Allow-all is per chat session — reset when switching chats.
-                    if (root.autoApprove)
-                        root.setAutoApprove(false);
-                    root.chatModelChanged();
-                    root.writeCmd({ cmd: "load_chat", messages: root.flattenChat(root.currentChat) });
-                } catch (e) {
-                    console.warn("Ai: failed to load chat", e);
-                }
-            });
-        }
-    }
-
-    Process {
-        id: deleteChatProcess
-        onExited: () => root.reloadHistory()
     }
 
     Component {

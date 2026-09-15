@@ -10,7 +10,7 @@ Spotlight-style AI overlay. Compact bar on the focused monitor; transcript grows
 | `AssistantPopup.qml` | PanelWindow, Overlay, namespace `ambxst+:assistant`, FocusGrab, scrim |
 | `ComputerUseHud.qml` | HUD-sized PanelWindow, namespace `ambxst+:computer-use`; last assistant text via `AssistantMessage`; 3s auto-hide output card; type-to-open steer box (Esc once closes, Esc twice in 1.5s exits); Exclusive keys while the agent is driving, with compositor binds (workspace switch) replayed |
 | `AssistantBar.qml` | Search input, send/stop |
-| `AssistantIdleList.qml` | Recent chats, saved commands, slash hints |
+| `AssistantIdleList.qml` | Saved commands, slash hints |
 | `AssistantTranscript.qml` | Message list |
 | `AssistantMessage.qml` | Query + document rendering (markdown, math, tables, code) |
 | `ComputerUseWorkChip.qml` | Post-session "Worked for Ns" expander wrapping tool calls and intermediate replies |

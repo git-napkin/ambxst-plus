@@ -40,11 +40,6 @@ StyledRect {
         if (item.kind === "command") {
             Ai.sendMessage(item.prompt || "");
             searchInput.clear();
-            return;
-        }
-        if (item.kind === "chat") {
-            Ai.loadChat(item.id);
-            searchInput.clear();
         }
     }
 

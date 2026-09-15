@@ -1,7 +1,6 @@
 import QtQuick
 import QtQuick.Layouts
 import qs.modules.theme
-import qs.modules.services
 import qs.modules.components
 import qs.config
 
@@ -46,20 +45,6 @@ StyledRect {
                     subtitle: qsTr("Saved command"),
                     prompt: c.prompt || "",
                     icon: c.icon || Icons.notepad
-                });
-            }
-        }
-        const history = Ai.chatHistory || [];
-        for (let i = 0; i < Math.min(history.length, 6); i++) {
-            const h = history[i] || {};
-            const title = h.title || qsTr("Chat");
-            if (!q || title.toLowerCase().indexOf(q) !== -1) {
-                out.push({
-                    kind: "chat",
-                    id: h.id,
-                    title: title,
-                    subtitle: qsTr("Recent"),
-                    icon: Icons.note
                 });
             }
         }
