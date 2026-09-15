@@ -391,4 +391,9 @@ FileView {
         }
         return out;
     }
+
+    readonly property color recordingFrameColor: {
+        const name = Config.theme ? String(Config.theme.recordingFrameColor || "") : "";
+        return name.length ? Config.resolveColor(name) : "#FF2C2C";
+    }
 }

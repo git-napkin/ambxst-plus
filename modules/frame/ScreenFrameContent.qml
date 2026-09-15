@@ -18,8 +18,11 @@ Item {
     // State source: Singletons and Registry
     readonly property bool userFrameEnabled: Config.bar?.frameEnabled ?? false
     readonly property bool computerUseActive: ComputerUse.sessionActive
+    readonly property bool recordingFlashActive: ScreenRecorder.frameFlashActive
     property real cuOpacity: computerUseActive ? 1 : 0
-    readonly property bool frameEnabled: userFrameEnabled || computerUseActive || cuOpacity > 0.01
+    property real recOpacity: recordingFlashActive ? 1 : 0
+    readonly property bool overlayActive: computerUseActive || recordingFlashActive || cuOpacity > 0.01 || recOpacity > 0.01
+    readonly property bool frameEnabled: userFrameEnabled || computerUseActive || cuOpacity > 0.01 || recOpacity > 0.01
     readonly property bool configContainBar: Config.bar?.containBar ?? false
     readonly property string barPos: Config.bar?.position ?? "top"
     readonly property string notchPos: Config.notchPosition ?? "top"
@@ -38,7 +41,7 @@ Item {
     readonly property real baseThickness: {
         const base = Config.bar?.frameThickness ?? 6;
         const clamped = Math.max(0, Math.min(Math.round(base), 40));
-        if (root.computerUseActive)
+        if (root.overlayActive)
             return Math.max(clamped, 4);
         return clamped;
     }
@@ -77,6 +80,14 @@ Item {
         }
     }
 
+    Behavior on recOpacity {
+        enabled: Config.animDuration > 0 && !root.recordingFlashActive
+        NumberAnimation {
+            duration: Math.min(200, Config.animDuration)
+            easing.type: Styling.animEasing
+        }
+    }
+
     // Bar expansion logic (synchronized with bar reveal)
     // Only expand if the user's frame is enabled and bar is being contained.
     // Computer-use must not steal exclusive zone / jump containBar layout.
@@ -91,7 +102,7 @@ Item {
 
     function calculateSideThickness(side) {
         let t = baseThickness;
-        if (hasFullscreenWindow && !root.computerUseActive) {
+        if (hasFullscreenWindow && !root.overlayActive) {
             let restore = false;
             let progress = 0.0;
 
@@ -109,7 +120,7 @@ Item {
     // --- Corner Logic ---
     
     readonly property real targetInnerRadius: {
-        if (root.computerUseActive) return Styling.radius(4);
+        if (root.overlayActive) return Styling.radius(4);
         if (!root.hasFullscreenWindow) return Styling.radius(4);
         if (!barHovered && !dockHovered) return 0;
         
@@ -239,6 +250,26 @@ Item {
                     y: 0
                 }
             }
+        }
+    }
+
+    Item {
+        id: recFrameFill
+        anchors.fill: parent
+        visible: root.recOpacity > 0.01
+        opacity: root.recOpacity
+        layer.enabled: true
+        layer.effect: MultiEffect {
+            maskEnabled: true
+            maskSource: frameMask
+            maskInverted: true
+            maskThresholdMin: 0.5
+            maskSpreadAtMin: 1.0
+        }
+
+        Rectangle {
+            anchors.fill: parent
+            color: Colors.recordingFrameColor
         }
     }
 

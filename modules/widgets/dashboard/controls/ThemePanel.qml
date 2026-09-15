@@ -78,10 +78,16 @@ Item {
                 return Config.theme.computerUseFrameColor1 || "";
             if (configKey === "computerUseFrameColor2")
                 return Config.theme.computerUseFrameColor2 || "";
-            return Config.theme.computerUseFrameColor3 || "";
+            if (configKey === "computerUseFrameColor3")
+                return Config.theme.computerUseFrameColor3 || "";
+            return Config.theme.recordingFrameColor || "";
         }
-        readonly property bool isAuto: !currentName.length
-        readonly property color previewColor: isAuto ? autoColor : Config.resolveColor(currentName)
+        readonly property bool isAuto: configKey !== "recordingFrameColor" && !currentName.length
+        readonly property color previewColor: {
+            if (configKey === "recordingFrameColor")
+                return Colors.recordingFrameColor;
+            return isAuto ? autoColor : Config.resolveColor(currentName);
+        }
 
         Text {
             text: colorRow.label
@@ -115,7 +121,7 @@ Item {
 
                 Text {
                     Layout.fillWidth: true
-                    text: colorRow.isAuto ? qsTr("Auto") : colorRow.currentName
+                    text: colorRow.isAuto ? qsTr("Auto") : (colorRow.currentName || "#FF2C2C")
                     font.family: Config.theme.font
                     font.pixelSize: Styling.fontSize(0)
                     color: Colors.overBackground
@@ -143,7 +149,7 @@ Item {
                 onEntered: parent.isHovered = true
                 onExited: parent.isHovered = false
                 onClicked: {
-                    root.openColorPicker(Colors.availableColorNames, colorRow.currentName || "primary", "Select " + colorRow.label, function (color) {
+                    root.openColorPicker(Colors.availableColorNames, colorRow.currentName || (colorRow.configKey === "recordingFrameColor" ? "#FF2C2C" : "primary"), "Select " + colorRow.label, function (color) {
                         root.setComputerUseFrameColor(colorRow.configKey, color);
                     });
                 }
@@ -186,6 +192,8 @@ Item {
             Config.theme.computerUseFrameColor2 = color;
         else if (key === "computerUseFrameColor3")
             Config.theme.computerUseFrameColor3 = color;
+        else if (key === "recordingFrameColor")
+            Config.theme.recordingFrameColor = color;
     }
 
     FileView {
@@ -1053,6 +1061,7 @@ Item {
                     // Computer-use frame indicator
                     Item {
                         visible: root.currentSection === "computer use"
+                        property string settingsSection: "computer use"
                         Layout.fillWidth: true
                         Layout.preferredHeight: computerUseContent.implicitHeight
 
@@ -1114,6 +1123,40 @@ Item {
                                     Config.theme.computerUseFrameColor1 = "";
                                     Config.theme.computerUseFrameColor2 = "";
                                     Config.theme.computerUseFrameColor3 = "";
+                                }
+                            }
+
+                            Text {
+                                text: qsTr("Screen recording")
+                                font.family: Config.theme.font
+                                font.pixelSize: Styling.fontSize(-1)
+                                font.weight: Font.Medium
+                                color: Colors.overSurfaceVariant
+                                Layout.topMargin: 8
+                                Layout.bottomMargin: -4
+                            }
+
+                            Text {
+                                text: qsTr("Frame color flashed for 1s when a recording starts.")
+                                font.family: Config.theme.font
+                                font.pixelSize: Styling.fontSize(-2)
+                                color: Colors.outline
+                                wrapMode: Text.WordWrap
+                                Layout.fillWidth: true
+                            }
+
+                            FrameColorRow {
+                                label: qsTr("Flash")
+                                configKey: "recordingFrameColor"
+                                autoColor: Colors.recordingFrameColor
+                            }
+
+                            SettingsButton {
+                                text: qsTr("Reset to default")
+                                enabled: String(Config.theme.recordingFrameColor || "").toUpperCase() !== "#FF2C2C"
+                                onClicked: {
+                                    GlobalStates.markThemeChanged();
+                                    Config.theme.recordingFrameColor = "#FF2C2C";
                                 }
                             }
                         }

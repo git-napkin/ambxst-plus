@@ -234,6 +234,7 @@ Singleton {
             property string computerUseFrameColor1: ""
             property string computerUseFrameColor2: ""
             property string computerUseFrameColor3: ""
+            property string recordingFrameColor: "#FF2C2C"
 
             property JsonObject srBg: JsonObject {
                 property string label: "Background"

@@ -53,6 +53,8 @@ var data = {
     "computerUseFrameColor2": "",
     /** Computer-use frame color 3 (empty = auto from theme, contrast-checked). @type {string} @default "" */
     "computerUseFrameColor3": "",
+    /** Screen-recording start flash color. @type {string} @default "#FF2C2C" */
+    "recordingFrameColor": "#FF2C2C",
     "srBg": {
         "label": "Background",
         "gradient": [["background", 0.0]],

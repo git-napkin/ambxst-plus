@@ -103,14 +103,14 @@ Item {
         if (!shouldAutoHide)
             return true;
 
-        // If fullscreen and not available on fullscreen, hide
-        if (activeWindowFullscreen && !(Config.bar && Config.bar.availableOnFullscreen !== undefined ? Config.bar.availableOnFullscreen : false)) {
+        // If fullscreen and not available on fullscreen, hide (unless recording)
+        if (activeWindowFullscreen && !(Config.bar && Config.bar.availableOnFullscreen !== undefined ? Config.bar.availableOnFullscreen : false) && !ScreenRecorder.isRecording) {
             return false;
         }
 
-        // Show if: hovering, notch hovering (when at top), notch open
+        // Show if: hovering, notch hovering (when at top), notch open, or recording
         // IMPORTANT: notchHoverActive must be checked to synchronize with notch
-        return isMouseOverBar || hoverActive || notchHoverActive || notchOpen;
+        return isMouseOverBar || hoverActive || notchHoverActive || notchOpen || ScreenRecorder.isRecording;
     }
 
     // Timer to delay hiding the bar after mouse leaves
@@ -455,6 +455,13 @@ Item {
                             enableShadow: root.shadowsEnabled
                         }
 
+                        Bar.RecordingIndicator {
+                            id: recordingIndicator
+                            startRadius: root.innerRadius
+                            endRadius: root.innerRadius
+                            enableShadow: root.shadowsEnabled
+                        }
+
                         ToolsButton {
                             id: toolsButton
                             startRadius: root.innerRadius
@@ -543,6 +550,14 @@ Item {
 
                         PresetsButton {
                             id: presetsButtonVert
+                            startRadius: root.innerRadius
+                            endRadius: recordingIndicatorVert.visible ? root.innerRadius : root.outerRadius
+                            vertical: true
+                            enableShadow: root.shadowsEnabled
+                        }
+
+                        Bar.RecordingIndicator {
+                            id: recordingIndicatorVert
                             startRadius: root.innerRadius
                             endRadius: root.outerRadius
                             vertical: true

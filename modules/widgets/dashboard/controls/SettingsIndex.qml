@@ -69,6 +69,10 @@ QtObject {
         { label: "Gradient Stops", keywords: "color position stops", section: 5, subSection: "colors", subLabel: "Theme > Colors", icon: Icons.palette, isIcon: true },
         { label: "Gradient Angle", keywords: "direction rotation degrees", section: 5, subSection: "colors", subLabel: "Theme > Colors", icon: Icons.palette, isIcon: true },
 
+        // Theme > Computer use
+        { label: "Computer Use Frame", keywords: "ai agent border ring colors", section: 5, subSection: "computer use", subLabel: "Theme > Computer use", icon: Icons.frameCorners, isIcon: true },
+        { label: "Recording Flash Color", keywords: "screenrecord record video frame flash red stop", section: 5, subSection: "computer use", subLabel: "Theme > Computer use", icon: Icons.recordScreen, isIcon: true },
+
         // --- Binds ---
         { label: "Key Bindings", keywords: "shortcuts keyboard hotkeys", section: 6, subSection: "", subLabel: "", icon: Icons.keyboard, isIcon: true },
         // Binds > Ambxst[+]

@@ -8,12 +8,19 @@ QtObject {
     id: root
 
     property bool isRecording: false
+    property bool frameFlashActive: false
     property string duration: ""
     property string lastError: ""
     property bool canRecordDirectly: true // Optimistic default: GSR KMS capture
     property string _backend: "gsr"
 
     property bool _initialized: false
+
+    property Timer frameFlashTimer: Timer {
+        interval: 1000
+        repeat: false
+        onTriggered: root.frameFlashActive = false
+    }
 
     readonly property string wfScriptPath: Quickshell.shellDir + "/scripts/wf-record.sh"
     readonly property string recorderMatch: "gpu-screen-recorder|wf-recorder"
@@ -89,9 +96,19 @@ QtObject {
         }
     }
 
+    function flashFrame() {
+        root.frameFlashActive = true;
+        frameFlashTimer.restart();
+    }
+
+    function stopRecording() {
+        if (isRecording)
+            stopProcess.running = true;
+    }
+
     function toggleRecording() {
         if (isRecording) {
-            stopProcess.running = true;
+            stopRecording();
         } else {
             startRecording(false, false, "screen", "", "");
         }
@@ -166,11 +183,7 @@ QtObject {
         id: prepareProcess
         command: ["mkdir", "-p", root.videosDir]
         onExited: exitCode => {
-            Notifications.notifyInternal({
-                summary: "Screen Recorder",
-                body: "Starting recording...",
-                appName: "Screen Recorder"
-            });
+            root.flashFrame();
             startProcess.running = true;
             root.isRecording = true;
         }
