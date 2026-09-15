@@ -21,6 +21,16 @@ FocusScope {
 
     property int currentIndex: 0
 
+    // repeater.itemAt() is not reactive in property bindings — if evaluated
+    // before delegates exist (or while currentIndex is unchanged), the
+    // highlight stays at 0×0 until hover/keys force a re-eval. Keep an
+    // explicit Item ref and refresh it whenever count/index/layout change.
+    property Item currentItem: null
+
+    function refreshCurrentItem() {
+        currentItem = repeater.count > 0 ? repeater.itemAt(currentIndex) : null;
+    }
+
     function getNextValidIndex(current, step) {
         let next = current;
         let limit = actions.length;
@@ -37,22 +47,26 @@ FocusScope {
     implicitWidth: container.implicitWidth
     implicitHeight: container.implicitHeight
 
+    onCurrentIndexChanged: refreshCurrentItem()
+
     Component.onCompleted: {
         root.forceActiveFocus();
-        if (repeater.count > 0) {
-            // Delegates may not exist yet on completion, so defer like the
-            // activeFocus handler below does.
-            Qt.callLater(() => {
-                let item = repeater.itemAt(0);
+        Qt.callLater(() => {
+            refreshCurrentItem();
+            if (repeater.count > 0) {
+                // Delegates may not exist yet on completion, so defer like the
+                // activeFocus handler below does.
+                let item = repeater.itemAt(currentIndex);
                 if (item)
                     item.forceActiveFocus();
-            });
-        }
+            }
+        });
     }
 
     onActiveFocusChanged: {
         if (activeFocus && repeater.count > 0) {
             Qt.callLater(() => {
+                refreshCurrentItem();
                 let item = repeater.itemAt(currentIndex);
                 if (item)
                     item.forceActiveFocus();
@@ -103,12 +117,12 @@ FocusScope {
         // Highlight que se desplaza entre botones
         StyledRect {
             id: highlight
-            variant: (repeater.count > 0 && repeater.itemAt(root.currentIndex) && repeater.itemAt(root.currentIndex).actionModel.variant) ? repeater.itemAt(root.currentIndex).actionModel.variant : "primary"
+            variant: (root.currentItem && root.currentItem.actionModel && root.currentItem.actionModel.variant) ? root.currentItem.actionModel.variant : "primary"
             radius: Styling.radius(4)
             z: 0 // Por debajo de los botones
-            visible: repeater.count > 0
+            visible: root.currentItem !== null
 
-            property Item targetItem: repeater.count > 0 ? repeater.itemAt(root.currentIndex) : null
+            property Item targetItem: root.currentItem
 
             // Target values (geometry relative to container)
             property real tx: targetItem ? targetItem.x : 0
@@ -203,6 +217,9 @@ FocusScope {
 
             Repeater {
                 id: repeater
+
+                onItemAdded: Qt.callLater(root.refreshCurrentItem)
+                onItemRemoved: Qt.callLater(root.refreshCurrentItem)
 
                 delegate: Item {
                     id: delegateWrapper

@@ -94,8 +94,12 @@ PanelWindow {
     ]
 
     function open() {
-        if (modeGrid)
+        if (modeGrid) {
             modeGrid.currentIndex = 0;
+            // currentIndex may already be 0 from a prior open; force the
+            // highlight to re-resolve its delegate (itemAt is not reactive).
+            modeGrid.refreshCurrentItem();
+        }
         GlobalStates.screenshotCaptureMode = "region";
 
         screenshotPopup.state = "loading";
@@ -141,6 +145,7 @@ PanelWindow {
                 // Screenshot.fetchWindows();
                 
                 modeGrid.forceActiveFocus();
+                modeGrid.refreshCurrentItem();
             }
         }
         function onWindowListReady(windows) {
