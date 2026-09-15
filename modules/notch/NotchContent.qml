@@ -113,10 +113,11 @@ Item {
             return (screenNotchOpen || hasActiveNotifications || hoverActive || barHoverActive);
         }
 
-        // If fullscreen and bar is NOT available on fullscreen, hard-hide the notch too
-        // This prevents barHoverActive from leaking through when the bar itself is hidden
+        // If fullscreen and bar is NOT available on fullscreen, ignore barHoverActive
+        // (the bar itself is hidden). Still reveal for notifications, open panels,
+        // or direct notch hover — otherwise toasts never appear over fullscreen apps.
         if (activeWindowFullscreen && !(Config.bar && Config.bar.availableOnFullscreen !== undefined ? Config.bar.availableOnFullscreen : false)) {
-            return false;
+            return screenNotchOpen || hasActiveNotifications || hoverActive;
         }
 
         // If not auto-hiding (pinned and not fullscreen), always show

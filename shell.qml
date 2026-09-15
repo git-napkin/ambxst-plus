@@ -344,13 +344,16 @@ ShellRoot {
         source: "modules/widgets/config/SettingsWindow.qml"
     }
 
-    // On-screen display
+    // On-screen display — must stay loaded while awake. Audio/Brightness
+    // Connections live inside OSD.qml and set GlobalStates.osdVisible; gating
+    // the loader on osdVisible created a deadlock where volume/brightness
+    // events never reached a listener after the first hide unloaded it.
     Variants {
         model: Quickshell.screens
 
         Loader {
             id: osdLoader
-            active: SuspendManager.wakeReady && (GlobalStates.osdVisible || (item && item.visible))
+            active: SuspendManager.wakeReady
             required property ShellScreen modelData
             asynchronous: true
             onActiveChanged: root._loadNamedItem(osdLoader, "modules/shell/osd/OSD.qml", "targetScreen", modelData)

@@ -223,11 +223,14 @@ Item {
                         }
                     }
 
-                    // Actualizar cuando cambie la lista de notificaciones
-                    // Solo activo cuando el componente es visible para evitar trabajo duplicado
+                    // Keep listening even while hidden so the first popup after a
+                    // hide→show cycle still syncs the stack (visible-gated target
+                    // missed arrivals that only then made the parent visible).
                     Connections {
-                        target: root.visible ? Notifications : null
+                        target: Notifications
                         function onPopupListChanged() {
+                            if (!root.visible)
+                                return;
                             if (Notifications.popupList.length === 0) {
                                 notificationStack.clear();
                                 root.currentIndex = 0;
