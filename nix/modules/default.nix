@@ -33,7 +33,13 @@ in {
       description = "Ambxst[+] shell";
       wantedBy = [ "graphical-session.target" ];
       partOf = [ "graphical-session.target" ];
-      after = [ "graphical-session.target" ];
+      # Prefer the Hyprland/UWSM session unit so WAYLAND_DISPLAY /
+      # HYPRLAND_INSTANCE_SIGNATURE exist before we spawn axctl.
+      after = [
+        "graphical-session.target"
+        "wayland-wm@hyprland.desktop.service"
+        "wayland-wm-env@hyprland.desktop.service"
+      ];
       serviceConfig = {
         Type = "simple";
         ExecStart = "${cfg.package}/bin/ambxst+";
@@ -42,6 +48,13 @@ in {
         # systemd's default user PATH lacks /run/current-system/sw/bin;
         # the shell shells out to hyprctl, axctl, bash, and friends.
         Environment = "PATH=/run/wrappers/bin:/run/current-system/sw/bin:/run/current-system/sw/sbin:/usr/local/bin:/usr/bin:/bin";
+        PassEnvironment = [
+          "WAYLAND_DISPLAY"
+          "DISPLAY"
+          "HYPRLAND_INSTANCE_SIGNATURE"
+          "HYPRLAND_CMD"
+          "XDG_RUNTIME_DIR"
+        ];
       };
     };
 

@@ -558,11 +558,56 @@ Singleton {
         running: true
     }
 
+    // Restart the daemon if it dies (rebuild races, stale sockets, missing HYPR
+    // env for a moment). Without this, subscribe loops forever on a dead socket.
+    property int _daemonRestarts: 0
+    property bool _shuttingDown: false
+    property bool _restartingDaemon: false
+
+    function restartDaemon() {
+        if (root._shuttingDown || root._restartingDaemon)
+            return;
+        root._restartingDaemon = true;
+        daemonRestartTimer.interval = Math.min(8000, 500 * Math.pow(2, Math.min(4, root._daemonRestarts)));
+        if (axctlProcess.running)
+            axctlProcess.running = false;
+        daemonRestartTimer.restart();
+    }
+
+    Timer {
+        id: daemonRestartTimer
+        interval: 500
+        repeat: false
+        onTriggered: {
+            if (root._shuttingDown) {
+                root._restartingDaemon = false;
+                return;
+            }
+            root._daemonRestarts += 1;
+            axctlProcess.running = true;
+            root._restartingDaemon = false;
+        }
+    }
+
     property Process axctlProcess: Process {
         command: ["axctl", "-c", root.configPath, "daemon"]
         running: true
+        stderr: SplitParser {
+            onRead: line => {
+                if (line && String(line).trim().length)
+                    console.warn("axctl daemon:", line);
+            }
+        }
         onExited: (code) => {
-            console.warn("axctl daemon exited with code:", code)
+            console.warn("axctl daemon exited with code:", code);
+            root.ready = false;
+            if (root._shuttingDown || root._restartingDaemon)
+                return;
+            root.restartDaemon();
+        }
+        onRunningChanged: {
+            if (running)
+                console.log("axctl daemon starting");
         }
     }
 
@@ -578,7 +623,10 @@ Singleton {
     Timer {
         id: reconnectTimer
         interval: 1000
-        onTriggered: axctlSubscribe.running = true
+        onTriggered: {
+            if (!root._shuttingDown)
+                axctlSubscribe.running = true;
+        }
     }
 
     property Process axctlSubscribe: Process {
@@ -587,14 +635,23 @@ Singleton {
         stdout: SplitParser {
             onRead: (data) => {
                 if (!data) return;
+                const line = String(data).trim();
+                if (!line.length)
+                    return;
+                // Connection errors go to stdout as plain text; don't treat as JSON.
+                if (line.charAt(0) !== "{" && line.charAt(0) !== "[") {
+                    console.warn("axctl subscribe:", line);
+                    return;
+                }
                 try {
-                    let parsedJson = JSON.parse(data);
+                    let parsedJson = JSON.parse(line);
 
                     // Apply inline state immediately (every event carries full state)
                     if (parsedJson.state) {
                         root.applyState(parsedJson.state);
                         if (!root.ready)
                             root.ready = true;
+                        root._daemonRestarts = 0;
                     }
 
                     // Emit raw event for consumers
@@ -617,6 +674,8 @@ Singleton {
     }
 
     Component.onDestruction: {
+        root._shuttingDown = true;
+        daemonRestartTimer.stop();
         reconnectTimer.running = false
         axctlProcess.running = false
         axctlSubscribe.running = false
