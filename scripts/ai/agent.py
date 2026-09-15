@@ -195,7 +195,10 @@ class Agent:
                 "Start with action=snapshot to read the accessibility tree, windows, and focused text. "
                 "Click by element_index. Call action=screenshot only if tree_usable is false or you need pixels. "
                 "Pixel x/y are in the attached screenshot image (width x height). Screenshot before any pixel click. "
-                "The user-only HUD will not appear in screenshots. Read the computer-use skill for details."
+                "After the session is granted, routine actions (focus, click, type) run without asking. "
+                "Set critical=true on use_computer before payments, sending email or messages, purchases, "
+                "or other irreversible actions. The user-only HUD will not appear in screenshots. "
+                "Read the computer-use skill for details."
             )
         if extra:
             self.system_prompt = self.system_prompt.rstrip() + "\n\n" + "\n".join(extra)

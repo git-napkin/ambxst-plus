@@ -33,7 +33,7 @@ PanelWindow {
     }
 
     mask: Region {
-        item: hud.clickThrough ? grabPixel : hudAnchor
+        item: ComputerUse.sessionState === "approvalWait" ? inputBlock : (hud.clickThrough ? grabPixel : hudAnchor)
     }
 
     Item {
@@ -42,6 +42,21 @@ PanelWindow {
         height: 1
         anchors.right: parent.right
         anchors.bottom: parent.bottom
+    }
+
+    Item {
+        id: inputBlock
+        anchors.fill: parent
+        z: 0
+        visible: ComputerUse.sessionState === "approvalWait"
+
+        MouseArea {
+            anchors.fill: parent
+            acceptedButtons: Qt.AllButtons
+            onPressed: mouse => {
+                mouse.accepted = true;
+            }
+        }
     }
 
     readonly property int minWidth: 280
@@ -191,6 +206,8 @@ PanelWindow {
         }
         function onApprovalPendingChanged() {
             hud.refreshPresence();
+            if (Ai.approvalPending)
+                hud.claimKeys();
         }
         function onChatModelChanged() {
             hud.refreshPresence();
@@ -251,6 +268,23 @@ PanelWindow {
         Keys.enabled: ComputerUse.sessionActive && !ComputerUse.userHasControl && !ComputerUse.injectingInput
         Keys.priority: Keys.BeforeItem
         Keys.onPressed: event => {
+            if (ComputerUse.sessionState === "approvalWait") {
+                if (event.key === Qt.Key_Left) {
+                    approvalLoader.focusedAction = "reject";
+                    event.accepted = true;
+                    return;
+                }
+                if (event.key === Qt.Key_Right) {
+                    approvalLoader.focusedAction = "approve";
+                    event.accepted = true;
+                    return;
+                }
+                if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter) {
+                    approvalLoader.confirmFocused();
+                    event.accepted = true;
+                    return;
+                }
+            }
             if (AxctlService.forwardBoundKey(event)) {
                 event.accepted = true;
                 return;
@@ -262,6 +296,7 @@ PanelWindow {
             }
             hud.handleUserKey(event);
         }
+        z: 1
         anchors.right: parent.right
         anchors.bottom: parent.bottom
         anchors.rightMargin: ComputerUse.insetRight
@@ -535,16 +570,6 @@ PanelWindow {
     }
     }
 
-    Shortcut {
-        sequence: "Return"
-        enabled: ComputerUse.sessionState === "approvalWait"
-        onActivated: Ai.approvePendingApproval()
-    }
-    Shortcut {
-        sequence: "Enter"
-        enabled: ComputerUse.sessionState === "approvalWait"
-        onActivated: Ai.approvePendingApproval()
-    }
 
     component HudIconButton: Item {
         id: btn

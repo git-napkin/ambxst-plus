@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 import time
 
 from .registry import Tool
@@ -43,6 +44,110 @@ MUTATING = {
 }
 
 WAIT_CAP_MS = 5000
+
+# Exact control labels that commit money, mail, or account destruction.
+_CRITICAL_LABEL = re.compile(
+    r"(?ix)^\s*("
+    r"send(?:\s+(?:now|email|e-?mail|message|it))?"
+    r"|pay(?:\s+now)?"
+    r"|buy(?:\s+now)?"
+    r"|purchase"
+    r"|checkout"
+    r"|place\s+(?:an?\s+)?order"
+    r"|order\s+now"
+    r"|submit\s+(?:order|payment|purchase)"
+    r"|confirm\s+(?:purchase|payment|order)"
+    r"|transfer(?:\s+money)?"
+    r"|donate"
+    r"|subscribe(?:\s+now)?"
+    r"|delete\s+account"
+    r"|permanently\s+delete"
+    r")\s*$"
+)
+
+# Looser match for action_summary / typed intent.
+_CRITICAL_SUMMARY = re.compile(
+    r"(?ix)\b("
+    r"pay(?:ment|pal)?"
+    r"|purchase"
+    r"|checkout"
+    r"|place\s+(?:an?\s+)?order"
+    r"|send(?:ing)?\s+(?:(?:the|an?)\s+)?(?:e-?mail|mail|message)"
+    r"|buy\s+now"
+    r"|complete\s+(?:the\s+)?purchase"
+    r"|transfer\s+money"
+    r"|delete\s+(?:the\s+)?account"
+    r")\b"
+)
+
+_SEND_CHORD = re.compile(r"(?i)(ctrl|control|cmd|command|super|meta)\s*\+\s*(enter|return)")
+
+
+def _truthy(value):
+    return value is True or value == 1 or str(value).strip().lower() in ("true", "1", "yes")
+
+
+def _node_label(ctx, args):
+    idx = (args or {}).get("element_index")
+    if idx is None or idx == "":
+        return ""
+    try:
+        idx = int(idx)
+    except (TypeError, ValueError):
+        return ""
+    for node in getattr(ctx, "computer_use_nodes", None) or []:
+        if node.get("index") == idx:
+            return str(node.get("name") or "")
+    return ""
+
+
+def _target_texts(ctx, args):
+    args = args or {}
+    texts = []
+    for key in ("action_summary", "name", "text", "atspi_action", "perform", "value"):
+        val = args.get(key)
+        if val:
+            texts.append(str(val))
+    label = _node_label(ctx, args)
+    if label:
+        texts.append(label)
+    return texts
+
+
+def action_is_critical(ctx, args):
+    """True for irreversible desktop actions (pay, send mail, purchase, …)."""
+    args = args or {}
+    if _truthy(args.get("critical") or args.get("requires_confirmation")):
+        return True
+    action = str(args.get("action") or "").strip()
+    if action in ("screenshot", "snapshot", "cursor", "wait", "focus", "move", "scroll", "move_window", "resize_window", "type"):
+        return False
+    spec = str(args.get("key") or args.get("keys") or "")
+    if action == "key" and _SEND_CHORD.search(spec):
+        return True
+    texts = _target_texts(ctx, args)
+    for text in texts:
+        stripped = text.strip()
+        if _CRITICAL_LABEL.match(stripped):
+            return True
+        if _CRITICAL_SUMMARY.search(stripped):
+            return True
+    return False
+
+
+def _begin_session(ctx, summary):
+    native = _native(
+        ctx,
+        "computer_use_session",
+        {"op": "begin", "task_summary": summary or ""},
+    )
+    if native.get("status") == "error" or native.get("error"):
+        return native if native.get("status") else _error(native.get("error"))
+    if native.get("locked"):
+        return _error("computer use is blocked while the session is locked")
+    ctx.computer_use_approved = True
+    ctx.computer_use_nodes = []
+    return native
 
 
 def _error(message):
@@ -264,17 +369,9 @@ class RequestComputerUseTool(Tool):
     def execute(self, ctx, args):
         if ctx.profile.computer_use == NEVER:
             return _error("computer use is disabled")
-        native = _native(
-            ctx,
-            "computer_use_session",
-            {"op": "begin", "task_summary": (args or {}).get("task_summary") or ""},
-        )
+        native = _begin_session(ctx, (args or {}).get("task_summary") or "")
         if native.get("status") == "error" or native.get("error"):
-            return native if native.get("status") else _error(native.get("error"))
-        if native.get("locked"):
-            return _error("computer use is blocked while the session is locked")
-        ctx.computer_use_approved = True
-        ctx.computer_use_nodes = []
+            return native
         try:
             atspi_ok = atspi.probe()
         except Exception:
@@ -318,6 +415,13 @@ class UseComputerTool(Tool):
                     "items": {"type": "object"},
                 },
                 "action_summary": {"type": "string"},
+                "critical": {
+                    "type": "boolean",
+                    "description": (
+                        "Set true before payments, sending email or messages, purchases, "
+                        "or other irreversible actions so the user can confirm."
+                    ),
+                },
                 "x": {
                     "type": "number",
                     "description": "Pixel X in the last attached screenshot (width x height of that image)",
@@ -368,6 +472,8 @@ class UseComputerTool(Tool):
     def should_autoexecute(self, ctx, args):
         if ctx.profile.computer_use == NEVER:
             return "deny"
+        if action_is_critical(ctx, args):
+            return "ask"
         if ctx.computer_use_approved or ctx.profile.computer_use == ALWAYS_ALLOW or ctx.autoexecute_any_action:
             return True
         return "ask"
@@ -375,21 +481,14 @@ class UseComputerTool(Tool):
     def execute(self, ctx, args):
         if ctx.profile.computer_use == NEVER:
             return _error("computer use is disabled")
-        if not ctx.computer_use_approved and ctx.profile.computer_use != ALWAYS_ALLOW:
-            return _error("call request_computer_use first")
-        if ctx.profile.computer_use == ALWAYS_ALLOW and not ctx.computer_use_approved:
-            native = _native(
+        args = args or {}
+        if not ctx.computer_use_approved:
+            native = _begin_session(
                 ctx,
-                "computer_use_session",
-                {"op": "begin", "task_summary": (args or {}).get("action_summary") or "AlwaysAllow"},
+                args.get("action_summary") or args.get("task_summary") or args.get("action") or "",
             )
             if native.get("status") == "error" or native.get("error"):
-                return native if native.get("status") else _error(native.get("error"))
-            if native.get("locked"):
-                return _error("computer use is blocked while the session is locked")
-            ctx.computer_use_approved = True
-            ctx.computer_use_nodes = []
-        args = args or {}
+                return native
         batch = args.get("actions") if isinstance(args.get("actions"), list) and not args.get("action") else None
         if batch:
             results = []
@@ -592,8 +691,9 @@ class UseComputerTool(Tool):
         summary = ((args or {}).get("action_summary") or "").strip()
         action = ((args or {}).get("action") or "").strip()
         label = summary or action or "computer"
+        ask = "Confirm: %s" % label if action_is_critical(None, args) else "Use computer: %s" % label
         return labels(
             "Using computer: %s" % label,
             "Used computer: %s" % label,
-            ask="Use computer: %s" % label,
+            ask=ask,
         )

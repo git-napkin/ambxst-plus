@@ -9,6 +9,7 @@ from ..protocol import NATIVE_READ_TOOLS, NATIVE_WRITE_TOOLS
 
 READ_TOOLS = NATIVE_READ_TOOLS
 WRITE_TOOLS = NATIVE_WRITE_TOOLS
+COMPUTER_USE_NATIVE = frozenset({"focus_window", "get_windows", "screenshot", "get_clipboard"})
 
 FRIENDLY = {
     "get_volume": labels("Getting volume", "Got volume", ask="Get volume"),
@@ -75,6 +76,10 @@ class NativeTool(Tool):
         }
 
     def should_autoexecute(self, ctx, args):
+        if getattr(ctx, "computer_use_approved", False):
+            return True
+        if ctx.profile.computer_use == ALWAYS_ALLOW and self.name in COMPUTER_USE_NATIVE:
+            return True
         if self.write:
             if ctx.profile.execute_commands == ALWAYS_ALLOW:
                 return True

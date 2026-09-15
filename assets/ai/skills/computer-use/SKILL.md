@@ -7,6 +7,7 @@ Native desktop control for the AI panel. Policy default is **Never**. Advertise 
 1. Call `request_computer_use` with a short `task_summary`. Wait for the user to approve unless the profile is Always allow.
 2. Call `use_computer` with `action=snapshot` before clicking. Snapshot does **not** take a screenshot. It returns windows, the focused node, and a slim accessibility tree with `element_index` values.
 3. Prefer `element_index` (or role/name selectors) over pixels. Call `action=screenshot` only when `tree_usable` is false or you need a picture (canvas, games, layout). Pixel `x`/`y` are in the attached image (`width` × `height`), not `coordinate_width` / grim pixels / compositor logical coords. Screenshot first before any pixel click.
+4. After the session is granted, do **not** wait for per-action approval for routine work (focus, click, type, scroll). Set `critical: true` on `use_computer` before payments, sending email or messages, purchases, account deletion, or other irreversible actions so the user can confirm.
 
 ## Actions
 

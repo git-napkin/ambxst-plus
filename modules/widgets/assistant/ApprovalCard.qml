@@ -9,6 +9,7 @@ import "message_content.js" as MessageContent
 StyledRect {
     id: root
     property var call: ({})
+    property string focusedAction: "reject"
     variant: "surface"
     radius: Styling.popupRadius() - 8
     implicitHeight: col.implicitHeight + 20
@@ -25,6 +26,21 @@ StyledRect {
         if (call.detail && String(call.detail).charAt(0) === "{")
             return "";
         return call.detail || "";
+    }
+    readonly property bool rejectHot: focusedAction === "reject"
+    readonly property bool approveHot: focusedAction === "approve"
+
+    onCallChanged: focusedAction = "reject"
+    onVisibleChanged: if (visible)
+        focusedAction = "reject"
+
+    function confirmFocused() {
+        if (!call || !call.call_id)
+            return;
+        if (focusedAction === "approve")
+            Ai.approveTool(call.call_id);
+        else
+            Ai.rejectTool(call.call_id);
     }
 
     ColumnLayout {
@@ -69,6 +85,13 @@ StyledRect {
                 implicitWidth: rejectLabel.implicitWidth + 20
                 scale: rejectArea.pressed ? 0.96 : 1
 
+                Rectangle {
+                    anchors.fill: parent
+                    radius: parent.radius
+                    color: Styling.tint(Colors.overError, Styling.hoverAlpha)
+                    visible: root.rejectHot
+                }
+
                 Text {
                     id: rejectLabel
                     anchors.centerIn: parent
@@ -81,8 +104,18 @@ StyledRect {
                 MouseArea {
                     id: rejectArea
                     anchors.fill: parent
+                    hoverEnabled: true
                     cursorShape: Qt.PointingHandCursor
+                    onEntered: root.focusedAction = "reject"
                     onClicked: Ai.rejectTool(call.call_id)
+                }
+
+                Behavior on scale {
+                    enabled: Config.animDuration > 0
+                    NumberAnimation {
+                        duration: Styling.animQuick
+                        easing.type: Styling.animEasingOut
+                    }
                 }
             }
 
@@ -92,6 +125,13 @@ StyledRect {
                 implicitHeight: 28
                 implicitWidth: acceptLabel.implicitWidth + 20
                 scale: acceptArea.pressed ? 0.96 : 1
+
+                Rectangle {
+                    anchors.fill: parent
+                    radius: parent.radius
+                    color: Styling.tint(Colors.overPrimary, Styling.hoverAlpha)
+                    visible: root.approveHot
+                }
 
                 Text {
                     id: acceptLabel
@@ -105,10 +145,30 @@ StyledRect {
                 MouseArea {
                     id: acceptArea
                     anchors.fill: parent
+                    hoverEnabled: true
                     cursorShape: Qt.PointingHandCursor
+                    onEntered: root.focusedAction = "approve"
                     onClicked: Ai.approveTool(call.call_id)
                 }
+
+                Behavior on scale {
+                    enabled: Config.animDuration > 0
+                    NumberAnimation {
+                        duration: Styling.animQuick
+                        easing.type: Styling.animEasingOut
+                    }
+                }
             }
+        }
+
+        Text {
+            Layout.fillWidth: true
+            visible: ComputerUse.sessionActive
+            text: qsTr("← → to choose · Enter to confirm")
+            font.family: Config.theme.font
+            font.pixelSize: Styling.fontSize(-4)
+            color: Colors.outline
+            horizontalAlignment: Text.AlignRight
         }
     }
 }

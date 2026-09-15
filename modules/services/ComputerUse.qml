@@ -329,12 +329,17 @@ Singleton {
     function syncFromChat(approvalPending) {
         if (!root.sessionActive)
             return;
-        if (approvalPending)
+        if (approvalPending) {
             root.sessionState = "approvalWait";
-        else if (root.userHasControl)
+            root.unlockPointer();
+            return;
+        }
+        if (root.userHasControl) {
             root.sessionState = "userControl";
-        else
-            root.sessionState = "agentDriving";
+            return;
+        }
+        root.sessionState = "agentDriving";
+        root.lockPointer();
     }
 
     function armEscExit() {
@@ -408,7 +413,7 @@ Singleton {
     }
 
     function lockPointer() {
-        if (root.userHasControl)
+        if (root.userHasControl || root.sessionState === "approvalWait")
             return;
         root._devicesIntent = "lock";
         root.restartDevicesProc();
@@ -702,7 +707,7 @@ Singleton {
                 const pointers = root.pointerNamesFromDevices(data);
                 const keyboards = root.keyboardNamesFromDevices(data);
                 if (root._devicesIntent === "lock") {
-                    if (root.userHasControl || !root.sessionActive)
+                    if (root.userHasControl || !root.sessionActive || root.sessionState === "approvalWait")
                         return;
                     const names = [];
                     for (let i = 0; i < pointers.length; i++) {

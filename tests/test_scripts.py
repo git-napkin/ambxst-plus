@@ -1232,10 +1232,39 @@ class TestComputerUse(unittest.TestCase):
         self.assertEqual(UseComputerTool().should_autoexecute(ask, {"action": "snapshot"}), "ask")
         ask.computer_use_approved = True
         self.assertEqual(UseComputerTool().should_autoexecute(ask, {"action": "snapshot"}), True)
+        self.assertEqual(UseComputerTool().should_autoexecute(ask, {"action": "focus"}), True)
+        self.assertEqual(UseComputerTool().should_autoexecute(ask, {"action": "click", "name": "Pay now"}), "ask")
 
         allow = _ctx(".", execution_profile={"computerUse": "AlwaysAllow"})
         self.assertEqual(RequestComputerUseTool().should_autoexecute(allow, {"task_summary": "x"}), True)
         self.assertEqual(UseComputerTool().should_autoexecute(allow, {"action": "click"}), True)
+        self.assertEqual(UseComputerTool().should_autoexecute(allow, {"action": "click", "critical": True}), "ask")
+
+    def test_critical_actions_ask_after_grant(self):
+        from ai.tools.computer_use import UseComputerTool, action_is_critical
+        from ai.tools.native import NativeTool
+
+        ctx = _ctx(".", execution_profile={"computerUse": "AlwaysAllow", "executeCommands": "AlwaysAsk", "readFiles": "AlwaysAsk"})
+        ctx.computer_use_approved = True
+        self.assertFalse(action_is_critical(ctx, {"action": "focus"}))
+        self.assertFalse(action_is_critical(ctx, {"action": "click", "name": "Save"}))
+        self.assertTrue(action_is_critical(ctx, {"action": "click", "name": "Pay now"}))
+        self.assertTrue(action_is_critical(ctx, {"action": "click", "name": "Send"}))
+        self.assertTrue(action_is_critical(ctx, {"action": "click", "action_summary": "send the email"}))
+        self.assertTrue(action_is_critical(ctx, {"action": "click", "critical": True}))
+        self.assertTrue(action_is_critical(ctx, {"action": "key", "key": "ctrl+enter"}))
+        ctx.computer_use_nodes = [{"index": 3, "name": "Checkout"}]
+        self.assertTrue(action_is_critical(ctx, {"action": "click", "element_index": 3}))
+        self.assertEqual(UseComputerTool().should_autoexecute(ctx, {"action": "focus"}), True)
+        self.assertEqual(UseComputerTool().should_autoexecute(ctx, {"action": "click", "name": "Send"}), "ask")
+        self.assertEqual(NativeTool("focus_window", write=True).should_autoexecute(ctx, {}), True)
+        self.assertEqual(NativeTool("get_windows", write=False).should_autoexecute(ctx, {}), True)
+
+        idle = _ctx(".", execution_profile={"computerUse": "AlwaysAsk", "executeCommands": "AlwaysAsk"})
+        self.assertEqual(NativeTool("focus_window", write=True).should_autoexecute(idle, {}), "ask")
+        allow = _ctx(".", execution_profile={"computerUse": "AlwaysAllow", "executeCommands": "AlwaysAsk"})
+        self.assertEqual(NativeTool("focus_window", write=True).should_autoexecute(allow, {}), True)
+        self.assertEqual(NativeTool("lock", write=True).should_autoexecute(allow, {}), "ask")
 
     def test_grant_survives_apply_init(self):
         from io import StringIO
