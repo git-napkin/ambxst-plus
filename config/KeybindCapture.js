@@ -238,16 +238,18 @@ function keyNameFromQtKey(key, text) {
 }
 
 function modifierKeyBind(key) {
+    // Bare modkey taps are stored with empty modifiers. SUPER+Super_L looks
+    // symmetric in the UI but Hyprland never matches the press bind that way.
     if (key === Key_Meta || key === Key_Super_L)
-        return { modifiers: ["SUPER"], key: "Super_L" };
+        return { modifiers: [], key: "Super_L" };
     if (key === Key_Super_R)
-        return { modifiers: ["SUPER"], key: "Super_R" };
+        return { modifiers: [], key: "Super_R" };
     if (key === Key_Control)
-        return { modifiers: ["CTRL"], key: "Control_L" };
+        return { modifiers: [], key: "Control_L" };
     if (key === Key_Alt)
-        return { modifiers: ["ALT"], key: "Alt_L" };
+        return { modifiers: [], key: "Alt_L" };
     if (key === Key_Shift)
-        return { modifiers: ["SHIFT"], key: "Shift_L" };
+        return { modifiers: [], key: "Shift_L" };
     return null;
 }
 

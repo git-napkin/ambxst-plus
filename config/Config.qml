@@ -1618,7 +1618,7 @@ Singleton {
         adapter: JsonAdapter {
             property JsonObject ambxstPlus: JsonObject {
                 property JsonObject launcher: JsonObject {
-                    property list<string> modifiers: ["SUPER"]
+                    property list<string> modifiers: []
                     property string key: "Super_L"
                     property var action: ({ "id": "ambxst+.launcher", "args": {} })
                 }

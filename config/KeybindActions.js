@@ -222,6 +222,18 @@ function ensureReleaseFlag(flags, key) {
     return f;
 }
 
+// Bare Super_L / Super_R (etc.) must be bound with EMPTY modifiers.
+// Config and the key-capture UI historically store them as SUPER+Super_L for
+// display symmetry with other SUPER chords, but Hyprland does not set the
+// SUPER modmask until after Super_L keydown — so a press bind of
+// SUPER+Super_L never matches. Only the release bind fires, the shell's
+// press-arming slot is never created, and the bare tap no-ops.
+function bareModkeyModifiers(key, modifiers) {
+    if (isModifierKeyName(key))
+        return [];
+    return modifiers || [];
+}
+
 // Expand a release-bound modkey into press/release IPC so chords don't also
 // open the bare-modkey action (Hyprland still fires the release after SUPER+T).
 function expandSuperBind(bind) {
@@ -234,9 +246,11 @@ function expandSuperBind(bind) {
     if (parts[0] !== "ambxst+" || parts[1] !== "run")
         return [bind];
     const action = parts.slice(2).join(" ");
+    // Always bind bare modkeys with no modifiers (see bareModkeyModifiers).
+    const mods = [];
     return [
         {
-            modifiers: bind.modifiers,
+            modifiers: mods,
             key: bind.key,
             dispatcher: bind.dispatcher,
             argument: "ambxst+ run super-press " + bind.key + " " + action,
@@ -244,7 +258,7 @@ function expandSuperBind(bind) {
             enabled: true
         },
         {
-            modifiers: bind.modifiers,
+            modifiers: mods,
             key: bind.key,
             dispatcher: bind.dispatcher,
             argument: "ambxst+ run super-release " + bind.key + " " + action,
@@ -254,9 +268,25 @@ function expandSuperBind(bind) {
     ];
 }
 
+// Unbind both the legacy SUPER+Super_L form and the bare Super_L form so
+// re-applying keybinds after this fix clears the dead press binds.
+function expandUnbindTargets(keybind) {
+    const key = (keybind && keybind.key) || "";
+    const mods = (keybind && keybind.modifiers) || [];
+    const targets = [{ modifiers: mods, key: key }];
+    if (isModifierKeyName(key)) {
+        const hasSuper = mods.indexOf("SUPER") !== -1 || mods.indexOf("Super") !== -1;
+        if (hasSuper || mods.length > 0)
+            targets.push({ modifiers: [], key: key });
+        if (!hasSuper && mods.length === 0)
+            targets.push({ modifiers: ["SUPER"], key: key });
+    }
+    return targets;
+}
+
 function makeExpandedBinds(modifiers, key, dispatcher, argument, flags) {
     const withRelease = {
-        modifiers: modifiers || [],
+        modifiers: bareModkeyModifiers(key, modifiers),
         key: key || "",
         dispatcher: dispatcher || "",
         argument: argument || "",
