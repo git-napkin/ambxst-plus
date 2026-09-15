@@ -183,9 +183,10 @@ PanelWindow {
         }
     }
 
+    // Full-window parent so the picker can center/clamp without clipping
+    // through the short bar+body stack (mainContainer).
     ModelSelectorPopup {
         id: modelSelector
-        parent: mainContainer
     }
 
     Connections {

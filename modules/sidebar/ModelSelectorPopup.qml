@@ -13,14 +13,31 @@ Popup {
 
     signal modelSelected(string modelName)
 
-    width: 400
-    // Height: Header (48) + Spacing (12) + List (5 * 48 = 240) + Padding (8*2)
+    width: Math.min(400, parent ? Math.max(240, parent.width - edgeMargin * 2) : 400)
+    // Height: Header (48) + Spacing (12) + List + Padding
     height: contentItem.implicitHeight + padding * 2
     padding: 16
 
-    // Center in parent
-    x: (parent.width - width) / 2
-    y: (parent.height - height) / 2
+    readonly property int edgeMargin: 16
+    // Header (48) + column spacing (12) + vertical padding
+    readonly property int chromeHeight: 48 + 12 + padding * 2
+    readonly property int maxListHeight: {
+        if (!parent)
+            return 240;
+        return Math.max(96, Math.min(240, parent.height - edgeMargin * 2 - chromeHeight));
+    }
+
+    // Center in parent, clamped so the popup stays fully on-screen
+    x: {
+        if (!parent)
+            return 0;
+        return Math.max(edgeMargin, Math.min(parent.width - width - edgeMargin, (parent.width - width) / 2));
+    }
+    y: {
+        if (!parent)
+            return 0;
+        return Math.max(edgeMargin, Math.min(parent.height - height - edgeMargin, (parent.height - height) / 2));
+    }
 
     modal: true
     focus: true
@@ -298,8 +315,8 @@ Popup {
         ListView {
             id: modelList
             Layout.fillWidth: true
-            // Limit height to 5 items (5 * 48 = 240)
-            Layout.preferredHeight: Math.min(contentHeight, 240)
+            // Cap at 5 rows, or less when the parent window is short
+            Layout.preferredHeight: Math.min(contentHeight, root.maxListHeight)
             clip: true
 
             model: root.filteredModels
