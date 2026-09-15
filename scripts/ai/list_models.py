@@ -115,33 +115,91 @@ def _openai_style(provider, url, key, allow_prefixes=None, key_id=None, name_fn=
     return out
 
 
-def list_models(ctx, custom_endpoint="", custom_models=None, custom_name=""):
-    models = []
-    gemini_entries = _key_entries(ctx, "gemini")
-    for i, entry in enumerate(gemini_entries):
-        gemini = entry.get("api_key") or ""
-        if not gemini:
+PROVIDER_ENDPOINTS = {
+    "openai": DEFAULT_ENDPOINTS.get("openai") or "https://api.openai.com",
+    "openrouter": DEFAULT_ENDPOINTS.get("openrouter") or "https://openrouter.ai/api/v1",
+    "anthropic": "https://api.anthropic.com",
+    "gemini": "https://generativelanguage.googleapis.com/v1beta",
+    "ollama": "http://127.0.0.1:11434",
+}
+
+
+def _catalog_ignored(ignore_catalog, provider):
+    if not ignore_catalog:
+        return False
+    value = ignore_catalog.get(provider)
+    if value is None:
+        value = ignore_catalog.get(str(provider).lower())
+    return bool(value)
+
+
+def _manual_items(manual_models, provider):
+    if not manual_models:
+        return []
+    items = manual_models.get(provider)
+    if items is None:
+        items = manual_models.get(str(provider).lower())
+    return items if isinstance(items, list) else []
+
+
+def _append_manuals(models, provider, items, endpoint, custom_name=""):
+    out = list(models)
+    for item in items or []:
+        if not isinstance(item, dict):
             continue
-        try:
-            data = _get("https://generativelanguage.googleapis.com/v1beta/models?key=%s" % gemini)
-            for item in data.get("models") or []:
-                mid = (item.get("name") or "").replace("models/", "")
-                if "gemini" in mid or "flash" in mid or "pro" in mid:
-                    display = item.get("displayName") or mid
-                    models.append(
-                        {
-                            "name": _named(display, entry, i, len(gemini_entries)),
-                            "model": mid,
-                            "provider": "gemini",
-                            "endpoint": "https://generativelanguage.googleapis.com/v1beta",
-                            "description": item.get("description") or "Google Gemini",
-                            "requires_key": True,
-                            "key_id": _key_id("gemini", entry),
-                        }
-                    )
-        except (urllib.error.URLError, ValueError, TimeoutError):
-            pass
+        mid = (item.get("model") or item.get("id") or "").strip()
+        if not mid:
+            continue
+        display = (item.get("name") or item.get("display_name") or custom_name or "").strip()
+        if not display:
+            display = _humanize_model_id(mid) or mid
+        out = [m for m in out if not (m.get("provider") == provider and m.get("model") == mid)]
+        out.append(
+            {
+                "name": display,
+                "model": mid,
+                "provider": provider,
+                "endpoint": endpoint,
+                "description": display,
+                "requires_key": provider != "ollama",
+                "key_id": provider,
+            }
+        )
+    return out
+
+
+def list_models(ctx, custom_endpoint="", custom_models=None, custom_name="", ignore_catalog=None, manual_models=None):
+    models = []
+    ignore_catalog = ignore_catalog if ignore_catalog is not None else getattr(ctx, "ignore_catalog", None) or {}
+    manual_models = manual_models if manual_models is not None else getattr(ctx, "manual_models", None) or {}
+    if not _catalog_ignored(ignore_catalog, "gemini"):
+        gemini_entries = _key_entries(ctx, "gemini")
+        for i, entry in enumerate(gemini_entries):
+            gemini = entry.get("api_key") or ""
+            if not gemini:
+                continue
+            try:
+                data = _get("https://generativelanguage.googleapis.com/v1beta/models?key=%s" % gemini)
+                for item in data.get("models") or []:
+                    mid = (item.get("name") or "").replace("models/", "")
+                    if "gemini" in mid or "flash" in mid or "pro" in mid:
+                        display = item.get("displayName") or mid
+                        models.append(
+                            {
+                                "name": _named(display, entry, i, len(gemini_entries)),
+                                "model": mid,
+                                "provider": "gemini",
+                                "endpoint": PROVIDER_ENDPOINTS["gemini"],
+                                "description": item.get("description") or "Google Gemini",
+                                "requires_key": True,
+                                "key_id": _key_id("gemini", entry),
+                            }
+                        )
+            except (urllib.error.URLError, ValueError, TimeoutError):
+                pass
     for provider, prefixes in OPENAI_COMPAT.items():
+        if _catalog_ignored(ignore_catalog, provider):
+            continue
         entries = _key_entries(ctx, provider)
         total = len(entries)
         base = DEFAULT_ENDPOINTS.get(provider) or ""
@@ -166,33 +224,34 @@ def list_models(ctx, custom_endpoint="", custom_models=None, custom_name=""):
                 )
             except (urllib.error.URLError, ValueError, TimeoutError):
                 pass
-    anthropic_entries = _key_entries(ctx, "anthropic")
-    for i, entry in enumerate(anthropic_entries):
-        anthropic = entry.get("api_key") or ""
-        if not anthropic:
-            continue
-        try:
-            data = _get(
-                "https://api.anthropic.com/v1/models",
-                {"x-api-key": anthropic, "anthropic-version": "2023-06-01"},
-            )
-            for item in data.get("data") or []:
-                mid = item.get("id") or ""
-                display = _display_name(item, mid)
-                models.append(
-                    {
-                        "name": _named(display, entry, i, len(anthropic_entries)),
-                        "model": mid,
-                        "provider": "anthropic",
-                        "endpoint": "https://api.anthropic.com",
-                        "description": item.get("description") or "Anthropic",
-                        "requires_key": True,
-                        "key_id": _key_id("anthropic", entry),
-                    }
+    if not _catalog_ignored(ignore_catalog, "anthropic"):
+        anthropic_entries = _key_entries(ctx, "anthropic")
+        for i, entry in enumerate(anthropic_entries):
+            anthropic = entry.get("api_key") or ""
+            if not anthropic:
+                continue
+            try:
+                data = _get(
+                    "https://api.anthropic.com/v1/models",
+                    {"x-api-key": anthropic, "anthropic-version": "2023-06-01"},
                 )
-        except (urllib.error.URLError, ValueError, TimeoutError):
-            pass
-    if _key_entries(ctx, "ollama"):
+                for item in data.get("data") or []:
+                    mid = item.get("id") or ""
+                    display = _display_name(item, mid)
+                    models.append(
+                        {
+                            "name": _named(display, entry, i, len(anthropic_entries)),
+                            "model": mid,
+                            "provider": "anthropic",
+                            "endpoint": PROVIDER_ENDPOINTS["anthropic"],
+                            "description": item.get("description") or "Anthropic",
+                            "requires_key": True,
+                            "key_id": _key_id("anthropic", entry),
+                        }
+                    )
+            except (urllib.error.URLError, ValueError, TimeoutError):
+                pass
+    if not _catalog_ignored(ignore_catalog, "ollama") and _key_entries(ctx, "ollama"):
         try:
             data = _get("http://127.0.0.1:11434/api/tags")
             for item in data.get("models") or []:
@@ -202,7 +261,7 @@ def list_models(ctx, custom_endpoint="", custom_models=None, custom_name=""):
                         "name": _display_name(item, mid),
                         "model": mid,
                         "provider": "ollama",
-                        "endpoint": "http://127.0.0.1:11434",
+                        "endpoint": PROVIDER_ENDPOINTS["ollama"],
                         "description": "Ollama",
                         "requires_key": False,
                         "key_id": "ollama",
@@ -213,7 +272,7 @@ def list_models(ctx, custom_endpoint="", custom_models=None, custom_name=""):
     custom_entries = _key_entries(ctx, "custom")
     custom_base = normalize_openai_base(custom_endpoint, default="")
     custom_models_url = models_url(custom_base) if custom_base else ""
-    if custom_entries and custom_base:
+    if custom_entries and custom_base and not _catalog_ignored(ignore_catalog, "custom"):
         total = len(custom_entries)
         listed = False
         for i, entry in enumerate(custom_entries):
@@ -251,24 +310,27 @@ def list_models(ctx, custom_endpoint="", custom_models=None, custom_name=""):
             listed = True
         if not listed:
             pass
-    for item in custom_models or getattr(ctx, "custom_models", None) or []:
-        mid = (item.get("model") or item.get("id") or "").strip()
-        if not mid:
-            continue
-        display = (item.get("name") or item.get("display_name") or custom_name or getattr(ctx, "custom_name", "") or "").strip()
-        if not display:
-            display = _humanize_model_id(mid) or mid
-        # Prefer manual entries: drop any earlier auto-listed custom model with the same id.
-        models = [m for m in models if not (m.get("provider") == "custom" and m.get("model") == mid)]
-        models.append(
-            {
-                "name": display,
-                "model": mid,
-                "provider": "custom",
-                "endpoint": custom_base if custom_base else normalize_openai_base(custom_endpoint, default=""),
-                "description": display,
-                "requires_key": True,
-                "key_id": "custom",
-            }
+    custom_endpoint_resolved = custom_base if custom_base else normalize_openai_base(custom_endpoint, default="")
+    for provider, endpoint in PROVIDER_ENDPOINTS.items():
+        models = _append_manuals(
+            models,
+            provider,
+            _manual_items(manual_models, provider),
+            endpoint,
+            custom_name if provider == "custom" else "",
         )
+    models = _append_manuals(
+        models,
+        "custom",
+        custom_models or getattr(ctx, "custom_models", None) or [],
+        custom_endpoint_resolved,
+        custom_name or getattr(ctx, "custom_name", "") or "",
+    )
+    models = _append_manuals(
+        models,
+        "custom",
+        _manual_items(manual_models, "custom"),
+        custom_endpoint_resolved,
+        custom_name or getattr(ctx, "custom_name", "") or "",
+    )
     return models

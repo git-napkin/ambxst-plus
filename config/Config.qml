@@ -82,21 +82,26 @@ Singleton {
         saveDebounceTimer.restart();
     }
 
+    function flushPendingSaves() {
+        saveDebounceTimer.stop();
+        var pending = root._pendingSaves;
+        root._pendingSaves = [];
+        for (var i = 0; i < pending.length; i++) {
+            try {
+                pending[i].writeAdapter();
+            } catch (e) {
+                console.warn("Config: deferred save failed:", e);
+            }
+        }
+    }
+
+    Component.onDestruction: root.flushPendingSaves()
+
     Timer {
         id: saveDebounceTimer
         interval: 250
         repeat: false
-        onTriggered: {
-            var pending = root._pendingSaves;
-            root._pendingSaves = [];
-            for (var i = 0; i < pending.length; i++) {
-                try {
-                    pending[i].writeAdapter();
-                } catch (e) {
-                    console.warn("Config: deferred save failed:", e);
-                }
-            }
-        }
+        onTriggered: root.flushPendingSaves()
     }
 
     // Module init status
@@ -1293,13 +1298,12 @@ Singleton {
         }
         onPathChanged: reload()
         onAdapterUpdated: {
-            if (root.aiReady && !root.pauseAutoSave && !aiLoader._reloading) {
+            if (root.aiReady && !aiLoader._reloading) {
                 root.scheduleSave(aiLoader);
             }
         }
 
         adapter: JsonAdapter {
-            property string systemPrompt: "You are a helpful assistant running on Ambxst[+], a Linux desktop shell. Prefer specialized tools over guessing. Use grep to locate, then read_files with line ranges. Edit via apply_file_diffs, not whole-file rewrites. Ask the user when intent is ambiguous."
             property list<var> extraModels: []
             property string defaultModel: "gemini-2.0-flash"
             property string customEndpoint: ""
@@ -1307,6 +1311,7 @@ Singleton {
             property string customName: ""
             property list<var> customModels: []
             property string customModelsJson: "[]"
+            property string manualModelsJson: "{}"
             property JsonObject defaultModels: JsonObject {
                 property string openai: ""
                 property string anthropic: ""
@@ -1315,12 +1320,20 @@ Singleton {
                 property string ollama: ""
                 property string custom: ""
             }
+            property JsonObject ignoreModelCatalog: JsonObject {
+                property bool openai: false
+                property bool anthropic: false
+                property bool gemini: false
+                property bool openrouter: false
+                property bool ollama: false
+                property bool custom: false
+            }
             property string workspace: ""
             property int overlayWidth: 640
-            property real overlayYFraction: 0.22
+            property string overlayAnchor: "top"
+            property int overlayOffsetX: 0
+            property int overlayOffsetY: 0
             property bool showScrim: true
-            property real temperature: 0.7
-            property int maxTokens: 4096
             property list<var> enabledTools: ["read_files", "grep", "file_glob", "apply_file_diffs", "run_shell_command", "ask_user_question", "read_skill", "exa_search", "exa_contents", "native"]
             property list<var> commands: []
             property JsonObject contextProviders: JsonObject {
@@ -3674,17 +3687,7 @@ Singleton {
     // AI configuration
     property QtObject ai: aiLoader.adapter
 
-    function readCustomModels() {
-        let list = [];
-        try {
-            const raw = root.ai && root.ai.customModelsJson ? root.ai.customModelsJson : "";
-            if (raw && String(raw).trim() !== "" && String(raw).trim() !== "[]")
-                list = JSON.parse(raw);
-        } catch (e) {
-            list = [];
-        }
-        if ((!list || list.length === 0) && root.ai && root.ai.customModels && root.ai.customModels.length)
-            list = root.ai.customModels;
+    function _plainManualList(list) {
         const out = [];
         for (let i = 0; i < (list || []).length; i++) {
             const item = list[i] || {};
@@ -3699,21 +3702,180 @@ Singleton {
         return out;
     }
 
+    function readCustomModels() {
+        return root.readManualModels("custom");
+    }
+
     function writeCustomModels(list) {
-        const plain = [];
-        for (let i = 0; i < (list || []).length; i++) {
-            const item = list[i] || {};
-            const mid = String(item.model || item.id || "").trim();
-            if (!mid)
-                continue;
-            plain.push({
-                model: mid,
-                name: String(item.name || item.display_name || mid).trim() || mid
-            });
+        root.writeManualModels("custom", list);
+    }
+
+    function readManualModelsMap() {
+        let map = {};
+        try {
+            const raw = root.ai && root.ai.manualModelsJson ? root.ai.manualModelsJson : "";
+            if (raw && String(raw).trim() !== "" && String(raw).trim() !== "{}")
+                map = JSON.parse(raw);
+        } catch (e) {
+            map = {};
         }
-        root.ai.customModelsJson = JSON.stringify(plain);
-        root.ai.customModels = plain;
-        root.scheduleSave(aiLoader);
+        if (!map || typeof map !== "object" || Array.isArray(map))
+            map = {};
+        const customs = [];
+        try {
+            const raw = root.ai && root.ai.customModelsJson ? root.ai.customModelsJson : "";
+            if (raw && String(raw).trim() !== "" && String(raw).trim() !== "[]") {
+                const parsed = JSON.parse(raw);
+                if (Array.isArray(parsed))
+                    customs.push.apply(customs, parsed);
+            }
+        } catch (e) {
+        }
+        if (customs.length === 0 && root.ai && root.ai.customModels && root.ai.customModels.length)
+            customs.push.apply(customs, root.ai.customModels);
+        const customPlain = root._plainManualList(customs);
+        const existingCustom = root._plainManualList(map.custom || []);
+        if (customPlain.length && existingCustom.length === 0)
+            map.custom = customPlain;
+        else if (customPlain.length) {
+            const seen = {};
+            const merged = [];
+            const both = existingCustom.concat(customPlain);
+            for (let i = 0; i < both.length; i++) {
+                const mid = both[i].model;
+                if (seen[mid])
+                    continue;
+                seen[mid] = true;
+                merged.push(both[i]);
+            }
+            map.custom = merged;
+        }
+        return map;
+    }
+
+    function readManualModels(provider) {
+        const map = root.readManualModelsMap();
+        const id = String(provider || "").toLowerCase();
+        return root._plainManualList(map[id] || []);
+    }
+
+    function writeManualModels(provider, list) {
+        const id = String(provider || "").toLowerCase();
+        if (!id)
+            return;
+        const map = root.readManualModelsMap();
+        const plain = root._plainManualList(list);
+        map[id] = plain;
+        root.ai.manualModelsJson = JSON.stringify(map);
+        if (id === "custom") {
+            root.ai.customModelsJson = JSON.stringify(plain);
+            root.ai.customModels = plain;
+        }
+        root.saveAi();
+    }
+
+    function readIgnoreCatalog() {
+        const obj = root.ai ? root.ai.ignoreModelCatalog : null;
+        return {
+            openai: !!(obj && obj.openai),
+            anthropic: !!(obj && obj.anthropic),
+            gemini: !!(obj && obj.gemini),
+            openrouter: !!(obj && obj.openrouter),
+            ollama: !!(obj && obj.ollama),
+            custom: !!(obj && obj.custom)
+        };
+    }
+
+    function ignoresModelCatalog(provider) {
+        const flags = root.readIgnoreCatalog();
+        return !!flags[String(provider || "").toLowerCase()];
+    }
+
+    function setIgnoreModelCatalog(provider, value) {
+        const obj = root.ai ? root.ai.ignoreModelCatalog : null;
+        if (!obj)
+            return;
+        const on = !!value;
+        switch (String(provider || "").toLowerCase()) {
+        case "openai":
+            obj.openai = on;
+            break;
+        case "anthropic":
+            obj.anthropic = on;
+            break;
+        case "gemini":
+            obj.gemini = on;
+            break;
+        case "openrouter":
+            obj.openrouter = on;
+            break;
+        case "ollama":
+            obj.ollama = on;
+            break;
+        case "custom":
+            obj.custom = on;
+            break;
+        default:
+            return;
+        }
+        root.saveAi();
+    }
+
+    function setContextProvider(key, value) {
+        const obj = root.ai ? root.ai.contextProviders : null;
+        if (!obj)
+            return;
+        const on = !!value;
+        switch (String(key || "")) {
+        case "focusedWindow":
+            obj.focusedWindow = on;
+            break;
+        case "clipboard":
+            obj.clipboard = on;
+            break;
+        case "notifications":
+            obj.notifications = on;
+            break;
+        case "weather":
+            obj.weather = on;
+            break;
+        case "resources":
+            obj.resources = on;
+            break;
+        default:
+            return;
+        }
+        root.saveAi();
+    }
+
+    function setAiProviderDefault(provider, mid) {
+        const defaults = root.ai ? root.ai.defaultModels : null;
+        const id = String(mid || "");
+        if (defaults) {
+            switch (String(provider || "").toLowerCase()) {
+            case "openai":
+                defaults.openai = id;
+                break;
+            case "anthropic":
+                defaults.anthropic = id;
+                break;
+            case "gemini":
+                defaults.gemini = id;
+                break;
+            case "openrouter":
+                defaults.openrouter = id;
+                break;
+            case "ollama":
+                defaults.ollama = id;
+                break;
+            case "custom":
+                defaults.custom = id;
+                break;
+            }
+        }
+        if (root.ai)
+            root.ai.defaultModel = id;
+        root.saveAi();
     }
 
     function saveAi() {

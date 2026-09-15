@@ -75,7 +75,7 @@ Singleton {
         if (persistenceReady && currentModel && isRestored)
             StateService.set("lastAiModel", currentModel.model);
         if (agentReady && currentModel)
-            writeCmd(Object.assign({ cmd: "set_model", model: modelPayload(currentModel) }, samplingPayload()));
+            writeCmd({ cmd: "set_model", model: modelPayload(currentModel) });
     }
 
     function restoreModel() {
@@ -91,7 +91,7 @@ Singleton {
         if (wanted) {
             for (let i = 0; i < models.length; i++) {
                 const m = models[i];
-                if (m.model === wanted || m.model.endsWith("/" + wanted) || m.name === wanted) {
+                if (root.modelIdOf(m) === wanted || m.name === wanted) {
                     currentModel = m;
                     isRestored = true;
                     return;
@@ -103,7 +103,7 @@ Singleton {
             const order = ["openai", "anthropic", "gemini", "openrouter", "ollama", "custom"];
             for (let p = 0; p < order.length; p++) {
                 const provider = order[p];
-                const mid = defaults[provider] || "";
+                const mid = root.providerDefault(provider);
                 if (!mid)
                     continue;
                 const found = findModel(mid, provider);
@@ -141,7 +141,7 @@ Singleton {
             const m = models[i];
             if (!m)
                 continue;
-            if (mid && m.model !== mid && m.name !== mid)
+            if (mid && root.modelIdOf(m) !== mid)
                 continue;
             if (pid && String(m.provider || "").toLowerCase() !== pid)
                 continue;
@@ -152,37 +152,78 @@ Singleton {
         return null;
     }
 
+    function modelIdOf(m) {
+        return m ? String(m.model || "") : "";
+    }
+
+    function isSameModel(a, b) {
+        if (!a || !b)
+            return false;
+        return String(a.provider || "").toLowerCase() === String(b.provider || "").toLowerCase()
+            && root.modelIdOf(a) === root.modelIdOf(b)
+            && String(a.key_id || "") === String(b.key_id || "");
+    }
+
     function providerDefault(provider) {
         const defaults = Config.ai.defaultModels;
         if (!defaults || !provider)
             return "";
-        return defaults[provider] || "";
+        switch (String(provider).toLowerCase()) {
+        case "openai":
+            return defaults.openai || "";
+        case "anthropic":
+            return defaults.anthropic || "";
+        case "gemini":
+            return defaults.gemini || "";
+        case "openrouter":
+            return defaults.openrouter || "";
+        case "ollama":
+            return defaults.ollama || "";
+        case "custom":
+            return defaults.custom || "";
+        default:
+            return "";
+        }
     }
 
     function setProviderDefault(provider, modelObj) {
         if (!provider || !modelObj)
             return;
-        const mid = modelObj.model || modelObj.name || "";
+        const mid = root.modelIdOf(modelObj);
         if (!mid)
             return;
-        const defaults = Config.ai.defaultModels;
-        if (defaults && defaults[provider] !== undefined)
-            defaults[provider] = mid;
-        Config.ai.defaultModel = mid;
+        Config.setAiProviderDefault(provider, mid);
         currentModel = modelObj;
         savedModelId = mid;
         if (persistenceReady)
             StateService.set("lastAiModel", mid);
     }
 
-    function setModel(modelName) {
+    function selectModel(modelObj) {
+        if (!modelObj)
+            return;
+        const provider = String(modelObj.provider || "").toLowerCase();
+        if (provider)
+            root.setProviderDefault(provider, modelObj);
+        else {
+            currentModel = modelObj;
+            savedModelId = root.modelIdOf(modelObj);
+            Config.ai.defaultModel = savedModelId;
+            Config.saveAi();
+            if (persistenceReady)
+                StateService.set("lastAiModel", savedModelId);
+        }
+    }
+
+    function setModel(modelName, provider, keyId) {
+        const found = root.findModel(modelName, provider, keyId);
+        if (found) {
+            root.selectModel(found);
+            return;
+        }
         for (let i = 0; i < models.length; i++) {
-            if (models[i].name === modelName || models[i].model === modelName) {
-                currentModel = models[i];
-                const provider = String(models[i].provider || "").toLowerCase();
-                if (provider && Config.ai.defaultModels && Config.ai.defaultModels[provider] !== undefined)
-                    Config.ai.defaultModels[provider] = models[i].model;
-                Config.ai.defaultModel = models[i].model;
+            if (models[i].name === modelName || root.modelIdOf(models[i]) === String(modelName || "")) {
+                root.selectModel(models[i]);
                 return;
             }
         }
@@ -218,13 +259,8 @@ Singleton {
         function onCustomNameChanged() {
             fetchAvailableModels();
         }
-        function onTemperatureChanged() {
-            if (agentReady)
-                writeCmd(Object.assign({ cmd: "set_model", model: modelPayload(currentModel) }, samplingPayload()));
-        }
-        function onMaxTokensChanged() {
-            if (agentReady)
-                writeCmd(Object.assign({ cmd: "set_model", model: modelPayload(currentModel) }, samplingPayload()));
+        function onManualModelsJsonChanged() {
+            fetchAvailableModels();
         }
     }
 
@@ -257,27 +293,12 @@ Singleton {
         return [bundledSkills, configHome + "/ambxst+/ai/skills"];
     }
 
-    function samplingPayload() {
-        const provider = (currentModel && currentModel.provider) ? String(currentModel.provider).toLowerCase() : "";
-        if (provider === "ollama" || provider === "custom") {
-            return {
-                temperature: Config.ai.temperature ?? 0.7,
-                max_tokens: Config.ai.maxTokens ?? 4096
-            };
-        }
-        return {
-            temperature: null,
-            max_tokens: null
-        };
-    }
-
     function sendInit() {
         if (!agentProc.running)
             return;
-        writeCmd(Object.assign({
+        writeCmd({
             cmd: "init",
             workspace: Config.ai.workspace || (Quickshell.env("HOME") || ""),
-            system_prompt: Config.ai.systemPrompt || "",
             enabled_tools: Config.ai.enabledTools || [],
             execution_profile: {
                 readFiles: Config.ai.executionProfile.readFiles,
@@ -293,11 +314,13 @@ Singleton {
             skill_dirs: skillDirs(),
             keystore_db: KeyStore.dbPath,
             custom_endpoint: Config.ai.customEndpoint || "",
-            custom_models: Config.readCustomModels(),
+            custom_models: Config.readManualModels("custom"),
             custom_name: Config.ai.customName || "",
+            ignore_catalog: Config.readIgnoreCatalog(),
+            manual_models: Config.readManualModelsMap(),
             model: modelPayload(currentModel),
             context: { autoexecute_any_action: autoApprove }
-        }, samplingPayload()));
+        });
     }
 
     function writeCmd(obj) {
@@ -341,14 +364,18 @@ Singleton {
             return true;
         case "/model":
             if (args) {
-                let found = false;
-                for (let i = 0; i < models.length; i++) {
-                    if (models[i].name.toLowerCase().includes(args.toLowerCase()) || models[i].model.toLowerCase() === args.toLowerCase()) {
-                        setModel(models[i].name);
-                        found = true;
-                        break;
+                const q = args.toLowerCase();
+                let found = root.findModel(args);
+                if (!found) {
+                    for (let i = 0; i < models.length; i++) {
+                        if (models[i].name.toLowerCase() === q || root.modelIdOf(models[i]).toLowerCase() === q) {
+                            found = models[i];
+                            break;
+                        }
                     }
                 }
+                if (found)
+                    root.selectModel(found);
                 pushSystemMessage(found ? ("Switched to " + currentModel.name) : ("Model '" + args + "' not found."));
             } else {
                 modelSelectionRequested();
@@ -766,9 +793,10 @@ for f in files:
 
     function fetchAvailableModels() {
         fetchingModels = true;
-        if (agentReady)
+        if (agentReady) {
+            sendInit();
             writeCmd({ cmd: "list_models" });
-        else {
+        } else {
             pruneModelsMissingKeys();
             seedFallbackModels();
             fetchingModels = false;
@@ -783,15 +811,12 @@ for f in files:
             return true;
         if (KeyStore.hasKey(provider))
             return true;
-        if (provider === "custom") {
-            const customs = Config.readCustomModels();
-            const mid = String(m.model || "");
-            for (let i = 0; i < customs.length; i++) {
-                const item = customs[i] || {};
-                if (String(item.model || item.id || "") === mid)
-                    return true;
-            }
-            return false;
+        const mid = root.modelIdOf(m);
+        const manuals = Config.readManualModels(provider);
+        for (let i = 0; i < manuals.length; i++) {
+            const item = manuals[i] || {};
+            if (String(item.model || item.id || "") === mid)
+                return true;
         }
         if (m.requires_key === false)
             return false;
@@ -820,6 +845,25 @@ for f in files:
         }
     }
 
+    function manualEndpoint(provider) {
+        switch (String(provider || "").toLowerCase()) {
+        case "openai":
+            return "https://api.openai.com";
+        case "openrouter":
+            return "https://openrouter.ai/api/v1";
+        case "anthropic":
+            return "https://api.anthropic.com";
+        case "gemini":
+            return "https://generativelanguage.googleapis.com/v1beta";
+        case "ollama":
+            return "http://127.0.0.1:11434";
+        case "custom":
+            return Config.ai.customEndpoint || "";
+        default:
+            return "";
+        }
+    }
+
     function seedFallbackModels() {
         const seeded = [];
         const extras = Config.ai.extraModels || [];
@@ -835,22 +879,26 @@ for f in files:
                 key_id: item.key_id || item.provider || "custom"
             }));
         }
-        const customs = Config.readCustomModels();
-        const customLabel = Config.ai.customName || "";
-        for (let i = 0; i < customs.length; i++) {
-            const item = customs[i] || {};
-            const mid = item.model || item.id || "";
-            if (!mid)
-                continue;
-            seeded.push(aiModelFactory.createObject(root, {
-                name: item.name || customLabel || mid,
-                description: item.description || customLabel || "Custom",
-                endpoint: Config.ai.customEndpoint || "",
-                model: mid,
-                provider: "custom",
-                requires_key: true,
-                key_id: "custom"
-            }));
+        const providers = ["openai", "anthropic", "gemini", "openrouter", "ollama", "custom"];
+        for (let p = 0; p < providers.length; p++) {
+            const provider = providers[p];
+            const items = Config.readManualModels(provider);
+            const customLabel = provider === "custom" ? (Config.ai.customName || "") : "";
+            for (let i = 0; i < items.length; i++) {
+                const item = items[i] || {};
+                const mid = item.model || item.id || "";
+                if (!mid)
+                    continue;
+                seeded.push(aiModelFactory.createObject(root, {
+                    name: item.name || customLabel || mid,
+                    description: item.description || customLabel || provider,
+                    endpoint: root.manualEndpoint(provider),
+                    model: mid,
+                    provider: provider,
+                    requires_key: provider !== "ollama",
+                    key_id: provider
+                }));
+            }
         }
         if (seeded.length)
             mergeModels(seeded);
@@ -901,7 +949,7 @@ for f in files:
             const m = newModels[i];
             let dup = false;
             for (let j = 0; j < updated.length; j++) {
-                if (updated[j].model === m.model && (updated[j].key_id || "") === (m.key_id || "")) {
+                if (root.modelIdOf(updated[j]) === root.modelIdOf(m) && (updated[j].key_id || "") === (m.key_id || "") && String(updated[j].provider || "").toLowerCase() === String(m.provider || "").toLowerCase()) {
                     dup = true;
                     break;
                 }

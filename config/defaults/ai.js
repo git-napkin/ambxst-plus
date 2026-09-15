@@ -1,13 +1,13 @@
 .pragma library
 
 var data = {
-    "systemPrompt": "You are a helpful assistant running on Ambxst[+], a Linux desktop shell. Prefer specialized tools over guessing. Use grep to locate, then read_files with line ranges. Edit via apply_file_diffs, not whole-file rewrites. Ask the user when intent is ambiguous.",
     "defaultModel": "gemini-2.0-flash",
     "customEndpoint": "",
     "customCurlTemplate": "",
     "customName": "",
     "customModels": [],
     "customModelsJson": "[]",
+    "manualModelsJson": "{}",
     "extraModels": [],
     "defaultModels": {
         "openai": "",
@@ -17,12 +17,20 @@ var data = {
         "ollama": "",
         "custom": ""
     },
+    "ignoreModelCatalog": {
+        "openai": false,
+        "anthropic": false,
+        "gemini": false,
+        "openrouter": false,
+        "ollama": false,
+        "custom": false
+    },
     "workspace": "",
     "overlayWidth": 640,
-    "overlayYFraction": 0.22,
+    "overlayAnchor": "top",
+    "overlayOffsetX": 0,
+    "overlayOffsetY": 0,
     "showScrim": true,
-    "temperature": 0.7,
-    "maxTokens": 4096,
     "enabledTools": [
         "read_files",
         "grep",

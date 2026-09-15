@@ -747,6 +747,89 @@ class TestOpenAiBaseUrls(unittest.TestCase):
         self.assertEqual(models[0]["name"], "House Llama")
         self.assertEqual(models[0]["provider"], "custom")
 
+    def test_ignore_catalog_skips_custom_v1_models(self):
+        from ai.list_models import list_models
+
+        class Ctx:
+            def get_key(self, provider):
+                return "sk-custom" if provider == "custom" else ""
+
+            def list_keys(self, provider):
+                if provider != "custom":
+                    return []
+                return [{"id": 1, "label": "work", "api_key": "sk-custom"}]
+
+        calls = []
+
+        def fake_get(url, headers=None, timeout=20):
+            calls.append(url)
+            return {"data": [{"id": "local-llama"}, {"id": "local-coder"}]}
+
+        with patch("ai.list_models._get", side_effect=fake_get):
+            models = list_models(
+                Ctx(),
+                custom_endpoint="https://example.com/v1",
+                ignore_catalog={"custom": True},
+                manual_models={"custom": [{"model": "only-this", "name": "Pinned"}]},
+            )
+        self.assertEqual(calls, [])
+        self.assertEqual([m["model"] for m in models], ["only-this"])
+        self.assertEqual(models[0]["name"], "Pinned")
+
+    def test_ignore_catalog_skips_openai_and_keeps_manuals(self):
+        from ai.list_models import list_models
+
+        class Ctx:
+            def get_key(self, provider):
+                return "sk-openai" if provider == "openai" else ""
+
+            def list_keys(self, provider):
+                if provider != "openai":
+                    return []
+                return [{"id": 1, "label": "home", "api_key": "sk-openai"}]
+
+        calls = []
+
+        def fake_get(url, headers=None, timeout=20):
+            calls.append(url)
+            return {"data": [{"id": "gpt-4o"}, {"id": "gpt-4o-mini"}]}
+
+        with patch("ai.list_models._get", side_effect=fake_get):
+            models = list_models(
+                Ctx(),
+                ignore_catalog={"openai": True},
+                manual_models={"openai": [{"model": "gpt-4.1", "name": "GPT 4.1"}]},
+            )
+        self.assertEqual(calls, [])
+        self.assertEqual([m["model"] for m in models], ["gpt-4.1"])
+        self.assertEqual(models[0]["provider"], "openai")
+        self.assertEqual(models[0]["name"], "GPT 4.1")
+
+    def test_manual_models_override_catalog_display_name(self):
+        from ai.list_models import list_models
+
+        class Ctx:
+            def get_key(self, provider):
+                return "sk-custom" if provider == "custom" else ""
+
+            def list_keys(self, provider):
+                if provider != "custom":
+                    return []
+                return [{"id": 1, "label": "work", "api_key": "sk-custom"}]
+
+        def fake_get(url, headers=None, timeout=20):
+            return {"data": [{"id": "local-llama"}, {"id": "local-coder"}]}
+
+        with patch("ai.list_models._get", side_effect=fake_get):
+            models = list_models(
+                Ctx(),
+                custom_endpoint="https://example.com/v1",
+                manual_models={"custom": [{"model": "local-llama", "name": "House Llama"}]},
+            )
+        self.assertEqual([m["model"] for m in models], ["local-coder", "local-llama"])
+        llama = [m for m in models if m["model"] == "local-llama"][0]
+        self.assertEqual(llama["name"], "House Llama")
+
     def test_openai_style_prefers_api_display_name(self):
         from ai.list_models import _display_name, _humanize_model_id
 

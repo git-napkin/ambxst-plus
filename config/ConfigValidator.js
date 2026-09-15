@@ -33,6 +33,7 @@ function validateWithMigration(userConfig, defaults) {
 
 var enumValidators = {
     "position": ["top", "bottom", "left", "right"],
+    "overlayAnchor": ["top", "center", "bottom"],
     "pillStyle": ["default", "squished"],
     "gradientType": ["linear", "radial", "halftone"],
     "noMediaDisplay": ["userHost", "compositor", "custom"],
@@ -74,9 +75,8 @@ var rangeValidators = {
     "spacing": { min: 0, max: 100 },
     "margin": { min: 0, max: 100 },
     "overlayWidth": { min: 400, max: 1200 },
-    "overlayYFraction": { min: 0.05, max: 0.5 },
-    "temperature": { min: 0, max: 2 },
-    "maxTokens": { min: 256, max: 128000 },
+    "overlayOffsetX": { min: -400, max: 400 },
+    "overlayOffsetY": { min: -400, max: 400 },
     "halftoneDotMin": { min: 0, max: 10 },
     "halftoneDotMax": { min: 0, max: 10 },
     "halftoneStart": { min: 0, max: 1 },

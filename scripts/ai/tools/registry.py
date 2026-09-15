@@ -34,6 +34,8 @@ class ToolContext:
         custom_endpoint="",
         custom_models=None,
         custom_name="",
+        ignore_catalog=None,
+        manual_models=None,
         http_opener=None,
     ):
         from ..execution_profile import ExecutionProfile
@@ -46,6 +48,8 @@ class ToolContext:
         self.custom_endpoint = custom_endpoint or ""
         self.custom_models = list(custom_models) if custom_models else []
         self.custom_name = custom_name or ""
+        self.ignore_catalog = dict(ignore_catalog) if ignore_catalog else {}
+        self.manual_models = dict(manual_models) if manual_models else {}
         self.http_opener = http_opener
         self.autoexecute_any_action = False
         self.temp_read_permissions = set()

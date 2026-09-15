@@ -158,8 +158,8 @@ Popup {
                 onAccepted: {
                     if (root.filteredModels.length > 0 && root.selectedIndex >= 0) {
                         let m = root.filteredModels[root.selectedIndex];
-                        Ai.setModel(m.name);
-                        root.modelSelected(m.name);
+                        Ai.selectModel(m);
+                        root.modelSelected(m.model);
                         root.close();
                     }
                 }
@@ -367,7 +367,7 @@ Popup {
 
                 // Controlled by ListView's currentIndex via root.selectedIndex
                 property bool isSelected: ListView.isCurrentItem
-                property bool isActiveModel: Ai.currentModel.name === modelData.name
+                property bool isActiveModel: Ai.isSameModel(Ai.currentModel, modelData)
 
                 contentItem: RowLayout {
                     anchors.fill: parent
@@ -537,8 +537,8 @@ Popup {
                 Item {}
 
                 onClicked: {
-                    Ai.setModel(modelData.name);
-                    root.modelSelected(modelData.name);
+                    Ai.selectModel(modelData);
+                    root.modelSelected(modelData.model);
                     root.close();
                 }
 

@@ -96,7 +96,7 @@ Rectangle {
         onLoaded: {
             const host = text().trim();
             if (host)
-                root.hostname = host.charAt(0).toUpperCase() + host.slice(1);
+                root.hostname = host;
         }
     }
 
@@ -242,10 +242,7 @@ Rectangle {
 
                             Text {
                                 Layout.fillWidth: true
-                                text: {
-                                    const user = Quickshell.env("USER") || "user";
-                                    return user.charAt(0).toUpperCase() + user.slice(1);
-                                }
+                                text: Quickshell.env("USER") || "user"
                                 font.family: Config.theme.font
                                 font.pixelSize: Config.theme.fontSize
                                 font.weight: Font.Medium
@@ -268,12 +265,7 @@ Rectangle {
 
                             Text {
                                 Layout.fillWidth: true
-                                text: {
-                                    if (!root.hostname)
-                                        return "Hostname";
-                                    const host = root.hostname.toLowerCase();
-                                    return host.charAt(0).toUpperCase() + host.slice(1);
-                                }
+                                text: root.hostname || "Hostname"
                                 font.family: Config.theme.font
                                 font.pixelSize: Config.theme.fontSize
                                 font.weight: Font.Medium

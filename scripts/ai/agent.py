@@ -109,6 +109,8 @@ class Agent:
             custom_endpoint=payload.get("custom_endpoint") or payload.get("customEndpoint") or "",
             custom_models=payload.get("custom_models") or payload.get("customModels") or [],
             custom_name=payload.get("custom_name") or payload.get("customName") or "",
+            ignore_catalog=payload.get("ignore_catalog") or payload.get("ignoreModelCatalog") or {},
+            manual_models=payload.get("manual_models") or payload.get("manualModels") or {},
         )
         context = payload.get("context") or {}
         self.ctx.autoexecute_any_action = bool(context.get("autoexecute_any_action"))
@@ -290,6 +292,8 @@ class Agent:
                     custom_endpoint=self.ctx.custom_endpoint,
                     custom_models=self.ctx.custom_models,
                     custom_name=self.ctx.custom_name,
+                    ignore_catalog=self.ctx.ignore_catalog,
+                    manual_models=self.ctx.manual_models,
                 )
             except Exception as exc:
                 self.emit({"type": "error", "error": "list_models: %s" % exc})

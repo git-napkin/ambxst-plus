@@ -19,9 +19,6 @@ Item {
         { value: "AlwaysAsk", label: "Always ask" }
     ]
 
-    readonly property string currentProvider: (Ai.currentModel && Ai.currentModel.provider) ? String(Ai.currentModel.provider).toLowerCase() : ""
-    readonly property bool showSampling: currentProvider === "ollama" || currentProvider === "custom"
-
     readonly property var chatProviders: [
         { id: "openai", title: "OpenAI" },
         { id: "anthropic", title: "Anthropic" },
@@ -30,37 +27,8 @@ Item {
         { id: "ollama", title: "Ollama" }
     ]
 
-    function addCustomModel() {
-        const mid = newCustomModelId.text.trim();
-        if (!mid)
-            return;
-        const display = newCustomModelName.text.trim();
-        const next = Config.readCustomModels();
-        let updated = false;
-        for (let i = 0; i < next.length; i++) {
-            if (String(next[i].model || "") === mid) {
-                next[i] = {
-                    model: mid,
-                    name: display || next[i].name || mid
-                };
-                updated = true;
-                break;
-            }
-        }
-        if (!updated)
-            next.push({
-                model: mid,
-                name: display || mid
-            });
-        Config.writeCustomModels(next);
-        newCustomModelId.text = "";
-        newCustomModelName.text = "";
-    }
-
-    readonly property var customModelList: {
-        Config.ai.customModelsJson;
-        Config.ai.customModels;
-        return Config.readCustomModels();
+    function persistAi() {
+        Config.saveAi();
     }
 
     component ProviderModels: ColumnLayout {
@@ -71,6 +39,8 @@ Item {
         readonly property var allModels: {
             Ai.models;
             KeyStore.revision;
+            Config.ai.manualModelsJson;
+            Config.ai.customModelsJson;
             return Ai.modelsFor(picker.providerId);
         }
         readonly property var filteredModels: {
@@ -81,7 +51,7 @@ Item {
             const out = [];
             for (let i = 0; i < all.length; i++) {
                 const m = all[i];
-                const hay = [m.name, m.model, m.description].map(x => String(x || "")).join(" ");
+                const hay = [m.name, Ai.modelIdOf(m), m.description].map(x => String(x || "")).join(" ");
                 if (hay.toLowerCase().indexOf(q) >= 0)
                     out.push(m);
             }
@@ -97,33 +67,186 @@ Item {
             KeyStore.revision;
             return KeyStore.hasKey(picker.providerId);
         }
+        readonly property bool ignoreCatalog: {
+            Config.ai.ignoreModelCatalog;
+            return Config.ignoresModelCatalog(picker.providerId);
+        }
+        readonly property var manuals: {
+            Config.ai.manualModelsJson;
+            Config.ai.customModelsJson;
+            Config.ai.customModels;
+            return Config.readManualModels(picker.providerId);
+        }
         readonly property bool showPicker: {
             Config.ai.customModels;
             Config.ai.customModelsJson;
+            Config.ai.manualModelsJson;
             if (picker.hasKey)
                 return true;
-            if (picker.providerId === "custom")
-                return Config.readCustomModels().length > 0;
-            return false;
+            return picker.manuals.length > 0 || picker.ignoreCatalog;
+        }
+
+        function itemLabel(item) {
+            if (!item)
+                return "";
+            return item.name || Ai.modelIdOf(item);
+        }
+
+        function isSelected(item) {
+            if (!item)
+                return false;
+            const mid = Ai.modelIdOf(item);
+            const provider = String(item.provider || picker.providerId || "").toLowerCase();
+            if (provider !== picker.providerId)
+                return false;
+            if (picker.selectedId && mid && picker.selectedId === mid)
+                return true;
+            return Ai.isSameModel(Ai.currentModel, item);
+        }
+
+        function addManual(displayName, modelId) {
+            const mid = String(modelId || "").trim();
+            if (!mid)
+                return;
+            const display = String(displayName || "").trim();
+            const next = Config.readManualModels(picker.providerId);
+            let updated = false;
+            for (let i = 0; i < next.length; i++) {
+                if (String(next[i].model || "") === mid) {
+                    next[i] = {
+                        model: mid,
+                        name: display || next[i].name || mid
+                    };
+                    updated = true;
+                    break;
+                }
+            }
+            if (!updated)
+                next.push({
+                    model: mid,
+                    name: display || mid
+                });
+            Config.writeManualModels(picker.providerId, next);
+            Ai.fetchAvailableModels();
+        }
+
+        function removeManual(index) {
+            const next = Config.readManualModels(picker.providerId);
+            next.splice(index, 1);
+            Config.writeManualModels(picker.providerId, next);
+            Ai.fetchAvailableModels();
         }
 
         Layout.fillWidth: true
         spacing: 8
-        visible: picker.showPicker
 
         SettingsRow {
+            label: qsTr("Ignore catalog")
+            description: qsTr("Skip the provider model list and use only IDs you add")
+            SettingsSwitch {
+                checked: picker.ignoreCatalog
+                onToggled: value => {
+                    Config.setIgnoreModelCatalog(picker.providerId, value);
+                    Ai.fetchAvailableModels();
+                }
+            }
+        }
+
+        SettingsRow {
+            label: qsTr("Manual model IDs")
+            description: picker.ignoreCatalog ? qsTr("Only these IDs are listed") : qsTr("Extra IDs if the catalog is missing or you want less clutter")
+            stacked: true
+
+            ColumnLayout {
+                Layout.fillWidth: true
+                spacing: 8
+
+                Repeater {
+                    model: picker.manuals
+                    delegate: RowLayout {
+                        required property var modelData
+                        required property int index
+                        Layout.fillWidth: true
+                        spacing: 8
+
+                        Text {
+                            Layout.fillWidth: true
+                            text: {
+                                const name = String(modelData.name || "").trim();
+                                const mid = String(modelData.model || modelData.id || "").trim();
+                                if (name && mid && name !== mid)
+                                    return name + " · " + mid;
+                                return name || mid || qsTr("Model");
+                            }
+                            font.family: Config.theme.font
+                            font.pixelSize: Styling.fontSize(-1)
+                            color: Colors.overBackground
+                            elide: Text.ElideRight
+                        }
+
+                        SettingsButton {
+                            text: qsTr("Remove")
+                            kind: "error"
+                            onClicked: picker.removeManual(index)
+                        }
+                    }
+                }
+
+                RowLayout {
+                    Layout.fillWidth: true
+                    spacing: 8
+
+                    SettingsField {
+                        id: newManualName
+                        Layout.fillWidth: true
+                        Layout.preferredWidth: 1
+                        placeholder: qsTr("Display name")
+                        onAccepted: {
+                            picker.addManual(newManualName.text, newManualId.text);
+                            newManualName.text = "";
+                            newManualId.text = "";
+                        }
+                    }
+
+                    SettingsField {
+                        id: newManualId
+                        Layout.fillWidth: true
+                        Layout.preferredWidth: 1
+                        placeholder: qsTr("Model ID")
+                        onAccepted: {
+                            picker.addManual(newManualName.text, newManualId.text);
+                            newManualName.text = "";
+                            newManualId.text = "";
+                        }
+                    }
+
+                    SettingsButton {
+                        text: qsTr("Add")
+                        enabled: newManualId.text.trim() !== ""
+                        onClicked: {
+                            picker.addManual(newManualName.text, newManualId.text);
+                            newManualName.text = "";
+                            newManualId.text = "";
+                        }
+                    }
+                }
+            }
+        }
+
+        SettingsRow {
+            visible: picker.showPicker
             label: qsTr("Default model")
             description: {
                 if (Ai.fetchingModels)
                     return qsTr("Refreshing model list…");
                 const n = picker.allModels.length;
                 if (n === 0)
-                    return qsTr("No models yet — refresh after the key is saved");
+                    return picker.ignoreCatalog ? qsTr("No manual IDs yet") : qsTr("No models yet — refresh after the key is saved");
                 if (picker.selectedId) {
                     let label = picker.selectedId;
                     for (let i = 0; i < picker.allModels.length; i++) {
-                        if (picker.allModels[i].model === picker.selectedId) {
-                            label = picker.allModels[i].name || picker.selectedId;
+                        if (Ai.modelIdOf(picker.allModels[i]) === picker.selectedId) {
+                            label = picker.itemLabel(picker.allModels[i]);
                             break;
                         }
                     }
@@ -166,24 +289,10 @@ Item {
                         delegate: SettingsButton {
                             required property int index
                             readonly property var item: picker.filteredModels[index]
+                            readonly property bool selected: picker.isSelected(item)
                             Layout.fillWidth: true
-                            text: {
-                                const m = item;
-                                if (!m)
-                                    return "";
-                                const active = picker.selectedId === m.model
-                                    || (Ai.currentModel && Ai.currentModel.model === m.model
-                                        && String(Ai.currentModel.provider).toLowerCase() === picker.providerId);
-                                return (active ? "● " : "○ ") + (m.name || m.model);
-                            }
-                            kind: {
-                                const m = item;
-                                if (!m)
-                                    return "common";
-                                if (picker.selectedId === m.model)
-                                    return "primary";
-                                return "common";
-                            }
+                            text: (selected ? "● " : "○ ") + picker.itemLabel(item)
+                            kind: selected ? "primary" : "common"
                             onClicked: {
                                 if (item)
                                     Ai.setProviderDefault(picker.providerId, item);
@@ -216,25 +325,6 @@ Item {
             currentValue: policyRow.currentValue
             model: policyRow.options
             onActivated: value => policyRow.activated(value)
-        }
-    }
-
-    component ValueSlider: Item {
-        id: sliderRoot
-        property alias value: slider.value
-        property alias tooltipText: slider.tooltipText
-        signal moved(real value)
-
-        implicitHeight: 28
-        implicitWidth: 180
-        Layout.fillWidth: true
-        Layout.preferredHeight: 28
-
-        StyledSlider {
-            id: slider
-            anchors.fill: parent
-            resizeParent: false
-            onValueChanged: sliderRoot.moved(value)
         }
     }
 
@@ -337,6 +427,8 @@ Item {
             SettingsButton {
                 text: qsTr("Enable")
                 kind: "primary"
+                Layout.fillWidth: true
+                Layout.preferredWidth: 0
                 onClicked: KeyStore.setKey(entry.providerId, "enabled")
             }
         }
@@ -413,20 +505,10 @@ Item {
                     SettingsField {
                         value: Config.ai.workspace || ""
                         placeholder: Quickshell.env("HOME") || qsTr("Project folder")
-                        onEditingFinished: Config.ai.workspace = text
-                    }
-                }
-
-                SettingsRow {
-                    label: "System prompt"
-                    description: "Standing instructions for the assistant"
-                    stacked: true
-                    SettingsField {
-                        multiline: true
-                        areaHeight: 120
-                        value: Config.ai.systemPrompt || ""
-                        placeholder: qsTr("You are a helpful assistant…")
-                        onEditingFinished: Config.ai.systemPrompt = text
+                        onEditingFinished: {
+                            Config.ai.workspace = text;
+                            root.persistAi();
+                        }
                     }
                 }
 
@@ -439,20 +521,55 @@ Item {
                         value: Config.ai.overlayWidth || 640
                         onValueEdited: newValue => {
                             Config.ai.overlayWidth = newValue;
+                            root.persistAi();
                         }
                     }
                 }
 
                 SettingsRow {
-                    label: "Vertical position"
+                    label: "Position"
+                    description: "Where the bar sits; bottom grows the transcript up"
                     stacked: true
-                    ValueSlider {
-                        value: ((Config.ai.overlayYFraction ?? 0.22) - 0.05) / 0.45
-                        tooltipText: Math.round((0.05 + value * 0.45) * 100) + "%"
-                        onMoved: next => {
-                            const mapped = 0.05 + next * 0.45;
-                            if (Math.abs((Config.ai.overlayYFraction ?? 0.22) - mapped) > 0.001)
-                                Config.ai.overlayYFraction = mapped;
+                    SegmentedSwitch {
+                        currentValue: Config.ai.overlayAnchor || "top"
+                        model: [
+                            { value: "top", label: qsTr("Top") },
+                            { value: "center", label: qsTr("Center") },
+                            { value: "bottom", label: qsTr("Bottom") }
+                        ]
+                        onActivated: value => {
+                            Config.ai.overlayAnchor = value;
+                            root.persistAi();
+                        }
+                    }
+                }
+
+                SettingsRow {
+                    label: "Offset X"
+                    SettingsSpinBox {
+                        from: -400
+                        to: 400
+                        stepSize: 4
+                        suffix: "px"
+                        value: Config.ai.overlayOffsetX || 0
+                        onValueEdited: newValue => {
+                            Config.ai.overlayOffsetX = newValue;
+                            root.persistAi();
+                        }
+                    }
+                }
+
+                SettingsRow {
+                    label: "Offset Y"
+                    SettingsSpinBox {
+                        from: -400
+                        to: 400
+                        stepSize: 4
+                        suffix: "px"
+                        value: Config.ai.overlayOffsetY || 0
+                        onValueEdited: newValue => {
+                            Config.ai.overlayOffsetY = newValue;
+                            root.persistAi();
                         }
                     }
                 }
@@ -464,37 +581,7 @@ Item {
                         checked: Config.ai.showScrim ?? true
                         onToggled: value => {
                             Config.ai.showScrim = value;
-                        }
-                    }
-                }
-
-                SettingsRow {
-                    visible: root.showSampling
-                    label: "Temperature"
-                    description: "Only used for Ollama and custom endpoints"
-                    stacked: true
-                    ValueSlider {
-                        value: (Config.ai.temperature ?? 0.7) / 2
-                        tooltipText: ((Config.ai.temperature ?? 0.7)).toFixed(1)
-                        onMoved: next => {
-                            const mapped = next * 2;
-                            if (Math.abs((Config.ai.temperature ?? 0.7) - mapped) > 0.01)
-                                Config.ai.temperature = mapped;
-                        }
-                    }
-                }
-
-                SettingsRow {
-                    visible: root.showSampling
-                    label: "Max tokens"
-                    description: "Only used for Ollama and custom endpoints"
-                    SettingsSpinBox {
-                        from: 256
-                        to: 128000
-                        stepSize: 256
-                        value: Config.ai.maxTokens || 4096
-                        onValueEdited: newValue => {
-                            Config.ai.maxTokens = newValue;
+                            root.persistAi();
                         }
                     }
                 }
@@ -509,6 +596,7 @@ Item {
                     currentValue: Config.ai.executionProfile.readFiles
                     onActivated: value => {
                         Config.ai.executionProfile.readFiles = value;
+                        root.persistAi();
                     }
                 }
                 PolicyRow {
@@ -516,6 +604,7 @@ Item {
                     currentValue: Config.ai.executionProfile.applyCodeDiffs
                     onActivated: value => {
                         Config.ai.executionProfile.applyCodeDiffs = value;
+                        root.persistAi();
                     }
                 }
                 PolicyRow {
@@ -523,6 +612,7 @@ Item {
                     currentValue: Config.ai.executionProfile.executeCommands
                     onActivated: value => {
                         Config.ai.executionProfile.executeCommands = value;
+                        root.persistAi();
                     }
                 }
                 PolicyRow {
@@ -535,6 +625,7 @@ Item {
                     ]
                     onActivated: value => {
                         Config.ai.executionProfile.askUserQuestion = value;
+                        root.persistAi();
                     }
                 }
                 PolicyRow {
@@ -548,6 +639,7 @@ Item {
                     ]
                     onActivated: value => {
                         Config.ai.executionProfile.computerUse = value;
+                        root.persistAi();
                     }
                 }
 
@@ -558,6 +650,7 @@ Item {
                         checked: Config.ai.executionProfile.webSearchEnabled ?? true
                         onToggled: value => {
                             Config.ai.executionProfile.webSearchEnabled = value;
+                            root.persistAi();
                         }
                     }
                 }
@@ -572,7 +665,10 @@ Item {
                         mono: true
                         value: (Config.ai.executionProfile.commandAllowlist || []).join("\n")
                         placeholder: qsTr("^ls\\b")
-                        onEditingFinished: Config.ai.executionProfile.commandAllowlist = text.split("\n").map(s => s.trim()).filter(s => s.length)
+                        onEditingFinished: {
+                            Config.ai.executionProfile.commandAllowlist = text.split("\n").map(s => s.trim()).filter(s => s.length);
+                            root.persistAi();
+                        }
                     }
                 }
 
@@ -586,7 +682,10 @@ Item {
                         mono: true
                         value: (Config.ai.executionProfile.commandDenylist || []).join("\n")
                         placeholder: qsTr("rm\\s+-rf")
-                        onEditingFinished: Config.ai.executionProfile.commandDenylist = text.split("\n").map(s => s.trim()).filter(s => s.length)
+                        onEditingFinished: {
+                            Config.ai.executionProfile.commandDenylist = text.split("\n").map(s => s.trim()).filter(s => s.length);
+                            root.persistAi();
+                        }
                     }
                 }
             }
@@ -621,6 +720,7 @@ Item {
                                 if (!value && i !== -1)
                                     cur.splice(i, 1);
                                 Config.ai.enabledTools = cur;
+                                root.persistAi();
                             }
                         }
                     }
@@ -645,7 +745,7 @@ Item {
                         SettingsSwitch {
                             checked: Config.ai.contextProviders[modelData.key] ?? false
                             onToggled: value => {
-                                Config.ai.contextProviders[modelData.key] = value;
+                                Config.setContextProvider(modelData.key, value);
                             }
                         }
                     }
@@ -671,6 +771,7 @@ Item {
                                 const next = (Config.ai.commands || []).slice();
                                 next.splice(index, 1);
                                 Config.ai.commands = next;
+                                root.persistAi();
                             }
                         }
                     }
@@ -700,6 +801,7 @@ Item {
                                 prompt: newCmdPrompt.text.trim()
                             });
                             Config.ai.commands = next;
+                            root.persistAi();
                             newCmdName.text = "";
                             newCmdPrompt.text = "";
                         }
@@ -755,79 +857,6 @@ Item {
                         onEditingFinished: {
                             Config.ai.customEndpoint = text.trim();
                             Config.saveAi();
-                        }
-                    }
-                }
-
-                SettingsRow {
-                    label: "Models"
-                    description: "Manual model IDs when /v1/models is missing or incomplete"
-                    stacked: true
-
-                    ColumnLayout {
-                        Layout.fillWidth: true
-                        spacing: 8
-
-                        Repeater {
-                            model: root.customModelList
-                            delegate: RowLayout {
-                                required property var modelData
-                                required property int index
-                                Layout.fillWidth: true
-                                spacing: 8
-
-                                Text {
-                                    Layout.fillWidth: true
-                                    text: {
-                                        const name = String(modelData.name || "").trim();
-                                        const mid = String(modelData.model || modelData.id || "").trim();
-                                        if (name && mid && name !== mid)
-                                            return name + " · " + mid;
-                                        return name || mid || qsTr("Model");
-                                    }
-                                    font.family: Config.theme.font
-                                    font.pixelSize: Styling.fontSize(-1)
-                                    color: Colors.overBackground
-                                    elide: Text.ElideRight
-                                }
-
-                                SettingsButton {
-                                    text: qsTr("Remove")
-                                    kind: "error"
-                                    onClicked: {
-                                        const next = Config.readCustomModels();
-                                        next.splice(index, 1);
-                                        Config.writeCustomModels(next);
-                                    }
-                                }
-                            }
-                        }
-
-                        RowLayout {
-                            Layout.fillWidth: true
-                            spacing: 8
-
-                            SettingsField {
-                                id: newCustomModelName
-                                Layout.fillWidth: true
-                                Layout.preferredWidth: 1
-                                placeholder: qsTr("Display name")
-                                onAccepted: root.addCustomModel()
-                            }
-
-                            SettingsField {
-                                id: newCustomModelId
-                                Layout.fillWidth: true
-                                Layout.preferredWidth: 1
-                                placeholder: qsTr("Model ID")
-                                onAccepted: root.addCustomModel()
-                            }
-
-                            SettingsButton {
-                                text: qsTr("Add")
-                                enabled: newCustomModelId.text.trim() !== ""
-                                onClicked: root.addCustomModel()
-                            }
                         }
                     }
                 }

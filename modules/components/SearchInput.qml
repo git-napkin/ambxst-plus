@@ -91,7 +91,7 @@ StyledRect {
         TextField {
             id: textField
             Layout.fillWidth: true
-            // Built-in placeholder sits under the caret; paint our own offset label instead.
+            // Built-in placeholder sits under the caret; paint our own label instead.
             placeholderText: ""
             font.family: Config.theme.font
             font.pixelSize: Config.theme.fontSize
@@ -106,17 +106,10 @@ StyledRect {
             topPadding: 0
             bottomPadding: 0
 
-            cursorDelegate: Rectangle {
-                width: 1.5
-                color: Colors.overBackground
-                radius: 0.75
-            }
-
             Text {
                 id: placeholderLabel
                 anchors.left: parent.left
-                // Leave a gap after the caret so it never reads as “behind” the hint.
-                anchors.leftMargin: parent.activeFocus ? 10 : 0
+                anchors.leftMargin: 0
                 anchors.right: parent.right
                 anchors.verticalCenter: parent.verticalCenter
                 text: root.placeholderText

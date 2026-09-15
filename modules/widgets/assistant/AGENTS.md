@@ -1,7 +1,7 @@
 # AGENTS.md — modules/widgets/assistant/
 
 ## OVERVIEW
-Spotlight-style AI overlay. Compact bar in the upper third of the focused monitor; transcript grows down. Not a sidebar and not hosted in the notch launcher.
+Spotlight-style AI overlay. Compact bar on the focused monitor; transcript grows down from top/center, or up from the bottom. Not a sidebar and not hosted in the notch launcher.
 
 ## STRUCTURE
 
@@ -31,7 +31,7 @@ CodeBlock and ModelSelectorPopup live in `modules/sidebar/` and are imported fro
 | Computer-use HUD | `ComputerUseHud.qml` + `modules/services/ComputerUse.qml` |
 | Chat / agent IPC | `modules/services/Ai.qml` |
 | Native tools | `modules/services/ai/NativeToolBridge.qml` |
-| Config | `Config.ai.*` (`overlayWidth`, `overlayYFraction`, `showScrim`, `executionProfile`) |
+| Config | `Config.ai.*` (`overlayWidth`, `overlayAnchor`, `overlayOffsetX`, `overlayOffsetY`, `showScrim`, `executionProfile`) |
 
 ## CONVENTIONS
 

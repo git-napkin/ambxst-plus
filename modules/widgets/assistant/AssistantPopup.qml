@@ -38,9 +38,14 @@ PanelWindow {
     readonly property bool assistantOpen: screenVisibilities ? screenVisibilities.assistant : false
 
     readonly property int overlayWidth: Math.min(Config.ai.overlayWidth || 640, width - 48)
-    readonly property real overlayY: height * (Config.ai.overlayYFraction ?? 0.22)
+    readonly property string overlayAnchor: Config.ai.overlayAnchor || "top"
+    readonly property int overlayOffsetX: Config.ai.overlayOffsetX || 0
+    readonly property int overlayOffsetY: Config.ai.overlayOffsetY || 0
+    readonly property bool overlayFromBottom: overlayAnchor === "bottom"
+    readonly property int overlayMargin: 24
     readonly property int barHeight: bar.implicitHeight
     readonly property int maxBodyHeight: Math.round(height * 0.6) - 56
+    readonly property int stackGap: (idleList.visible || transcript.visible) ? 8 : 0
 
     visible: assistantOpen && !ComputerUse.sessionActive
     exclusionMode: ExclusionMode.Ignore
@@ -99,13 +104,28 @@ PanelWindow {
     Item {
         id: mainContainer
         width: assistantPopup.overlayWidth
-        height: bar.height + body.height + ((idleList.visible || transcript.visible) ? 8 : 0)
-        x: Math.round((assistantPopup.width - width) / 2)
-        y: Math.round(assistantPopup.overlayY)
+        height: bar.height + body.height + assistantPopup.stackGap
+        x: {
+            const next = Math.round((assistantPopup.width - width) / 2 + assistantPopup.overlayOffsetX);
+            return Math.max(8, Math.min(assistantPopup.width - width - 8, next));
+        }
+        y: {
+            const h = height;
+            const oy = assistantPopup.overlayOffsetY;
+            const margin = assistantPopup.overlayMargin;
+            let next;
+            if (assistantPopup.overlayAnchor === "bottom")
+                next = assistantPopup.height - h - margin + oy;
+            else if (assistantPopup.overlayAnchor === "center")
+                next = (assistantPopup.height - h) / 2 + oy;
+            else
+                next = margin + oy;
+            return Math.round(Math.max(8, Math.min(assistantPopup.height - h - 8, next)));
+        }
 
         opacity: assistantOpen && !ComputerUse.sessionActive ? 1 : 0
         scale: assistantOpen && !ComputerUse.sessionActive ? 1 : 0.96
-        transformOrigin: Item.Top
+        transformOrigin: assistantPopup.overlayFromBottom ? Item.Bottom : Item.Top
 
         Behavior on opacity {
             enabled: Config.animDuration > 0
@@ -125,7 +145,7 @@ PanelWindow {
 
         AssistantBar {
             id: bar
-            anchors.top: parent.top
+            y: assistantPopup.overlayFromBottom ? parent.height - height : 0
             anchors.horizontalCenter: parent.horizontalCenter
             width: parent.width
             implicitHeight: 52
@@ -139,8 +159,7 @@ PanelWindow {
 
         Item {
             id: body
-            anchors.top: bar.bottom
-            anchors.topMargin: (idleList.visible || transcript.visible) ? 8 : 0
+            y: assistantPopup.overlayFromBottom ? bar.y - height - assistantPopup.stackGap : bar.height + assistantPopup.stackGap
             anchors.horizontalCenter: parent.horizontalCenter
             width: parent.width
             height: idleList.visible ? idleList.implicitHeight : (transcript.visible ? transcript.height : 0)
@@ -167,7 +186,6 @@ PanelWindow {
     ModelSelectorPopup {
         id: modelSelector
         parent: mainContainer
-        onModelSelected: name => Ai.setModel(name)
     }
 
     Connections {
