@@ -6,6 +6,7 @@ import qs.modules.components
 
 ToggleButton {
     buttonIcon: Config.bar.launcherIcon || Qt.resolvedUrl("../../../assets/ambxst+/ambxst+-icon.svg").toString().replace("file://", "")
+    iconFont: Config.bar.launcherIconFont || ""
     iconTint: Config.bar.launcherIconTint
     iconFullTint: Config.bar.launcherIconFullTint
     iconSize: Config.bar.launcherIconSize

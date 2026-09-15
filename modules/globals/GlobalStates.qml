@@ -379,7 +379,7 @@ Singleton {
     // Shell config sections and their properties
     // Must stay in sync with Config.qml adapters + defaults/*.js blueprints.
     readonly property var _shellSections: {
-        "bar": ["position", "launcherIcon", "launcherIconTint", "launcherIconFullTint", "launcherIconSize", "enableFirefoxPlayer", "screenList", "barColor", "frameEnabled", "frameThickness", "pinnedOnStartup", "hoverToReveal", "hoverRegionHeight", "showPinButton", "availableOnFullscreen", "pillStyle", "use12hFormat", "containBar", "keepBarShadow", "keepBarBorder"],
+        "bar": ["position", "launcherIcon", "launcherIconFont", "launcherIconTint", "launcherIconFullTint", "launcherIconSize", "enableFirefoxPlayer", "screenList", "barColor", "frameEnabled", "frameThickness", "pinnedOnStartup", "hoverToReveal", "hoverRegionHeight", "showPinButton", "availableOnFullscreen", "pillStyle", "use12hFormat", "containBar", "keepBarShadow", "keepBarBorder"],
         "notch": ["theme", "position", "hoverRegionHeight", "keepHidden", "noMediaDisplay", "customText", "disableHoverExpansion", "noMediaBackground", "noMediaBackgroundImage", "noMediaBackgroundBlur"],
         "workspaces": ["shown", "showAppIcons", "alwaysShowNumbers", "showNumbers", "dynamic"],
         "overview": ["enabled", "rows", "columns", "scale", "workspaceSpacing"],

@@ -16,6 +16,8 @@ Button {
     property bool iconTint: false
     property bool iconFullTint: false
     property int iconSize: 18
+    // Empty = Icons.font (Phosphor-Bold). Set for Nerd Font / other icon fonts.
+    property string iconFont: ""
     property bool enableShadow: true
     // Radius handling
     property real radius: 0
@@ -27,8 +29,18 @@ Button {
     implicitWidth: 36
     implicitHeight: 36
 
-    // Check if buttonIcon is a single character (icon font) or a file path
-    readonly property bool isIconPath: buttonIcon.length > 1
+    // Path-like values load as images; everything else is treated as an icon glyph
+    // (including multi-code-unit Nerd Font characters outside the BMP).
+    readonly property bool isIconPath: {
+        const icon = buttonIcon;
+        if (!icon || icon.length === 0)
+            return false;
+        if (icon.indexOf("/") >= 0 || icon.indexOf("\\") >= 0)
+            return true;
+        if (icon.indexOf("file:") === 0 || icon.indexOf("image:") === 0)
+            return true;
+        return /\.(svg|png|jpe?g|webp|gif|ico)$/i.test(icon);
+    }
 
     background: StyledRect {
         id: bg
@@ -57,14 +69,14 @@ Button {
     }
 
     contentItem: Item {
-        // Text icon (single character)
+        // Text icon (glyph from icon font)
         Text {
             visible: !root.isIconPath
             anchors.fill: parent
             text: root.buttonIcon
-            textFormat: Text.RichText
-            font.family: Icons.font
-            font.pixelSize: Styling.fontSize(4)
+            textFormat: Text.PlainText
+            font.family: root.iconFont || Icons.font
+            font.pixelSize: root.iconSize
             color: root.pressed ? Colors.background : (Styling.srItem("overprimary") || Colors.foreground)
             horizontalAlignment: Text.AlignHCenter
             verticalAlignment: Text.AlignVCenter

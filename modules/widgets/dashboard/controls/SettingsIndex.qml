@@ -168,7 +168,8 @@ QtObject {
         // Ambxst[+] > Bar
         { label: "Bar", keywords: "panel taskbar top bottom", section: 9, subSection: "bar",         subLabel: "Ambxst[+] > Bar", icon: Icons.layout, isIcon: true },
         { label: "Bar Position", keywords: "top bottom left right edge", section: 9, subSection: "bar",         subLabel: "Ambxst[+] > Bar", icon: Icons.layout, isIcon: true },
-        { label: "Launcher Icon", keywords: "logo symbol path", section: 9, subSection: "bar",         subLabel: "Ambxst[+] > Bar", icon: Icons.layout, isIcon: true },
+        { label: "Launcher Icon", keywords: "logo symbol path glyph nerd", section: 9, subSection: "bar",         subLabel: "Ambxst[+] > Bar", icon: Icons.layout, isIcon: true },
+        { label: "Launcher Icon Font", keywords: "nerd font family glyph icon", section: 9, subSection: "bar", subLabel: "Ambxst[+] > Bar", icon: Icons.layout, isIcon: true },
         { label: "Launcher Icon Tint", keywords: "color theme", section: 9, subSection: "bar", subLabel: "Ambxst[+] > Bar", icon: Icons.palette, isIcon: true },
         { label: "Launcher Icon Full Tint", keywords: "monochrome color", section: 9, subSection: "bar", subLabel: "Ambxst[+] > Bar", icon: Icons.palette, isIcon: true },
         { label: "Launcher Icon Size", keywords: "width height pixels", section: 9, subSection: "bar",         subLabel: "Ambxst[+] > Bar", icon: Icons.layout, isIcon: true },

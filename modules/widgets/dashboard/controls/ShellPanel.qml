@@ -192,7 +192,7 @@ Item {
             font.family: Config.theme.font
             font.pixelSize: Styling.fontSize(0)
             color: Colors.overBackground
-            Layout.preferredWidth: 100
+            Layout.preferredWidth: 140
         }
 
         StyledRect {
@@ -711,6 +711,18 @@ Item {
                                 if (newValue !== Config.bar.launcherIcon) {
                                     GlobalStates.markShellChanged();
                                     Config.bar.launcherIcon = newValue;
+                                }
+                            }
+                        }
+
+                        TextInputRow {
+                            label: "Launcher Icon Font"
+                            value: Config.bar.launcherIconFont ?? ""
+                            placeholder: "e.g. Symbols Nerd Font Mono"
+                            onValueEdited: newValue => {
+                                if (newValue !== Config.bar.launcherIconFont) {
+                                    GlobalStates.markShellChanged();
+                                    Config.bar.launcherIconFont = newValue.trim();
                                 }
                             }
                         }

@@ -5,6 +5,8 @@ var data = {
     "position": "top",
     /** Custom launcher icon (empty = use default). @type {string} @default "" */
     "launcherIcon": "",
+    /** Font family for glyph launcher icons (empty = Phosphor-Bold). @type {string} @default "" */
+    "launcherIconFont": "",
     /** Tint the launcher icon with the theme color. @type {boolean} @default true */
     "launcherIconTint": true,
     /** Tint the launcher icon fully (not just the glyph). @type {boolean} @default true */

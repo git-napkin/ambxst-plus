@@ -615,6 +615,7 @@ Singleton {
         adapter: JsonAdapter {
             property string position: "top"
             property string launcherIcon: ""
+            property string launcherIconFont: ""
             property bool launcherIconTint: true
             property bool launcherIconFullTint: true
             property int launcherIconSize: 24
