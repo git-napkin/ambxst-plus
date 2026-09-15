@@ -1,5 +1,6 @@
 import QtQuick
 import QtQuick.Shapes
+import QtQuick.Window
 import qs.config
 import qs.modules.theme
 
@@ -69,7 +70,7 @@ Item {
     readonly property real cycleLength: baseDashLength + targetSpacing
     
     NumberAnimation on phase {
-        running: (root.dashedActive || root.wavy) && root.visible
+        running: (root.dashedActive || root.wavy) && root.visible && root.opacity > 0 && (!Window.window || Window.window.visible)
         from: 0
         to: -root.cycleLength // Move forward along path
         duration: 1000 // Adjust speed
@@ -84,7 +85,7 @@ Item {
     Timer {
         id: waveTimer
         interval: 32 // ~30 FPS
-        running: root.wavy && root.visible && (root.value > 0 || root.isDragging)
+        running: root.wavy && root.visible && root.opacity > 0 && (!Window.window || Window.window.visible) && (root.value > 0 || root.isDragging)
         repeat: true
         onTriggered: {
             root.wavePhase = (root.wavePhase + 0.1) % (Math.PI * 2)

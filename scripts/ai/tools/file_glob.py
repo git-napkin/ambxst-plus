@@ -64,7 +64,7 @@ def pathlib_glob(root, patterns, timeout):
                         found.append(rel)
         except (OSError, ValueError):
             continue
-    if found:
+    if found or any("**" in str(p) for p in patterns):
         return found
     for dirpath, dirnames, filenames in os.walk(root):
         if time.monotonic() > deadline:

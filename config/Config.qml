@@ -3510,9 +3510,10 @@ Singleton {
 
         try {
             var current = JSON.parse(raw);
-            var validated = ConfigValidator.validate(current, defaults);
+            var state = { changed: false };
+            var validated = ConfigValidator.validate(current, defaults, undefined, state);
 
-            if (JSON.stringify(current) !== JSON.stringify(validated)) {
+            if (state.changed) {
                 console.log("Merging and updating " + name + ".json...");
                 loader.setText(JSON.stringify(validated, null, 2));
             }

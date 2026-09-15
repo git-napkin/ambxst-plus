@@ -85,8 +85,9 @@ var rangeValidators = {
     "border": { min: 0, max: 100 }
 };
 
-function validate(current, defaults, keyName) {
+function validate(current, defaults, keyName, state) {
     if (current === undefined || current === null) {
+        if (state) state.changed = true;
         return clone(defaults);
     }
 
@@ -94,12 +95,15 @@ function validate(current, defaults, keyName) {
     // generic array pass-through below, which would otherwise skip validation.
     if (keyName === "border") {
         if (!Array.isArray(defaults) || !Array.isArray(current)) {
+            if (state) state.changed = true;
             return clone(defaults);
         }
         if (current.length !== 2 || typeof current[0] !== 'string' || typeof current[1] !== 'number') {
+            if (state) state.changed = true;
             return clone(defaults);
         }
         if (current[1] < 0 || current[1] > 100) {
+            if (state) state.changed = true;
             return clone(defaults);
         }
         return current;
@@ -107,6 +111,7 @@ function validate(current, defaults, keyName) {
 
     if (Array.isArray(defaults)) {
         if (!Array.isArray(current)) {
+            if (state) state.changed = true;
             return clone(defaults);
         }
         return current;
@@ -114,12 +119,13 @@ function validate(current, defaults, keyName) {
 
     if (typeof defaults === 'object') {
         if (typeof current !== 'object' || Array.isArray(current)) {
+            if (state) state.changed = true;
             return clone(defaults);
         }
 
         var result = {};
         for (var key in defaults) {
-            result[key] = validate(current[key], defaults[key], key);
+            result[key] = validate(current[key], defaults[key], key, state);
         }
         // Preserve keys present in the user's file but absent from the blueprint
         // (forward-compatible / dynamically-added keys such as customEndpoint).
@@ -133,12 +139,14 @@ function validate(current, defaults, keyName) {
     }
 
     if (typeof current !== typeof defaults) {
+        if (state) state.changed = true;
         return defaults;
     }
 
     // Enum validation
     if (keyName in enumValidators && enumValidators[keyName] !== null) {
         if (enumValidators[keyName].indexOf(current) === -1) {
+            if (state) state.changed = true;
             return defaults;
         }
     }
@@ -147,6 +155,7 @@ function validate(current, defaults, keyName) {
     if (keyName in rangeValidators && typeof current === 'number') {
         var range = rangeValidators[keyName];
         if (current < range.min || current > range.max) {
+            if (state) state.changed = true;
             return defaults;
         }
     }

@@ -15,33 +15,28 @@ SIZE="${6:-0}"
 # Read content from stdin and strip carriage returns
 # Use a temp file to preserve all unicode characters exactly
 CONTENT_FILE=$(mktemp)
-trap 'rm -f "$CONTENT_FILE"' EXIT
+PREVIEW_FILE=$(mktemp)
+trap 'rm -f "$CONTENT_FILE" "$PREVIEW_FILE"' EXIT
 cat | tr -d '\r' >"$CONTENT_FILE"
 
-# Read content back
-CONTENT=$(cat "$CONTENT_FILE")
-
 # Don't insert empty content for text items
-if [ "$IS_IMAGE" = "0" ] && [ -z "$CONTENT" ]; then
+if [ "$IS_IMAGE" = "0" ] && [ ! -s "$CONTENT_FILE" ]; then
 	exit 0
 fi
 
-# Create preview
+# Preview without slurping the full clip into a shell variable
 if [ "$IS_IMAGE" = "1" ]; then
-	PREVIEW="[Image]"
-elif [ ${#CONTENT} -gt 100 ]; then
-	PREVIEW="${CONTENT:0:97}..."
+	printf '%s' "[Image]" >"$PREVIEW_FILE"
 else
-	PREVIEW="$CONTENT"
+	head -c 97 "$CONTENT_FILE" >"$PREVIEW_FILE"
+	BYTES=$(wc -c <"$CONTENT_FILE")
+	if [ "$BYTES" -gt 100 ]; then
+		printf '...' >>"$PREVIEW_FILE"
+	fi
 fi
 
 # Get timestamp in milliseconds
 TIMESTAMP=$(date +%s)000
-
-# Write preview to temp file
-PREVIEW_FILE=$(mktemp)
-trap 'rm -f "$CONTENT_FILE" "$PREVIEW_FILE"' EXIT
-printf '%s' "$PREVIEW" >"$PREVIEW_FILE"
 
 # Use sqlite3 with -cmd to read from files using readfile() function
 # This avoids all shell escaping issues

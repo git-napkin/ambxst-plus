@@ -205,7 +205,7 @@ PanelWindow {
         id: visualContent
         anchors.fill: parent
 
-        layer.enabled: true
+        layer.enabled: (Config.theme && Config.theme.shadowOpacity > 0) && (unifiedPanel.barReveal || unifiedPanel.notchReveal || unifiedPanel.dockReveal || unifiedPanel.needsFullScreenInput)
         layer.effect: Shadow {}
 
         ScreenFrameContent {

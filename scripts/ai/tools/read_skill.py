@@ -36,7 +36,21 @@ def discover_skills(skill_dirs):
 
 
 def skill_catalog_names(skill_dirs):
-    return sorted(discover_skills(skill_dirs).keys())
+    names = set()
+    for root in skill_dirs or []:
+        directory = Path(root).expanduser()
+        if not directory.is_dir():
+            continue
+        try:
+            children = list(directory.iterdir())
+        except OSError:
+            continue
+        for child in children:
+            if not child.is_dir():
+                continue
+            if (child / "SKILL.md").is_file():
+                names.add(child.name)
+    return sorted(names)
 
 
 class ReadSkillTool(Tool):

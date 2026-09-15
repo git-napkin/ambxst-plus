@@ -27,25 +27,26 @@ def _desktop_name_icon(path, fallback_name):
 def scan(desktop_dir):
     items = []
     try:
-        names = sorted(os.listdir(desktop_dir))
+        with os.scandir(desktop_dir) as it:
+            entries = sorted(it, key=lambda e: e.name)
     except OSError:
         return items
 
-    for name in names:
-        if name.startswith("."):
+    for entry in entries:
+        if entry.name.startswith("."):
             continue
-        path = os.path.join(desktop_dir, name)
-        if os.path.isdir(path):
+        path = entry.path
+        if entry.is_dir(follow_symlinks=False):
             items.append({
-                "name": name,
+                "name": entry.name,
                 "path": path,
                 "type": "folder",
                 "icon": "folder",
                 "isDesktopFile": False,
                 "sortOrder": 0,
             })
-        elif name.endswith(".desktop"):
-            disp, icon = _desktop_name_icon(path, name[:-8])
+        elif entry.name.endswith(".desktop"):
+            disp, icon = _desktop_name_icon(path, entry.name[:-8])
             items.append({
                 "name": disp,
                 "path": path,
@@ -56,7 +57,7 @@ def scan(desktop_dir):
             })
         else:
             items.append({
-                "name": name,
+                "name": entry.name,
                 "path": path,
                 "type": None,
                 "icon": None,

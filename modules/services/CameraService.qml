@@ -16,7 +16,7 @@ Singleton {
     property bool cameraInUse: false
     property list<var> cameraUsers: []
     property bool cameraDisabled: false
-    property int pollInterval: 2000
+    property int pollInterval: 3000
     property string _camerasKey: ""
     property string _usersKey: ""
 
@@ -34,8 +34,11 @@ Singleton {
                 if (!data)
                     return;
                 try {
-                    root.updateFromData(JSON.parse(data));
-                    root._restartAttempts = 0;
+                    const parsed = JSON.parse(data);
+                    Qt.callLater(() => {
+                        root.updateFromData(parsed);
+                        root._restartAttempts = 0;
+                    });
                 } catch (e) {
                     console.warn("CameraService: failed to parse monitor output");
                 }
@@ -102,7 +105,13 @@ Singleton {
         }
     }
 
+    property Timer startDelay: Timer {
+        interval: 1500
+        repeat: false
+        onTriggered: root._syncRunning()
+    }
+
     reloadableId: "camera"
 
-    Component.onCompleted: root._syncRunning()
+    Component.onCompleted: startDelay.start()
 }

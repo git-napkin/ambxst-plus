@@ -9,27 +9,48 @@ import Quickshell.Wayland
 import qs.modules.bar
 import qs.modules.bar.workspaces
 import qs.modules.notifications
-import qs.modules.widgets.dashboard.wallpapers
 
 import qs.modules.notch
-import qs.modules.widgets.overview
-import qs.modules.widgets.assistant
-import qs.modules.widgets.presets
 import qs.modules.services
 import qs.modules.corners
 import qs.modules.frame
 import qs.modules.components
-import qs.modules.desktop
 import qs.modules.lockscreen
 import qs.modules.dock
 import qs.modules.globals
 import qs.modules.shell
 import qs.config
-import qs.modules.shell.osd
-import qs.modules.tools
 
 ShellRoot {
     id: root
+
+    function _sourceMatches(loader, url) {
+        return String(loader.source || "").indexOf(url) !== -1;
+    }
+
+    function _loadScreenItem(loader, url, screen) {
+        if (!loader.active) {
+            if (loader.source)
+                loader.source = "";
+            return;
+        }
+        if (root._sourceMatches(loader, url))
+            return;
+        loader.setSource(url, { "screen": screen });
+    }
+
+    function _loadNamedItem(loader, url, propName, value) {
+        if (!loader.active) {
+            if (loader.source)
+                loader.source = "";
+            return;
+        }
+        if (root._sourceMatches(loader, url))
+            return;
+        const props = {};
+        props[propName] = value;
+        loader.setSource(url, props);
+    }
 
     Component.onCompleted: {
         console.log("ambxst+: shell initialized (version", Config.version + ")");
@@ -47,10 +68,10 @@ ShellRoot {
         Loader {
             id: wallpaperLoader
             active: true
+            asynchronous: true
             required property ShellScreen modelData
-            sourceComponent: Wallpaper {
-                screen: wallpaperLoader.modelData
-            }
+            onActiveChanged: root._loadScreenItem(wallpaperLoader, "modules/widgets/dashboard/wallpapers/Wallpaper.qml", modelData)
+            Component.onCompleted: root._loadScreenItem(wallpaperLoader, "modules/widgets/dashboard/wallpapers/Wallpaper.qml", modelData)
         }
     }
 
@@ -61,9 +82,9 @@ ShellRoot {
             id: desktopLoader
             active: Config.desktop.enabled && SuspendManager.wakeReady
             required property ShellScreen modelData
-            sourceComponent: Desktop {
-                screen: desktopLoader.modelData
-            }
+            asynchronous: true
+            onActiveChanged: root._loadScreenItem(desktopLoader, "modules/desktop/Desktop.qml", modelData)
+            Component.onCompleted: root._loadScreenItem(desktopLoader, "modules/desktop/Desktop.qml", modelData)
         }
     }
 
@@ -137,9 +158,9 @@ ShellRoot {
             id: overviewLoader
             active: ((Config.overview && Config.overview.enabled !== undefined ? Config.overview.enabled : true)) && SuspendManager.wakeReady && Visibilities.currentActiveModule === "overview" && Visibilities.lastFocusedScreen === modelData.name
             required property ShellScreen modelData
-            sourceComponent: OverviewPopup {
-                screen: overviewLoader.modelData
-            }
+            asynchronous: true
+            onActiveChanged: root._loadScreenItem(overviewLoader, "modules/widgets/overview/OverviewPopup.qml", modelData)
+            Component.onCompleted: root._loadScreenItem(overviewLoader, "modules/widgets/overview/OverviewPopup.qml", modelData)
         }
     }
 
@@ -157,9 +178,9 @@ ShellRoot {
             id: assistantLoader
             active: SuspendManager.wakeReady && Visibilities.currentActiveModule === "assistant" && Visibilities.lastFocusedScreen === modelData.name
             required property ShellScreen modelData
-            sourceComponent: AssistantPopup {
-                screen: assistantLoader.modelData
-            }
+            asynchronous: true
+            onActiveChanged: root._loadScreenItem(assistantLoader, "modules/widgets/assistant/AssistantPopup.qml", modelData)
+            Component.onCompleted: root._loadScreenItem(assistantLoader, "modules/widgets/assistant/AssistantPopup.qml", modelData)
         }
     }
 
@@ -170,9 +191,9 @@ ShellRoot {
             id: computerUseHudLoader
             active: SuspendManager.wakeReady && ComputerUse.hudKeepAlive && ComputerUse.hudScreen === modelData.name
             required property ShellScreen modelData
-            sourceComponent: ComputerUseHud {
-                screen: computerUseHudLoader.modelData
-            }
+            asynchronous: true
+            onActiveChanged: root._loadScreenItem(computerUseHudLoader, "modules/widgets/assistant/ComputerUseHud.qml", modelData)
+            Component.onCompleted: root._loadScreenItem(computerUseHudLoader, "modules/widgets/assistant/ComputerUseHud.qml", modelData)
         }
     }
 
@@ -190,9 +211,9 @@ ShellRoot {
             id: presetsLoader
             active: SuspendManager.wakeReady && Visibilities.currentActiveModule === "presets" && Visibilities.lastFocusedScreen === modelData.name
             required property ShellScreen modelData
-            sourceComponent: PresetsPopup {
-                screen: presetsLoader.modelData
-            }
+            asynchronous: true
+            onActiveChanged: root._loadScreenItem(presetsLoader, "modules/widgets/presets/PresetsPopup.qml", modelData)
+            Component.onCompleted: root._loadScreenItem(presetsLoader, "modules/widgets/presets/PresetsPopup.qml", modelData)
         }
     }
 
@@ -224,9 +245,9 @@ ShellRoot {
             id: screenshotLoader
             active: GlobalStates.screenshotToolVisible
             required property ShellScreen modelData
-            sourceComponent: ScreenshotTool {
-                targetScreen: screenshotLoader.modelData
-            }
+            asynchronous: true
+            onActiveChanged: root._loadNamedItem(screenshotLoader, "modules/tools/ScreenshotTool.qml", "targetScreen", modelData)
+            Component.onCompleted: root._loadNamedItem(screenshotLoader, "modules/tools/ScreenshotTool.qml", "targetScreen", modelData)
         }
     }
 
@@ -238,9 +259,9 @@ ShellRoot {
             id: screenshotOverlayLoader
             active: SuspendManager.wakeReady
             required property ShellScreen modelData
-            sourceComponent: ScreenshotOverlay {
-                targetScreen: screenshotOverlayLoader.modelData
-            }
+            asynchronous: true
+            onActiveChanged: root._loadNamedItem(screenshotOverlayLoader, "modules/tools/ScreenshotOverlay.qml", "targetScreen", modelData)
+            Component.onCompleted: root._loadNamedItem(screenshotOverlayLoader, "modules/tools/ScreenshotOverlay.qml", "targetScreen", modelData)
         }
     }
 
@@ -322,11 +343,11 @@ ShellRoot {
 
         Loader {
             id: osdLoader
-            active: SuspendManager.wakeReady
+            active: SuspendManager.wakeReady && (GlobalStates.osdVisible || (item && item.visible))
             required property ShellScreen modelData
-            sourceComponent: OSD {
-                targetScreen: osdLoader.modelData
-            }
+            asynchronous: true
+            onActiveChanged: root._loadNamedItem(osdLoader, "modules/shell/osd/OSD.qml", "targetScreen", modelData)
+            Component.onCompleted: root._loadNamedItem(osdLoader, "modules/shell/osd/OSD.qml", "targetScreen", modelData)
         }
     }
 
@@ -346,7 +367,6 @@ ShellRoot {
                 // Non-critical services
                 NightLightService.toggle.toString();
                 GameModeService.toggle.toString();
-                CameraService._syncRunning.toString();
                 FprintdInterceptor.update.toString();
             });
         }

@@ -42,6 +42,7 @@ Item {
     property var checkWindowSelected: function (addr) {
         return false;
     }
+    property Item wallpaperSource: null
 
     implicitWidth: workspaceWidth
     implicitHeight: workspaceHeight
@@ -162,19 +163,12 @@ Item {
             anchors.fill: parent
             clip: true
 
-            // Wallpaper background
-            TintedWallpaper {
-                id: workspaceWallpaper
+            ShaderEffectSource {
                 anchors.fill: parent
-                radius: Styling.radius(1)
-                tintEnabled: GlobalStates.wallpaperManager ? GlobalStates.wallpaperManager.tintEnabled : false
-
-                property string lockscreenFramePath: {
-                    if (!GlobalStates.wallpaperManager)
-                        return "";
-                    return GlobalStates.wallpaperManager.getLockscreenFramePath(GlobalStates.wallpaperManager.currentWallpaper);
-                }
-                source: lockscreenFramePath ? "file://" + lockscreenFramePath : ""
+                sourceItem: root.wallpaperSource
+                hideSource: false
+                live: true
+                visible: root.wallpaperSource !== null
             }
 
             // Semi-transparent overlay

@@ -187,7 +187,7 @@ Singleton {
     // Weather polling gate — true when any UI surface that displays weather
     // data is open (dashboard weather tab, bar clock weather, overview weather).
     // Lets the WeatherService idle its 10-min poll when nothing needs it.
-    readonly property bool weatherActive: dashboardOpen || launcherOpen
+    readonly property bool weatherActive: true
 
     // OSD state
     property bool osdVisible: false

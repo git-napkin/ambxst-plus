@@ -8,9 +8,10 @@ set -euo pipefail
 
 LOCATION="${1:-}"
 CACHE_TTL="${2:-600}"
-MAX_RETRIES=3
-RETRY_DELAY=2
+MAX_RETRIES=2
+RETRY_DELAY=1
 CACHE_DIR="${XDG_CACHE_HOME:-$HOME/.cache}/ambxst+/weather"
+GEOIP_TTL=86400
 
 for _tool in curl jq; do
 	if ! command -v "$_tool" >/dev/null 2>&1; then
@@ -22,17 +23,22 @@ done
 mkdir -p "$CACHE_DIR"
 
 # Function to check if cache is valid (not expired)
-is_cache_valid() {
+is_cache_valid_ttl() {
     local cache_file="$1"
+    local ttl="$2"
     if [[ ! -f "$cache_file" ]]; then
         return 1
     fi
     local file_age
     file_age=$(( $(date +%s) - $(stat -c %Y "$cache_file" 2>/dev/null || echo 0) ))
-    if [[ $file_age -gt $CACHE_TTL ]]; then
+    if [[ $file_age -gt $ttl ]]; then
         return 1
     fi
     return 0
+}
+
+is_cache_valid() {
+    is_cache_valid_ttl "$1" "$CACHE_TTL"
 }
 
 # Function to get cache file path for a location
@@ -51,7 +57,7 @@ http_get() {
 	local response=""
 
 	while [[ $attempt -le $MAX_RETRIES ]]; do
-		response=$(curl -s --max-time 15 --retry 2 --retry-delay 1 "$url" 2>/dev/null)
+		response=$(curl -s --max-time 10 "$url" 2>/dev/null)
 		if [[ -n "$response" && "$response" != "null" ]]; then
 			echo "$response"
 			return 0
@@ -65,6 +71,16 @@ http_get() {
 
 # Function to get coordinates from GeoIP
 get_geoip_coords() {
+	local cache_file="${CACHE_DIR}/geoip.json"
+	if is_cache_valid_ttl "$cache_file" "$GEOIP_TTL"; then
+		local cached
+		cached=$(cat "$cache_file")
+		if [[ -n "$cached" && "$cached" != "{"* ]]; then
+			echo "$cached"
+			return 0
+		fi
+	fi
+
 	local response
 	response=$(http_get "https://ipapi.co/json/")
 
@@ -82,6 +98,7 @@ get_geoip_coords() {
 		return 1
 	fi
 
+	echo "$lat,$lon" > "$cache_file"
 	echo "$lat,$lon"
 }
 

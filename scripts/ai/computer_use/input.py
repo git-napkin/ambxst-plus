@@ -12,13 +12,25 @@ import time
 from .doctor import find_ydotool_socket, ydotool_socket_path
 
 INPUT_LOCK = threading.Lock()
+_WHICH = {}
+
+
+def _which(name):
+    cached = _WHICH.get(name)
+    if cached is not None:
+        return cached or None
+    found = shutil.which(name) or ""
+    _WHICH[name] = found
+    return found or None
+
+
 MOVE_SETTLE = 0.03
 CLICK_HOLD = 0.035
 FOCUS_SETTLE = 0.05
 MOVE_MIN_MS = 80
 MOVE_MAX_MS = 350
-MOVE_STEPS_MIN = 8
-MOVE_STEPS_MAX = 16
+MOVE_STEPS_MIN = 4
+MOVE_STEPS_MAX = 8
 YDOTOOL_CLICK = {
     "left": "0xC0",
     "primary": "0xC0",
@@ -137,13 +149,13 @@ def _parse_cursor_text(text):
 
 
 def cursor_position():
-    axctl = shutil.which("axctl")
+    axctl = _which("axctl")
     if axctl:
         result = _run([axctl, "system", "get-cursor-position"], timeout=4)
         parsed = _parse_cursor_text((result.stdout or b"").decode("utf-8", "replace"))
         if parsed:
             return parsed
-    hypr = shutil.which("hyprctl")
+    hypr = _which("hyprctl")
     if hypr:
         result = _run([hypr, "cursorpos"], timeout=4)
         parsed = _parse_cursor_text((result.stdout or b"").decode("utf-8", "replace"))
@@ -162,7 +174,7 @@ def _ease_in_out(t):
 def _dispatch_move(x, y):
     ix, iy = int(round(x)), int(round(y))
     errors = []
-    hypr = shutil.which("hyprctl")
+    hypr = _which("hyprctl")
     if hypr:
         lua = "hl.dsp.cursor.move({ x = %d, y = %d })" % (ix, iy)
         result = _run([hypr, "dispatch", lua])
@@ -173,7 +185,7 @@ def _dispatch_move(x, y):
         if _hypr_dispatch_ok(result):
             return True
         errors.append("hyprctl movecursor: " + (_decode_proc(result) or ("exit %s" % result.returncode)))
-    axctl = shutil.which("axctl")
+    axctl = _which("axctl")
     if axctl:
         result = _run([axctl, "system", "move-cursor", str(ix), str(iy)])
         blob = (result.stderr or b"") + (result.stdout or b"")
@@ -210,7 +222,7 @@ def _ydotool_env():
 
 
 def _ydotool(args, timeout=10):
-    exe = shutil.which("ydotool")
+    exe = _which("ydotool")
     if not exe:
         raise RuntimeError("ydotool is not installed")
     sock = find_ydotool_socket()
@@ -231,7 +243,7 @@ def _click_code(button):
     if not hex_code and not name_code:
         raise RuntimeError("unsupported mouse button: %s" % button)
     if _click_form is None:
-        exe = shutil.which("ydotool")
+        exe = _which("ydotool")
         help_text = ""
         if exe:
             result = _run([exe, "click", "--help"], timeout=4)
@@ -314,7 +326,7 @@ def type_text(text):
     text = str(text or "")
     if not text:
         return True
-    wtype = shutil.which("wtype")
+    wtype = _which("wtype")
     with INPUT_LOCK:
         if wtype:
             result = _run([wtype, "-"], timeout=max(10, 4 + len(text) / 20), stdin_data=text.encode("utf-8"))
@@ -322,7 +334,7 @@ def type_text(text):
                 return True
             raise RuntimeError((result.stderr or b"").decode("utf-8", "replace") or "wtype failed")
         timeout = max(10, 10 + len(text) / 20)
-        exe = shutil.which("ydotool")
+        exe = _which("ydotool")
         if not exe:
             raise RuntimeError("wtype and ydotool are missing")
         result = _run(
@@ -369,7 +381,7 @@ def press_key(spec, address=""):
     target = address or "activewindow"
     if not str(target).startswith("address:") and target != "activewindow":
         target = "address:%s" % target
-    hypr = shutil.which("hyprctl")
+    hypr = _which("hyprctl")
     if hypr:
         if modmask:
             result = _run([hypr, "dispatch", "sendshortcut", modmask, key, target])
@@ -377,12 +389,12 @@ def press_key(spec, address=""):
             result = _run([hypr, "dispatch", "sendshortcut", key, target])
         if result.returncode == 0 and b"Invalid" not in (result.stdout or b"") + (result.stderr or b""):
             return True
-    axctl = shutil.which("axctl")
+    axctl = _which("axctl")
     if axctl:
         result = _run([axctl, "system", "send-shortcut", modmask, key, target])
         if result.returncode == 0 and b"Error" not in (result.stderr or b"") + (result.stdout or b""):
             return True
-    wtype = shutil.which("wtype")
+    wtype = _which("wtype")
     with INPUT_LOCK:
         if wtype:
             argv = [wtype]
@@ -394,7 +406,7 @@ def press_key(spec, address=""):
             result = _run(argv, timeout=8)
             if result.returncode == 0:
                 return True
-        ydo = shutil.which("ydotool")
+        ydo = _which("ydotool")
         if ydo:
             chord = []
             for mod in mods:

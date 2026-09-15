@@ -171,9 +171,11 @@ QtObject {
             waitForEnd: true
             
             onStreamFinished: {
+                const raw = text;
+                Qt.callLater(() => {
                 var clipboardItems = [];
                 
-                var trimmedText = text.trim();
+                var trimmedText = raw.trim();
                 if (trimmedText.length === 0) {
                     root.items = clipboardItems;
                     root.listCompleted();
@@ -226,6 +228,7 @@ QtObject {
                 root.items = clipboardItems;
                 root.listCompleted();
                 root._operationInProgress = false;
+                });
             }
         }
         

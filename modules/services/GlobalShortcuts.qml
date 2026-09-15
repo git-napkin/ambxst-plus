@@ -329,7 +329,8 @@ QtObject {
         GlobalStates.toggleAssistant();
     }
     function stopComputerUse() {
-        Ai.stopComputerUse();
+        if (ComputerUse.sessionActive || ComputerUse.hudKeepAlive)
+            ComputerUse.stop();
     }
     function seekActivePlayer(offset) {
         const player = MprisController.activePlayer;

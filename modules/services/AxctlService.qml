@@ -366,6 +366,8 @@ Singleton {
     // string compare lets us skip the whole mapping pass when the state is
     // bit-identical.
     property string _stateFingerprint: ""
+    property var _pendingState: null
+    property bool _applyQueued: false
 
     // Debounce guard for workspace-following. When the compositor focuses a
     // window on a workspace that isn't active (a link click activating the
@@ -461,10 +463,22 @@ Singleton {
     }
 
     function applyState(state) {
-        if (!state) return;
+        if (!state)
+            return;
+        root._pendingState = state;
+        if (root._applyQueued)
+            return;
+        root._applyQueued = true;
+        Qt.callLater(root._flushState);
+    }
 
-        // Only the three tracked collections matter for change detection; the
-        // event object may carry extra metadata that changes per event.
+    function _flushState() {
+        root._applyQueued = false;
+        const state = root._pendingState;
+        root._pendingState = null;
+        if (!state)
+            return;
+
         const fingerprint = JSON.stringify([state.windows, state.workspaces, state.monitors]);
         if (fingerprint === root._stateFingerprint)
             return;

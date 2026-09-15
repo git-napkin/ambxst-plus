@@ -570,6 +570,7 @@ Rectangle {
             anchors.topMargin: 8
             clip: true
             model: emojisModel
+            reuseItems: true
             currentIndex: root.selectedIndex
             spacing: 0
             property bool enableScrollAnimation: true

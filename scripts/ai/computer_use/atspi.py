@@ -7,6 +7,7 @@ import re
 import shutil
 import subprocess
 import time
+from collections import deque
 
 MAX_NODES = 1000
 HARD_MAX_NODES = 2000
@@ -226,10 +227,28 @@ def _iface(obj, name):
     return dbus.Interface(obj, name)
 
 
+def _interfaces(acc):
+    try:
+        return {str(item) for item in acc.GetInterfaces()}
+    except Exception:
+        return None
+
+
+def _has_interface(ifaces, name):
+    if ifaces is None:
+        return True
+    needle = name.lower()
+    for item in ifaces:
+        if needle in item.lower():
+            return True
+    return False
+
+
 def _node_from_proxy(bus, path, index, parent_index, depth, dest=None):
     dest = dest or REGISTRY
     obj = bus.get_object(dest, path)
     acc = _iface(obj, "org.a11y.atspi.Accessible")
+    ifaces = _interfaces(acc)
     role = ""
     name = ""
     desc = ""
@@ -258,55 +277,60 @@ def _node_from_proxy(bus, path, index, parent_index, depth, dest=None):
     except Exception:
         pass
     bounds = None
-    try:
-        comp = _iface(obj, "org.a11y.atspi.Component")
-        extents = comp.GetExtents(0)
-        x, y, w, h = [int(v) for v in extents]
-        if w > 0 and h > 0 and x > -10**8 and y > -10**8:
-            bounds = {"x": x, "y": y, "width": w, "height": h}
-    except Exception:
-        bounds = None
+    if _has_interface(ifaces, "Component"):
+        try:
+            comp = _iface(obj, "org.a11y.atspi.Component")
+            extents = comp.GetExtents(0)
+            x, y, w, h = [int(v) for v in extents]
+            if w > 0 and h > 0 and x > -10**8 and y > -10**8:
+                bounds = {"x": x, "y": y, "width": w, "height": h}
+        except Exception:
+            bounds = None
     actions = []
-    try:
-        act = _iface(obj, "org.a11y.atspi.Action")
-        count = int(act.nActions) if hasattr(act, "nActions") else int(act.GetNActions())
-        for i in range(min(count, 12)):
-            try:
-                actions.append(
-                    {
-                        "index": i,
-                        "name": str(act.GetName(i)),
-                        "description": str(act.GetDescription(i)),
-                        "keybinding": str(act.GetKeyBinding(i)),
-                    }
-                )
-            except Exception:
-                continue
-    except Exception:
-        pass
+    if _has_interface(ifaces, "Action"):
+        try:
+            act = _iface(obj, "org.a11y.atspi.Action")
+            count = int(act.nActions) if hasattr(act, "nActions") else int(act.GetNActions())
+            for i in range(min(count, 12)):
+                try:
+                    actions.append(
+                        {
+                            "index": i,
+                            "name": str(act.GetName(i)),
+                            "description": str(act.GetDescription(i)),
+                            "keybinding": str(act.GetKeyBinding(i)),
+                        }
+                    )
+                except Exception:
+                    continue
+        except Exception:
+            pass
     text = ""
     editable = False
-    try:
-        txt = _iface(obj, "org.a11y.atspi.Text")
-        n = int(txt.GetCharacterCount())
-        text = str(txt.GetText(0, min(n, MAX_TEXT)))
-    except Exception:
-        pass
-    try:
-        _iface(obj, "org.a11y.atspi.EditableText")
-        editable = True
-    except Exception:
-        editable = False
+    if _has_interface(ifaces, "Text"):
+        try:
+            txt = _iface(obj, "org.a11y.atspi.Text")
+            n = int(txt.GetCharacterCount())
+            text = str(txt.GetText(0, min(n, MAX_TEXT)))
+        except Exception:
+            pass
+    if _has_interface(ifaces, "EditableText"):
+        try:
+            _iface(obj, "org.a11y.atspi.EditableText")
+            editable = True
+        except Exception:
+            editable = False
     value = None
-    try:
-        val = _iface(obj, "org.a11y.atspi.Value")
-        value = {
-            "current": float(val.CurrentValue),
-            "minimum": float(val.MinimumValue),
-            "maximum": float(val.MaximumValue),
-        }
-    except Exception:
-        value = None
+    if _has_interface(ifaces, "Value"):
+        try:
+            val = _iface(obj, "org.a11y.atspi.Value")
+            value = {
+                "current": float(val.CurrentValue),
+                "minimum": float(val.MinimumValue),
+                "maximum": float(val.MaximumValue),
+            }
+        except Exception:
+            value = None
     children = []
     try:
         kids = acc.GetChildren()
@@ -346,15 +370,25 @@ def _process_id(bus, path, dest=None):
 
 def _app_meta(bus, path, dest=None):
     dest = dest or REGISTRY
-    node = _node_from_proxy(bus, path, 0, None, 0, dest=dest)
+    obj = bus.get_object(dest, path)
+    acc = _iface(obj, "org.a11y.atspi.Accessible")
+    name = ""
+    role = ""
+    try:
+        name = str(acc.GetName())
+    except Exception:
+        pass
+    try:
+        role = str(acc.GetRoleName())
+    except Exception:
+        pass
     pid = _process_id(bus, path, dest=dest)
-    node["pid"] = pid
     return {
         "path": path,
         "dest": dest,
         "pid": pid,
-        "name": node.get("name") or "",
-        "role": node.get("role") or "",
+        "name": name,
+        "role": role,
     }
 
 
@@ -448,10 +482,10 @@ def snapshot_tree(pid=None, app_name=None, max_nodes=None, max_depth=None):
         roots = [m["path"] for m in metas[:8] if m.get("path")]
     pid_by_path = {m["path"]: m.get("pid") or 0 for m in metas}
     nodes = []
-    queue = [(dest_by_path.get(path, REGISTRY), path, None, 0) for path in roots]
+    queue = deque((dest_by_path.get(path, REGISTRY), path, None, 0) for path in roots)
     seen = set()
     while queue and len(nodes) < cap_nodes and time.time() < deadline:
-        dest, path, parent, depth = queue.pop(0)
+        dest, path, parent, depth = queue.popleft()
         mark = dest + ":" + path
         if mark in seen or depth > cap_depth:
             continue
@@ -608,12 +642,8 @@ def set_value(node, value):
         raise RuntimeError("could not set value: %s" % exc) from exc
 
 
-def focused_element(max_nodes=400, max_depth=16):
-    try:
-        nodes = snapshot_tree(max_nodes=max_nodes, max_depth=max_depth)
-    except Exception:
-        return None
-    for node in nodes:
+def focused_from_nodes(nodes):
+    for node in list(nodes or []):
         states = [_norm(s) for s in (node.get("states") or [])]
         if "focused" in states:
             return {
@@ -622,3 +652,11 @@ def focused_element(max_nodes=400, max_depth=16):
                 "editable": bool(node.get("supports_editable_text") or "editable" in states),
             }
     return None
+
+
+def focused_element(max_nodes=400, max_depth=16):
+    try:
+        nodes = snapshot_tree(max_nodes=max_nodes, max_depth=max_depth)
+    except Exception:
+        return None
+    return focused_from_nodes(nodes)

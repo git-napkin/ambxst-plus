@@ -291,7 +291,7 @@ class TestJustWorksContracts(unittest.TestCase):
     def test_ipc_pipe_uses_runtime_dir(self):
         cli = self._read("cli.sh")
         shortcuts = self._read("modules/services/GlobalShortcuts.qml")
-        self.assertIn('PIPE="${XDG_RUNTIME_DIR:-/tmp}/ambxst+_ipc.pipe"', cli)
+        self.assertIn('pipe="${XDG_RUNTIME_DIR:-/tmp}/ambxst+_ipc.pipe"', cli)
         self.assertNotIn('PIPE="/tmp/ambxst+_ipc.pipe"', cli)
         self.assertIn("XDG_RUNTIME_DIR", shortcuts)
         self.assertNotIn('"/tmp/ambxst+_ipc.pipe"', shortcuts)
@@ -328,9 +328,24 @@ class TestJustWorksContracts(unittest.TestCase):
         self.assertIn("_restartCap", src)
 
     def test_camera_service_init_uses_sync_running(self):
-        src = self._read("shell.qml")
-        self.assertIn("CameraService._syncRunning.toString()", src)
-        self.assertNotIn("CameraService.update.toString()", src)
+        src = self._read("modules/services/CameraService.qml")
+        self.assertIn("_syncRunning", src)
+        self.assertIn("startDelay", src)
+        shell = self._read("shell.qml")
+        self.assertNotIn("CameraService._syncRunning.toString()", shell)
+        self.assertNotIn("CameraService.update.toString()", shell)
+
+    def test_shell_defers_heavy_overlays(self):
+        shell = self._read("shell.qml")
+        self.assertNotIn("import qs.modules.widgets.assistant", shell)
+        self.assertNotIn("import qs.modules.widgets.overview", shell)
+        self.assertNotIn("sourceComponent: AssistantPopup", shell)
+        self.assertIn("modules/widgets/assistant/AssistantPopup.qml", shell)
+        shortcuts = self._read("modules/services/GlobalShortcuts.qml")
+        self.assertNotIn("Ai.stopComputerUse", shortcuts)
+        self.assertIn("ComputerUse.stop", shortcuts)
+        dash = self._read("modules/widgets/dashboard/Dashboard.qml")
+        self.assertNotIn("sourceComponent: unifiedLauncherComponent", dash)
 
     def test_axctl_restore_focus_reuses_process(self):
         src = self._read("modules/services/AxctlService.qml")
@@ -1697,6 +1712,92 @@ class TestComputerUse(unittest.TestCase):
         self.assertEqual(resolve_window(windows, {"tty": "pts/3"})["address"], "0x2")
         self.assertEqual(resolve_window(windows, {"pid": 10})["class"], "firefox")
         self.assertEqual(resolve_window(windows, {"title": "firefox"})["address"], "0x1")
+
+
+class TestPerformanceContracts(unittest.TestCase):
+    def test_ffmpeg_seeks_before_decode(self):
+        from thumbgen import video_ffmpeg_cmd
+
+        cmd = video_ffmpeg_cmd("in.mp4", "out.jpg", "scale=140:140")
+        self.assertLess(cmd.index("-ss"), cmd.index("-i"))
+        self.assertIn("-an", cmd)
+        lockwall = (SCRIPTS_DIR / "lockwall.py").read_text()
+        desktop = (SCRIPTS_DIR / "desktop_thumbgen.py").read_text()
+        for src in (lockwall, desktop):
+            ss = src.index('"-ss"') if '"-ss"' in src else src.index("'-ss'")
+            ii = src.index('"-i"') if '"-i"' in src else src.index("'-i'")
+            self.assertLess(ss, ii)
+
+    def test_camera_monitor_uses_readlink(self):
+        src = (SCRIPTS_DIR / "camera_monitor.py").read_text()
+        self.assertIn("os.readlink", src)
+        self.assertIn("os.scandir", src)
+        self.assertNotIn("os.stat(os.path.join(fd_dir", src)
+
+    def test_list_models_keeps_key_cache(self):
+        src = (SCRIPTS_DIR / "ai" / "agent.py").read_text()
+        self.assertNotIn("clear_key_cache()", src)
+
+    def test_snapshot_reuses_tree_for_focus(self):
+        src = (SCRIPTS_DIR / "ai" / "tools" / "computer_use.py").read_text()
+        self.assertIn("focused_from_nodes", src)
+        snapshot = src[src.index('if action == "snapshot"') : src.index('if action == "click"')]
+        self.assertNotIn("focused_element", snapshot)
+
+    def test_skill_catalog_names_skips_content(self):
+        from ai.tools.read_skill import skill_catalog_names
+
+        with tempfile.TemporaryDirectory() as tmp:
+            skill = Path(tmp) / "fast"
+            skill.mkdir()
+            (skill / "SKILL.md").write_text("# Fast\n" + ("x" * 100000))
+            self.assertEqual(skill_catalog_names([tmp]), ["fast"])
+
+    def test_weather_caches_geoip(self):
+        src = (SCRIPTS_DIR / "weather.sh").read_text()
+        self.assertIn("geoip.json", src)
+        self.assertIn("GEOIP_TTL", src)
+        self.assertNotIn("--retry 2", src)
+
+    def test_clipboard_insert_skips_full_slurp(self):
+        src = (SCRIPTS_DIR / "clipboard_insert.sh").read_text()
+        self.assertNotIn("CONTENT=$(cat", src)
+        self.assertIn("head -c 97", src)
+        self.assertIn("readfile", src)
+
+    def test_desktop_scan_uses_scandir(self):
+        src = (SCRIPTS_DIR / "desktop_scan.py").read_text()
+        self.assertIn("os.scandir", src)
+        self.assertNotIn("os.listdir", src)
+
+    def test_prune_image_attachments_keeps_newest(self):
+        from ai.agent import prune_image_attachments
+
+        msgs = [
+            {"role": "user", "content": "a", "attachments": [{"type": "image", "base64": "old"}]},
+            {"role": "assistant", "content": "ok"},
+            {"role": "tool", "content": "{}", "attachments": [{"type": "image", "base64": "mid"}]},
+            {"role": "tool", "content": "{}", "attachments": [{"type": "image", "base64": "new"}]},
+        ]
+        pruned = prune_image_attachments(msgs, keep=2)
+        self.assertNotIn("attachments", pruned[0])
+        self.assertEqual(pruned[2]["attachments"][0]["base64"], "mid")
+        self.assertEqual(pruned[3]["attachments"][0]["base64"], "new")
+
+    def test_wavyline_is_not_frame_bound(self):
+        src = Path(__file__).parent.parent.joinpath("modules/components/WavyLine.qml").read_text()
+        self.assertNotIn("FrameAnimation", src)
+        self.assertIn("interval: 32", src)
+        self.assertIn("Config.performance.wavyLine", src)
+
+    def test_dashboard_tabs_use_string_source(self):
+        dash = Path(__file__).parent.parent.joinpath("modules/widgets/dashboard/Dashboard.qml").read_text()
+        self.assertNotIn("import qs.modules.widgets.dashboard.wallpapers", dash)
+        self.assertNotIn("import qs.modules.widgets.dashboard.metrics", dash)
+        self.assertIn('source: "wallpapers/WallpapersTab.qml"', dash)
+        launcher = Path(__file__).parent.parent.joinpath("modules/widgets/launcher/LauncherView.qml").read_text()
+        self.assertNotIn("import \"../dashboard/clipboard\"", launcher)
+        self.assertIn("../dashboard/clipboard/ClipboardTab.qml", launcher)
 
 
 if __name__ == "__main__":

@@ -684,7 +684,6 @@ Singleton {
 
     Component.onCompleted: {
         root.recoverPointers();
-        root.ensureAtSpi();
     }
 
     Process {

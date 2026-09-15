@@ -58,11 +58,17 @@ PanelWindow {
         return out;
     }
 
+    function dismissPreview() {
+        root.imagePath = "";
+        root.dragMimePath = "";
+        if (Screenshot.previewPath)
+            Screenshot.previewPath = "";
+    }
+
     function clearPreview() {
         if (root.dragInProgress)
             return;
-        root.imagePath = "";
-        root.dragMimePath = "";
+        root.dismissPreview();
     }
 
     property Process copyOverlayProcess: Process {
@@ -93,21 +99,35 @@ PanelWindow {
     }
 
     // Listen for the saved signal from Screenshot service
+    function applySavedPreview(path) {
+        const s = root.targetScreen;
+        if (!s || !path)
+            return;
+        const mx = Screenshot.selectionX;
+        const my = Screenshot.selectionY;
+
+        if (mx >= s.x && mx < (s.x + s.width) && my >= s.y && my < (s.y + s.height)) {
+            root.imagePath = path;
+        } else if (Screenshot.captureMode === "screen") {
+            const cursor = Quickshell.cursor;
+            if (cursor && cursor.screen && cursor.screen.name === s.name)
+                root.imagePath = path;
+        }
+    }
+
+    Component.onCompleted: {
+        if (Screenshot.previewPath)
+            root.applySavedPreview(Screenshot.previewPath);
+    }
+
     Connections {
         target: Screenshot
         function onImageSaved(path) {
-            var s = root.targetScreen;
-            var mx = Screenshot.selectionX;
-            var my = Screenshot.selectionY;
-
-            if (mx >= s.x && mx < (s.x + s.width) && my >= s.y && my < (s.y + s.height)) {
-                root.imagePath = path;
-            } else if (Screenshot.captureMode === "screen") {
-                var cursor = Quickshell.cursor;
-                if (cursor && cursor.screen && cursor.screen.name === s.name) {
-                    root.imagePath = path;
-                }
-            }
+            root.applySavedPreview(path);
+        }
+        function onPreviewPathChanged() {
+            if (Screenshot.previewPath)
+                root.applySavedPreview(Screenshot.previewPath);
         }
     }
 
@@ -207,8 +227,7 @@ PanelWindow {
                             proc.command = ["rm", root.imagePath];
                             proc.onExited.connect(() => proc.destroy());
                             proc.running = true;
-                            root.imagePath = "";
-                            root.dragMimePath = "";
+                            root.dismissPreview();
                         } else {
                             Qt.openUrlExternally("file://" + root.imagePath);
                         }
@@ -278,8 +297,7 @@ PanelWindow {
                     var proc = Qt.createQmlObject('import Quickshell; import Quickshell.Io; Process { }', root);
                     proc.command = ["bash", "-c", "if command -v gradia >/dev/null; then gradia \"" + path + "\"; else flatpak run be.alexandervanhee.gradia \"" + path + "\"; fi & disown"];
                     proc.running = true;
-                    root.imagePath = "";
-                    root.dragMimePath = "";
+                    root.dismissPreview();
                 }
                 StyledToolTip {
                     show: parent.containsMouse
@@ -301,8 +319,7 @@ PanelWindow {
                     proc.command = ["rm", root.imagePath];
                     proc.onExited.connect(() => proc.destroy());
                     proc.running = true;
-                    root.imagePath = "";
-                    root.dragMimePath = "";
+                    root.dismissPreview();
                 }
                 StyledToolTip {
                     show: parent.containsMouse

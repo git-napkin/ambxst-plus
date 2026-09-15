@@ -9,10 +9,6 @@ import qs.modules.components
 import qs.modules.globals
 import qs.modules.services
 import qs.config
-import "../dashboard/clipboard"
-import "../dashboard/emoji"
-import "../dashboard/tmux"
-import "../dashboard/notes"
 import "../dashboard/list_utils.js" as ListUtils
 import qs.modules.notch
 
@@ -707,7 +703,9 @@ NotchAnimationBehavior {
                                 id: appIconImage
                                 anchors.fill: parent
                                 source: "image://icon/" + appIcon
+                                sourceSize: Qt.size(32, 32)
                                 fillMode: Image.PreserveAspectFit
+                                asynchronous: true
                                 
                                 onStatusChanged: {
                                     if (status === Image.Error) {
@@ -938,24 +936,21 @@ NotchAnimationBehavior {
         // Tab 1: Clipboard
         Loader {
             id: clipboardLoader
-            active: currentTab === 1 || item !== null
-            sourceComponent: Component {
-                ClipboardTab {
-                    leftPanelWidth: root.leftPanelWidth
-                    prefixIcon: Icons.clipboard
-                    onBackspaceOnEmpty: {
-                        prefixDisabled = true;
-                        currentTab = 0;
-                        GlobalStates.launcherSearchText = Config.prefix.clipboard + " ";
-                        root.focusSearchInput();
-                    }
-                    onRequestOpenItem: (itemId, items, currentContent, filePathGetter, urlChecker) => {
-                        console.log("DEBUG: Received requestOpenItem signal for:", itemId);
-                        openItemInternal(itemId, items, currentContent, filePathGetter, urlChecker);
-                    }
-                }
-            }
+            asynchronous: true
+            active: currentTab === 1 || (Config.performance.dashboardPersistTabs && item !== null)
+            source: "../dashboard/clipboard/ClipboardTab.qml"
             onLoaded: {
+                item.leftPanelWidth = Qt.binding(function () { return root.leftPanelWidth; });
+                item.prefixIcon = Icons.clipboard;
+                item.backspaceOnEmpty.connect(function () {
+                    prefixDisabled = true;
+                    currentTab = 0;
+                    GlobalStates.launcherSearchText = Config.prefix.clipboard + " ";
+                    root.focusSearchInput();
+                });
+                item.requestOpenItem.connect(function (itemId, items, currentContent, filePathGetter, urlChecker) {
+                    root.openItemInternal(itemId, items, currentContent, filePathGetter, urlChecker);
+                });
                 if (currentTab === 1 && item && item.focusSearchInput) {
                     root.focusSearchInput();
                 }
@@ -967,21 +962,19 @@ NotchAnimationBehavior {
             id: emojiLoader
             Layout.fillWidth: true
             Layout.fillHeight: true
-            active: currentTab === 2 || item !== null
-            sourceComponent: Component {
-                EmojiTab {
-                    anchors.fill: parent
-                    leftPanelWidth: root.width
-                    prefixIcon: Icons.emoji
-                    onBackspaceOnEmpty: {
-                        prefixDisabled = true;
-                        currentTab = 0;
-                        GlobalStates.launcherSearchText = Config.prefix.emoji + " ";
-                        root.focusSearchInput();
-                    }
-                }
-            }
+            asynchronous: true
+            active: currentTab === 2 || (Config.performance.dashboardPersistTabs && item !== null)
+            source: "../dashboard/emoji/EmojiTab.qml"
             onLoaded: {
+                item.anchors.fill = item.parent;
+                item.leftPanelWidth = Qt.binding(function () { return root.width; });
+                item.prefixIcon = Icons.emoji;
+                item.backspaceOnEmpty.connect(function () {
+                    prefixDisabled = true;
+                    currentTab = 0;
+                    GlobalStates.launcherSearchText = Config.prefix.emoji + " ";
+                    root.focusSearchInput();
+                });
                 if (currentTab === 2 && item && item.focusSearchInput) {
                     root.focusSearchInput();
                 }
@@ -993,20 +986,18 @@ NotchAnimationBehavior {
             id: tmuxLoader
             Layout.fillWidth: true
             Layout.fillHeight: true
-            active: currentTab === 3 || item !== null
-            sourceComponent: Component {
-                TmuxTab {
-                    leftPanelWidth: root.leftPanelWidth
-                    prefixIcon: Icons.terminal
-                    onBackspaceOnEmpty: {
-                        prefixDisabled = true;
-                        currentTab = 0;
-                        GlobalStates.launcherSearchText = Config.prefix.tmux + " ";
-                        root.focusSearchInput();
-                    }
-                }
-            }
+            asynchronous: true
+            active: currentTab === 3 || (Config.performance.dashboardPersistTabs && item !== null)
+            source: "../dashboard/tmux/TmuxTab.qml"
             onLoaded: {
+                item.leftPanelWidth = Qt.binding(function () { return root.leftPanelWidth; });
+                item.prefixIcon = Icons.terminal;
+                item.backspaceOnEmpty.connect(function () {
+                    prefixDisabled = true;
+                    currentTab = 0;
+                    GlobalStates.launcherSearchText = Config.prefix.tmux + " ";
+                    root.focusSearchInput();
+                });
                 if (currentTab === 3 && item && item.focusSearchInput) {
                     root.focusSearchInput();
                 }
@@ -1018,21 +1009,19 @@ NotchAnimationBehavior {
             id: notesLoader
             Layout.fillWidth: true
             Layout.fillHeight: true
-            active: currentTab === 4 || item !== null
-            sourceComponent: Component {
-                NotesTab {
-                    anchors.fill: parent
-                    leftPanelWidth: root.leftPanelWidth
-                    prefixIcon: Icons.note
-                    onBackspaceOnEmpty: {
-                        prefixDisabled = true;
-                        currentTab = 0;
-                        GlobalStates.launcherSearchText = Config.prefix.notes + " ";
-                        root.focusSearchInput();
-                    }
-                }
-            }
+            asynchronous: true
+            active: currentTab === 4 || (Config.performance.dashboardPersistTabs && item !== null)
+            source: "../dashboard/notes/NotesTab.qml"
             onLoaded: {
+                item.anchors.fill = item.parent;
+                item.leftPanelWidth = Qt.binding(function () { return root.leftPanelWidth; });
+                item.prefixIcon = Icons.note;
+                item.backspaceOnEmpty.connect(function () {
+                    prefixDisabled = true;
+                    currentTab = 0;
+                    GlobalStates.launcherSearchText = Config.prefix.notes + " ";
+                    root.focusSearchInput();
+                });
                 if (currentTab === 4 && item && item.focusSearchInput) {
                     root.focusSearchInput();
                 }

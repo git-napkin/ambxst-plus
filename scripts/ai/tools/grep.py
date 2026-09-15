@@ -142,10 +142,10 @@ def _python_walk(queries, root, timeout):
             return False
         try:
             with open(path, "rb") as fh:
-                sample = fh.read(8192)
-            if b"\0" in sample:
+                data = fh.read()
+            if b"\0" in data[:8192]:
                 return True
-            text = Path(path).read_text(encoding="utf-8", errors="replace")
+            text = data.decode("utf-8", errors="replace")
         except OSError:
             return True
         rel = str(path)
@@ -183,6 +183,14 @@ def grep(ctx, args):
         return {"results": []}
     target = ctx.resolve_path(path) if path not in (".", "") else ctx.workspace
     timeout = GREP_TIMEOUT
+    if shutil.which("rg"):
+        argv = ["rg", "--json", "--hidden", "--glob", "!.git"]
+        for query in queries:
+            argv.extend(["-e", query])
+        argv.append(str(target))
+        raw, err = _run_argv(argv, ctx.workspace, timeout)
+        if err is None:
+            return {"results": _parse_rg_json(raw)}
     git_root = _git_root(target)
     if git_root is not None and shutil.which("git"):
         rel = "."
@@ -197,14 +205,6 @@ def grep(ctx, args):
         raw, err = _run_argv(argv, git_root, timeout)
         if err is None:
             return {"results": _parse_git_grep(raw)}
-    if shutil.which("rg"):
-        argv = ["rg", "--json", "--hidden", "--glob", "!.git"]
-        for query in queries:
-            argv.extend(["-e", query])
-        argv.append(str(target))
-        raw, err = _run_argv(argv, ctx.workspace, timeout)
-        if err is None:
-            return {"results": _parse_rg_json(raw)}
     return {"results": _python_walk(queries, target, timeout)}
 
 

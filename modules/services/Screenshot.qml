@@ -25,6 +25,7 @@ QtObject {
     
     property string screenshotsDir: ""
     property string finalPath: ""
+    property string previewPath: ""
     
     property var _activeWorkspaceIds: []
     property var monitors: [] // List of monitor objects
@@ -207,6 +208,7 @@ QtObject {
                     root.captureMode = "normal" 
                 } else {
                     copyProcess.running = true
+                    root.previewPath = root.finalPath
                     root.imageSaved(root.finalPath)
                 }
             } else {

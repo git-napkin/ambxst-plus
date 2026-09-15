@@ -166,7 +166,7 @@ Item {
         radius: 0
         enableBorder: false
         visible: root.frameEnabled
-        layer.enabled: true
+        layer.enabled: root.frameEnabled
         layer.effect: MultiEffect {
             maskEnabled: true
             maskSource: frameMask

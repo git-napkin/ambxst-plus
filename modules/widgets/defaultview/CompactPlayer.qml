@@ -77,14 +77,20 @@ Item {
             return "";
         const wsId = mon.activeWorkspace ? mon.activeWorkspace.id : -1;
         const clients = AxctlService.clients.values || [];
-        const onScreen = clients.filter(c => c.monitor === mon.id && (wsId < 0 || (c.workspace && c.workspace.id === wsId)) && !c.hidden);
-        if (onScreen.length === 0)
-            return "";
-        const best = onScreen.reduce((best, c) => {
-            const bf = best ? (best.focusHistoryID ?? Infinity) : Infinity;
+        let best = null;
+        let bestFocus = Infinity;
+        for (let i = 0; i < clients.length; i++) {
+            const c = clients[i];
+            if (c.monitor !== mon.id || c.hidden)
+                continue;
+            if (wsId >= 0 && (!c.workspace || c.workspace.id !== wsId))
+                continue;
             const cf = c.focusHistoryID ?? Infinity;
-            return cf < bf ? c : best;
-        }, null);
+            if (cf < bestFocus) {
+                bestFocus = cf;
+                best = c;
+            }
+        }
         return best ? best.title : "";
     }
 
@@ -213,7 +219,7 @@ Item {
                 anchors.fill: backgroundArt
                 source: backgroundArt
                 // Only enable blur when there's content to blur (saves GPU)
-                blurEnabled: compactPlayer.hasBackground
+                blurEnabled: compactPlayer.hasBackground && compactPlayer.visible
                 blurMax: 32
                 blur: compactPlayer.backgroundBlur
                 autoPaddingEnabled: false

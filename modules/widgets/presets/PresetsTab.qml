@@ -534,7 +534,7 @@ Item {
             clip: true
             interactive: !root.deleteMode && !root.renameMode && !root.updateMode && root.expandedItemIndex === -1
             cacheBuffer: 96
-            reuseItems: false
+            reuseItems: true
 
             property bool isScrolling: dragging || flicking
             property bool enableScrollAnimation: true

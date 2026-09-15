@@ -106,6 +106,7 @@ Item {
                         source: status === Image.Error && root.appIcon ? "image://icon/" + root.appIcon : root.image
                         fillMode: Image.PreserveAspectCrop
                         smooth: true
+                        asynchronous: true
                         onStatusChanged: {
                             if (status === Image.Error && root.appIcon) {
                                 source = "image://icon/" + root.appIcon;

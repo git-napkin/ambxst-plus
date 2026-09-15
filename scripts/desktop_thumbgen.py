@@ -98,10 +98,11 @@ class DesktopThumbnailGenerator:
             pass
         try:
             cmd = [
-                'ffmpeg', '-y',
-                '-i', wp,
+                'ffmpeg', '-hide_banner', '-loglevel', 'error', '-y',
                 '-ss', '00:00:01',
-                '-vframes', '1',
+                '-i', wp,
+                '-an',
+                '-frames:v', '1',
                 '-vf', f'scale=64:64:force_original_aspect_ratio=increase,crop=64:64',
                 '-q:v', '2',
                 '-f', 'image2',
@@ -110,8 +111,8 @@ class DesktopThumbnailGenerator:
             
             result = subprocess.run(
                 cmd,
-                capture_output=True,
-                text=True,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
                 timeout=30
             )
             

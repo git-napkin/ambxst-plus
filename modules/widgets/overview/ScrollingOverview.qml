@@ -216,6 +216,22 @@ Item {
     // Scroll to center active workspace when it changes
     onActiveWorkspaceIdChanged: workspaceFlickable.scrollToActiveWorkspace()
 
+    TintedWallpaper {
+        id: sharedWorkspaceWallpaper
+        width: scrollingOverviewRoot.workspaceWidth
+        height: scrollingOverviewRoot.workspaceHeight
+        x: -width - 64
+        y: 0
+        radius: Styling.radius(1)
+        tintEnabled: GlobalStates.wallpaperManager ? GlobalStates.wallpaperManager.tintEnabled : false
+        source: {
+            if (!GlobalStates.wallpaperManager)
+                return "";
+            const path = GlobalStates.wallpaperManager.getLockscreenFramePath(GlobalStates.wallpaperManager.currentWallpaper);
+            return path ? "file://" + path : "";
+        }
+    }
+
     // Vertical flickable containing all workspaces
     Flickable {
         id: workspaceFlickable
@@ -278,6 +294,7 @@ Item {
                         searchQuery: scrollingOverviewRoot.searchQuery
                         checkWindowMatched: scrollingOverviewRoot.isWindowMatched
                         checkWindowSelected: scrollingOverviewRoot.isWindowSelected
+                        wallpaperSource: sharedWorkspaceWallpaper
 
                         // Dragging - use bidirectional binding
                         draggingFromWorkspace: scrollingOverviewRoot.draggingFromWorkspace

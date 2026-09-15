@@ -10,8 +10,9 @@ import signal
 import sys
 import threading
 import uuid
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
-from queue import Empty, Queue
+from queue import Queue
 
 _SCRIPTS = Path(__file__).resolve().parent.parent
 if str(_SCRIPTS) not in sys.path:
@@ -31,6 +32,17 @@ DEFAULT_SYSTEM = (
 )
 
 MAX_TOOL_ITERS = 25
+_INBOX_STOP = object()
+PARALLEL_TOOLS = frozenset(
+    {
+        "grep",
+        "file_glob",
+        "read_files",
+        "read_skill",
+        "exa_search",
+        "exa_contents",
+    }
+)
 
 
 def flatten_ui_messages(messages):
@@ -43,6 +55,45 @@ def flatten_ui_messages(messages):
             out.extend(flatten_ui_messages(msg.get("items") or []))
             continue
         out.append(msg)
+    return out
+
+
+MAX_IMAGE_ATTACHMENTS = 2
+
+
+def prune_image_attachments(messages, keep=MAX_IMAGE_ATTACHMENTS):
+    """Drop older screenshot/image payloads; keep the newest `keep` ones.
+
+    Computer-use turns attach a full JPEG on every screenshot. Sending the
+    whole pile on later iterations dominates request size and decode time.
+    """
+    remaining = keep
+    out = [None] * len(messages or [])
+    for i in range(len(out) - 1, -1, -1):
+        msg = messages[i]
+        atts = msg.get("attachments") if isinstance(msg, dict) else None
+        if not atts:
+            out[i] = msg
+            continue
+        kept = []
+        dropped = False
+        for att in reversed(atts):
+            if isinstance(att, dict) and att.get("type") == "image":
+                if remaining > 0:
+                    kept.append(att)
+                    remaining -= 1
+                else:
+                    dropped = True
+            else:
+                kept.append(att)
+        kept.reverse()
+        if dropped or len(kept) != len(atts):
+            msg = dict(msg)
+            if kept:
+                msg["attachments"] = kept
+            else:
+                msg.pop("attachments", None)
+        out[i] = msg
     return out
 
 
@@ -91,8 +142,9 @@ class Agent:
 
     def emit(self, event):
         line = encode_event(event)
-        self.stdout.write(line + "\n")
-        self.stdout.flush()
+        with self._lock:
+            self.stdout.write(line + "\n")
+            self.stdout.flush()
 
     def apply_init(self, payload):
         workspace = payload.get("workspace") or ""
@@ -284,9 +336,6 @@ class Agent:
             return
         if cmd == "list_models":
             try:
-                if hasattr(self.ctx, "clear_key_cache"):
-                    self.ctx.clear_key_cache()
-                # Keep custom model catalog in sync with the latest init payload.
                 models = list_models(
                     self.ctx,
                     custom_endpoint=self.ctx.custom_endpoint,
@@ -366,6 +415,7 @@ class Agent:
                 return
             assistant_text = []
             tool_calls = []
+            self.messages = prune_image_attachments(self.messages)
             for event in provider.stream_chat(
                 self.messages,
                 tools,
@@ -398,10 +448,12 @@ class Agent:
                 return
             openai_calls = []
             tool_messages = []
+            prepared = []
             for call in tool_calls:
                 call_id = call.get("id") or ("call_%s" % uuid.uuid4().hex[:12])
                 name = call.get("name") or ""
                 args = call.get("args") or {}
+                prepared.append((call_id, name, args))
                 openai_calls.append(
                     {
                         "id": call_id,
@@ -418,7 +470,17 @@ class Agent:
                         **self._friendly_event_fields(name, args),
                     }
                 )
-                result = self._dispatch_tool(name, args, call_id)
+            parallel = len(prepared) > 1 and all(self._tool_parallel_ok(name, args) for _cid, name, args in prepared)
+            if parallel:
+                with ThreadPoolExecutor(max_workers=min(4, len(prepared))) as pool:
+                    futs = [
+                        pool.submit(self._execute_approved, name, args, call_id)
+                        for call_id, name, args in prepared
+                    ]
+                    results = [fut.result() for fut in futs]
+            else:
+                results = [self._dispatch_tool(name, args, call_id) for call_id, name, args in prepared]
+            for (call_id, name, _args), result in zip(prepared, results):
                 self.computer_use_approved = bool(getattr(self.ctx, "computer_use_approved", False))
                 self.computer_use_nodes = list(getattr(self.ctx, "computer_use_nodes", None) or [])
                 self.computer_use_last_shot = getattr(self.ctx, "computer_use_last_shot", None)
@@ -459,6 +521,26 @@ class Agent:
                 }
             )
             self.messages.extend(tool_messages)
+
+    def _tool_parallel_ok(self, name, args):
+        if name not in PARALLEL_TOOLS:
+            return False
+        tool = self.registry.get(name)
+        if not tool:
+            return False
+        decision = tool.should_autoexecute(self.ctx, args)
+        return decision is True
+
+    def _execute_approved(self, name, args, call_id):
+        tool = self.registry.get(name)
+        if not tool:
+            return {"status": "error", "error": "Unknown tool: %s" % name}
+        if self.cancel_event.is_set():
+            return tool.cancelled()
+        try:
+            return tool.execute(self.ctx, args)
+        except Exception as exc:
+            return {"status": "error", "error": str(exc)}
 
     def _friendly_labels(self, name, args):
         tool = self.registry.get(name)
@@ -526,34 +608,36 @@ class Agent:
             return {"status": "error", "error": str(exc)}
 
     def stdin_loop(self):
-        for raw in self.stdin:
-            if self.stop_event.is_set():
-                break
-            try:
-                payload = decode_command(raw)
-            except ProtocolError as exc:
-                self.emit({"type": "error", "error": str(exc)})
-                continue
-            if payload.get("cmd") in (
-                "approve",
-                "reject",
-                "answer_questions",
-                "native_result",
-                "cancel",
-                "end_computer_use",
-            ):
-                self.handle_command(payload)
-            else:
-                self.inbox.put(payload)
-            if payload.get("cmd") in ("shutdown",):
-                break
+        try:
+            for raw in self.stdin:
+                if self.stop_event.is_set():
+                    break
+                try:
+                    payload = decode_command(raw)
+                except ProtocolError as exc:
+                    self.emit({"type": "error", "error": str(exc)})
+                    continue
+                if payload.get("cmd") in (
+                    "approve",
+                    "reject",
+                    "answer_questions",
+                    "native_result",
+                    "cancel",
+                    "end_computer_use",
+                ):
+                    self.handle_command(payload)
+                else:
+                    self.inbox.put(payload)
+                if payload.get("cmd") in ("shutdown",):
+                    break
+        finally:
+            self.inbox.put(_INBOX_STOP)
 
     def process_forever(self):
         while not self.stop_event.is_set():
-            try:
-                payload = self.inbox.get(timeout=0.1)
-            except Empty:
-                continue
+            payload = self.inbox.get()
+            if payload is _INBOX_STOP:
+                break
             cmd = payload.get("cmd")
             if cmd in ("approve", "reject", "answer_questions", "native_result", "cancel", "end_computer_use"):
                 self.handle_command(payload)

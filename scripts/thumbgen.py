@@ -6,6 +6,7 @@ Generates thumbnails for video files, images, and GIFs using FFmpeg and ImageMag
 
 import json
 import os
+import shutil
 import subprocess
 import sys
 import threading
@@ -21,6 +22,30 @@ GIF_EXTENSIONS = {".gif"}
 
 # Default thumbnail size
 THUMBNAIL_SIZE = "140x140"
+
+
+def video_ffmpeg_cmd(src, dst, scale):
+    return [
+        "ffmpeg",
+        "-hide_banner",
+        "-loglevel",
+        "error",
+        "-y",
+        "-ss",
+        "00:00:01",
+        "-i",
+        src,
+        "-an",
+        "-frames:v",
+        "1",
+        "-vf",
+        scale,
+        "-q:v",
+        "2",
+        "-f",
+        "image2",
+        dst,
+    ]
 
 
 class ThumbnailGenerator:
@@ -39,6 +64,7 @@ class ThumbnailGenerator:
         self.total_files = 0
         self.processed_count = 0
         self.lock = threading.Lock()
+        self._magick = None
 
     def load_config(self) -> bool:
         """Load wallpaper configuration."""
@@ -87,39 +113,30 @@ class ThumbnailGenerator:
             return []
 
         try:
-            # Recursively find all files in wallpaper directory and subdirectories
-            for file_path in self.wall_path.rglob("*"):
-                # Skip symlinks to avoid traversal outside wall_path
-                if file_path.is_symlink():
-                    continue
-                if file_path.is_file() and not file_path.name.startswith("."):
-                    # Check if any parent directory is hidden
-                    if not any(
-                        part.startswith(".")
-                        for part in file_path.relative_to(self.wall_path).parts[:-1]
+            wall = self.wall_path
+            for dirpath, dirnames, filenames in os.walk(wall, followlinks=False):
+                dirnames[:] = [d for d in dirnames if not d.startswith(".")]
+                for name in filenames:
+                    if name.startswith("."):
+                        continue
+                    file_path = Path(dirpath) / name
+                    if file_path.is_symlink():
+                        continue
+                    ext = file_path.suffix.lower()
+                    if (
+                        ext in VIDEO_EXTENSIONS
+                        or ext in IMAGE_EXTENSIONS
+                        or ext in GIF_EXTENSIONS
                     ):
-                        # Ensure resolved path stays within wall_path (symlink escape)
-                        try:
-                            if not file_path.resolve().is_relative_to(self.wall_path.resolve()):
-                                continue
-                        except Exception:
-                            pass
-                        ext = file_path.suffix.lower()
-                        if (
-                            ext in VIDEO_EXTENSIONS
-                            or ext in IMAGE_EXTENSIONS
-                            or ext in GIF_EXTENSIONS
-                        ):
-                            files.append(file_path)
+                        files.append(file_path)
 
-            # Sort for consistent ordering
             files.sort()
 
             print(f"✓ Found {len(files)} media files")
             return files
 
         except Exception as e:
-            print(f"ERROR scanning directory: {e}")
+            print(f"ERROR scanning files: {e}")
             return []
 
     def get_thumbnail_path(self, file_path: Path) -> Path:
@@ -172,31 +189,17 @@ class ThumbnailGenerator:
             if os.path.basename(out).startswith("-"):
                 out = os.path.join(os.path.dirname(out) or ".", "./" + os.path.basename(out))
 
-            # FFmpeg command for high-quality thumbnail
-            cmd = [
-                "ffmpeg",
-                "-y",
-                "-i",
+            cmd = video_ffmpeg_cmd(
                 vp,
-                "-ss",
-                "00:00:01",  # Skip first second to avoid black frames
-                "-vframes",
-                "1",  # Extract only 1 frame
-                "-vf",
-                f"scale=140:140:force_original_aspect_ratio=increase,crop=140:140",
-                "-q:v",
-                "2",  # High quality
-                "-f",
-                "image2",  # Force image format
                 out,
-            ]
+                "scale=140:140:force_original_aspect_ratio=increase,crop=140:140",
+            )
 
-            # Run FFmpeg with error suppression
             result = subprocess.run(
                 cmd,
-                capture_output=True,
-                text=True,
-                timeout=30,  # 30 second timeout per video
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                timeout=30,
             )
 
             if result.returncode == 0 and thumbnail_path.exists():
@@ -223,8 +226,9 @@ class ThumbnailGenerator:
                 ip = os.path.join(os.path.dirname(ip) or ".", "./" + os.path.basename(ip))
             if os.path.basename(out).startswith("-"):
                 out = os.path.join(os.path.dirname(out) or ".", "./" + os.path.basename(out))
-            import shutil
-            conv = "magick" if shutil.which("magick") else "convert"
+            if self._magick is None:
+                self._magick = "magick" if shutil.which("magick") else "convert"
+            conv = self._magick
             base = [conv] if conv == "magick" else ["convert"]
 
             # ImageMagick command for high-quality thumbnail
@@ -410,7 +414,7 @@ class ThumbnailGenerator:
         print(f"📋 {self.total_files} files need thumbnail generation")
 
         # Determine optimal worker count
-        max_workers = min(4, os.cpu_count() or 1, self.total_files)
+        max_workers = min(8, os.cpu_count() or 1, self.total_files)
 
         # Process files
         try:

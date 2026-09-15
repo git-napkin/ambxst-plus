@@ -102,6 +102,7 @@ def _openssl_encrypt(text, machine_key):
         capture_output=True,
         env=_openssl_env(machine_key),
         check=False,
+        timeout=20,
     )
     if proc.returncode != 0:
         err = (proc.stderr or b"").decode("utf-8", "replace").strip()
@@ -129,6 +130,7 @@ def _openssl_decrypt(blob, machine_key):
         capture_output=True,
         env=_openssl_env(machine_key),
         check=False,
+        timeout=20,
     )
     if proc.returncode != 0:
         raise ValueError("openssl decrypt failed")

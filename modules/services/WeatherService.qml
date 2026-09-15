@@ -67,7 +67,7 @@ Singleton {
 
     property Timer refreshTimer: Timer {
         interval: 600000  // 10 minutes
-        running: !SuspendManager.isSuspending && GlobalStates.weatherActive
+        running: !SuspendManager.isSuspending
         repeat: true
         onTriggered: root.updateWeather()
     }

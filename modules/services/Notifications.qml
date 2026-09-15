@@ -180,11 +180,11 @@ Singleton {
         id: notifFileView
         // QUICKSHELL-GIT: path: Quickshell.cachePath("notifications.json")
         path: (Quickshell.env("XDG_CACHE_HOME") || (Quickshell.env("HOME") + "/.cache")) + "/ambxst+/notifications.json"
-        onLoaded: loadNotifications()
+        onLoaded: Qt.callLater(loadNotifications)
     }
 
     function stringifyList(list) {
-        return JSON.stringify(list.map(notif => notifToJSON(notif)), null, 2);
+        return JSON.stringify(list.map(notif => notifToJSON(notif)));
     }
 
     function jsonToNotif(json) {

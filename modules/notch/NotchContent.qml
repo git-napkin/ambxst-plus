@@ -6,12 +6,8 @@ import Quickshell.Wayland
 import qs.modules.globals
 import qs.modules.theme
 import qs.modules.widgets.defaultview
-import qs.modules.widgets.dashboard
-import qs.modules.widgets.powermenu
-import qs.modules.widgets.tools
 import qs.modules.services
 import qs.modules.components
-import qs.modules.widgets.launcher
 import qs.modules.bar.workspaces
 import qs.config
 import "./NotchNotificationView.qml"
@@ -150,6 +146,42 @@ Item {
 
     // The hitbox for the mask
     readonly property Item notchHitbox: root.reveal ? notchRegionContainer : notchHoverRegion
+    property bool notchVisualHeld: false
+
+    onRevealChanged: {
+        if (root.reveal) {
+            notchVisualHeld = false;
+            hideVisualTimer.stop();
+        } else if (Config.animDuration > 0) {
+            notchVisualHeld = true;
+            hideVisualTimer.interval = Config.animDuration / 2;
+            hideVisualTimer.restart();
+        }
+    }
+
+    Timer {
+        id: hideVisualTimer
+        repeat: false
+        onTriggered: root.notchVisualHeld = false
+    }
+
+    Timer {
+        id: unloadHiddenPanelsTimer
+        interval: 50
+        repeat: false
+        onTriggered: {
+            if (Config.performance.dashboardPersistTabs)
+                return;
+            if (!root.screenVisibilities.launcher)
+                persistentLauncherViewLoader.active = false;
+            if (!root.screenVisibilities.dashboard)
+                persistentDashboardViewLoader.active = false;
+            if (!root.screenVisibilities.powermenu)
+                persistentPowerMenuViewLoader.active = false;
+            if (!root.screenVisibilities.tools)
+                persistentToolsMenuViewLoader.active = false;
+        }
+    }
 
     // Default view component - user@host text
     Component {
@@ -163,27 +195,43 @@ Item {
     Loader {
         id: persistentLauncherViewLoader
         active: false
-        sourceComponent: Component { LauncherView { visible: false } }
+        source: "../widgets/launcher/LauncherView.qml"
+        onLoaded: {
+            if (item)
+                item.visible = false;
+        }
     }
 
     Loader {
         id: persistentDashboardViewLoader
         active: false
-        sourceComponent: Component { DashboardView { visible: false; screenName: root.screen.name } }
+        source: "../widgets/dashboard/DashboardView.qml"
+        onLoaded: {
+            if (item) {
+                item.visible = false;
+                item.screenName = root.screen.name;
+            }
+        }
     }
 
-    // Persistent power menu view
     Loader {
         id: persistentPowerMenuViewLoader
         active: false
-        sourceComponent: Component { PowerMenuView { visible: false } }
+        source: "../widgets/powermenu/PowerMenuView.qml"
+        onLoaded: {
+            if (item)
+                item.visible = false;
+        }
     }
 
-    // Persistent tools menu view
     Loader {
         id: persistentToolsMenuViewLoader
         active: false
-        sourceComponent: Component { ToolsMenuView { visible: false } }
+        source: "../widgets/tools/ToolsMenuView.qml"
+        onLoaded: {
+            if (item)
+                item.visible = false;
+        }
     }
 
     // Notification view component
@@ -245,6 +293,7 @@ Item {
 
             // Opacity animation
             opacity: root.reveal ? 1 : 0
+            visible: root.reveal || root.notchVisualHeld
             Behavior on opacity {
                 enabled: Config.animDuration > 0
                 NumberAnimation {
@@ -347,7 +396,7 @@ Item {
                 }
             }
 
-            layer.enabled: true
+            layer.enabled: visible && Config.theme.shadowOpacity > 0
             layer.effect: Shadow {}
 
             property bool popupHovered: false
@@ -431,6 +480,8 @@ Item {
             notchContainer.isShowingDefault = true;
             notchContainer.isShowingNotifications = false;
         }
+        unloadHiddenPanelsTimer.interval = Math.max(50, Config.animDuration || 0);
+        unloadHiddenPanelsTimer.restart();
     }
 
     // Listen for dashboard and powermenu state changes

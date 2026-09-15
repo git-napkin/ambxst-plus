@@ -129,22 +129,29 @@ class LockscreenWallpaperGenerator:
                 out = os.path.join(os.path.dirname(out), "./" + os.path.basename(out))
             cmd = [
                 "ffmpeg",
+                "-hide_banner",
+                "-loglevel",
+                "error",
                 "-y",
+                "-ss",
+                "00:00:01",
                 "-i",
                 wp,
-                "-vframes",
-                "1",  # Extract only first frame
+                "-an",
+                "-frames:v",
+                "1",
                 "-q:v",
-                "2",  # High quality
+                "2",
                 "-f",
-                "image2",  # Force image format
+                "image2",
                 out,
             ]
 
             print(f"⚡ Extracting first frame...")
 
-            # Run FFmpeg
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+            result = subprocess.run(
+                cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=30
+            )
 
             if result.returncode == 0 and output_path.exists():
                 print(f"✅ Frame saved: {output_path.name}")
@@ -172,11 +179,20 @@ class LockscreenWallpaperGenerator:
             ext = self.current_wallpaper.suffix.lower()
             print(f"ℹ️  Wallpaper is a regular image ({ext})")
             print("ℹ️  No processing needed - use wallpaper directly")
-            # Clean stale video cache so lockscreen doesn't show old frame
             self.clean_lockscreen_dir()
             return 0
 
-        # Clean existing files
+        output_path = self.get_output_path()
+        try:
+            if (
+                output_path.exists()
+                and output_path.stat().st_mtime >= self.current_wallpaper.stat().st_mtime
+            ):
+                print("✓ Using cached lockscreen frame")
+                return 0
+        except OSError:
+            pass
+
         self.clean_lockscreen_dir()
 
         # Extract first frame

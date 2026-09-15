@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor
 import urllib.error
 import urllib.request
 
@@ -168,8 +169,29 @@ def _append_manuals(models, provider, items, endpoint, custom_name=""):
     return out
 
 
+def _safe_models(fn):
+    try:
+        return fn() or []
+    except (urllib.error.URLError, ValueError, TimeoutError):
+        return []
+
+
+def _run_jobs(jobs):
+    if not jobs:
+        return []
+    if len(jobs) == 1:
+        return _safe_models(jobs[0])
+    out = []
+    with ThreadPoolExecutor(max_workers=min(4, len(jobs))) as pool:
+        futs = [pool.submit(_safe_models, job) for job in jobs]
+        for fut in futs:
+            out.extend(fut.result() or [])
+    return out
+
+
 def list_models(ctx, custom_endpoint="", custom_models=None, custom_name="", ignore_catalog=None, manual_models=None):
     models = []
+    jobs = []
     ignore_catalog = ignore_catalog if ignore_catalog is not None else getattr(ctx, "ignore_catalog", None) or {}
     manual_models = manual_models if manual_models is not None else getattr(ctx, "manual_models", None) or {}
     if not _catalog_ignored(ignore_catalog, "gemini"):
@@ -178,15 +200,17 @@ def list_models(ctx, custom_endpoint="", custom_models=None, custom_name="", ign
             gemini = entry.get("api_key") or ""
             if not gemini:
                 continue
-            try:
+
+            def _gemini(entry=entry, i=i, total=len(gemini_entries), gemini=gemini):
                 data = _get("https://generativelanguage.googleapis.com/v1beta/models?key=%s" % gemini)
+                out = []
                 for item in data.get("models") or []:
                     mid = (item.get("name") or "").replace("models/", "")
                     if "gemini" in mid or "flash" in mid or "pro" in mid:
                         display = item.get("displayName") or mid
-                        models.append(
+                        out.append(
                             {
-                                "name": _named(display, entry, i, len(gemini_entries)),
+                                "name": _named(display, entry, i, total),
                                 "model": mid,
                                 "provider": "gemini",
                                 "endpoint": PROVIDER_ENDPOINTS["gemini"],
@@ -195,8 +219,9 @@ def list_models(ctx, custom_endpoint="", custom_models=None, custom_name="", ign
                                 "key_id": _key_id("gemini", entry),
                             }
                         )
-            except (urllib.error.URLError, ValueError, TimeoutError):
-                pass
+                return out
+
+            jobs.append(_gemini)
     for provider, prefixes in OPENAI_COMPAT.items():
         if _catalog_ignored(ignore_catalog, provider):
             continue
@@ -210,37 +235,36 @@ def list_models(ctx, custom_endpoint="", custom_models=None, custom_name="", ign
             key = entry.get("api_key") or ""
             if not key:
                 continue
-            try:
-                models.extend(
-                    _openai_style(
-                        provider,
-                        url,
-                        key,
-                        prefixes,
-                        key_id=_key_id(provider, entry),
-                        name_fn=lambda display, e=entry, idx=i, n=total: _named(display, e, idx, n),
-                        endpoint=normalize_openai_base(base),
-                    )
+            jobs.append(
+                lambda provider=provider, url=url, key=key, prefixes=prefixes, entry=entry, i=i, total=total, base=base: _openai_style(
+                    provider,
+                    url,
+                    key,
+                    prefixes,
+                    key_id=_key_id(provider, entry),
+                    name_fn=lambda display, e=entry, idx=i, n=total: _named(display, e, idx, n),
+                    endpoint=normalize_openai_base(base),
                 )
-            except (urllib.error.URLError, ValueError, TimeoutError):
-                pass
+            )
     if not _catalog_ignored(ignore_catalog, "anthropic"):
         anthropic_entries = _key_entries(ctx, "anthropic")
         for i, entry in enumerate(anthropic_entries):
             anthropic = entry.get("api_key") or ""
             if not anthropic:
                 continue
-            try:
+
+            def _anthropic(entry=entry, i=i, total=len(anthropic_entries), anthropic=anthropic):
                 data = _get(
                     "https://api.anthropic.com/v1/models",
                     {"x-api-key": anthropic, "anthropic-version": "2023-06-01"},
                 )
+                out = []
                 for item in data.get("data") or []:
                     mid = item.get("id") or ""
                     display = _display_name(item, mid)
-                    models.append(
+                    out.append(
                         {
-                            "name": _named(display, entry, i, len(anthropic_entries)),
+                            "name": _named(display, entry, i, total),
                             "model": mid,
                             "provider": "anthropic",
                             "endpoint": PROVIDER_ENDPOINTS["anthropic"],
@@ -249,14 +273,16 @@ def list_models(ctx, custom_endpoint="", custom_models=None, custom_name="", ign
                             "key_id": _key_id("anthropic", entry),
                         }
                     )
-            except (urllib.error.URLError, ValueError, TimeoutError):
-                pass
+                return out
+
+            jobs.append(_anthropic)
     if not _catalog_ignored(ignore_catalog, "ollama") and _key_entries(ctx, "ollama"):
-        try:
+        def _ollama():
             data = _get("http://127.0.0.1:11434/api/tags")
+            out = []
             for item in data.get("models") or []:
                 mid = item.get("name") or ""
-                models.append(
+                out.append(
                     {
                         "name": _display_name(item, mid),
                         "model": mid,
@@ -267,35 +293,56 @@ def list_models(ctx, custom_endpoint="", custom_models=None, custom_name="", ign
                         "key_id": "ollama",
                     }
                 )
-        except (urllib.error.URLError, ValueError, TimeoutError):
-            pass
+            return out
+
+        jobs.append(_ollama)
     custom_entries = _key_entries(ctx, "custom")
     custom_base = normalize_openai_base(custom_endpoint, default="")
     custom_models_url = models_url(custom_base) if custom_base else ""
+    custom_fallbacks = []
     if custom_entries and custom_base and not _catalog_ignored(ignore_catalog, "custom"):
         total = len(custom_entries)
-        listed = False
         for i, entry in enumerate(custom_entries):
             key = entry.get("api_key") or ""
             if not key:
                 continue
             if custom_models_url:
-                try:
-                    models.extend(
-                        _openai_style(
-                            "custom",
-                            custom_models_url,
-                            key,
-                            None,
-                            key_id=_key_id("custom", entry),
-                            name_fn=lambda display, e=entry, idx=i, n=total: _named(display, e, idx, n),
-                            endpoint=custom_base,
-                        )
+                jobs.append(
+                    lambda url=custom_models_url, key=key, entry=entry, i=i, total=total, base=custom_base: _openai_style(
+                        "custom",
+                        url,
+                        key,
+                        None,
+                        key_id=_key_id("custom", entry),
+                        name_fn=lambda display, e=entry, idx=i, n=total: _named(display, e, idx, n),
+                        endpoint=base,
                     )
-                    listed = True
-                    continue
-                except (urllib.error.URLError, ValueError, TimeoutError):
-                    pass
+                )
+            else:
+                custom_fallbacks.append(
+                    {
+                        "name": _named("Custom", entry, i, total),
+                        "model": "custom",
+                        "provider": "custom",
+                        "endpoint": custom_base,
+                        "description": "Custom endpoint",
+                        "requires_key": True,
+                        "key_id": _key_id("custom", entry),
+                    }
+                )
+    models.extend(_run_jobs(jobs))
+    if custom_fallbacks:
+        models.extend(custom_fallbacks)
+    elif (
+        custom_entries
+        and custom_base
+        and not _catalog_ignored(ignore_catalog, "custom")
+        and not any(m.get("provider") == "custom" for m in models)
+    ):
+        total = len(custom_entries)
+        for i, entry in enumerate(custom_entries):
+            if not (entry.get("api_key") or ""):
+                continue
             models.append(
                 {
                     "name": _named("Custom", entry, i, total),
@@ -307,9 +354,6 @@ def list_models(ctx, custom_endpoint="", custom_models=None, custom_name="", ign
                     "key_id": _key_id("custom", entry),
                 }
             )
-            listed = True
-        if not listed:
-            pass
     custom_endpoint_resolved = custom_base if custom_base else normalize_openai_base(custom_endpoint, default="")
     for provider, endpoint in PROVIDER_ENDPOINTS.items():
         models = _append_manuals(

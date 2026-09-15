@@ -212,6 +212,22 @@ Item {
         implicitWidth: workspaceColumnLayout.implicitWidth
         implicitHeight: workspaceColumnLayout.implicitHeight
 
+        TintedWallpaper {
+            id: sharedWorkspaceWallpaper
+            width: overviewRoot.workspaceImplicitWidth + overviewRoot.workspacePadding
+            height: overviewRoot.workspaceImplicitHeight + overviewRoot.workspacePadding
+            x: -width - 64
+            y: 0
+            radius: Styling.radius(2)
+            tintEnabled: GlobalStates.wallpaperManager ? GlobalStates.wallpaperManager.tintEnabled : false
+            source: {
+                if (!GlobalStates.wallpaperManager)
+                    return "";
+                const path = GlobalStates.wallpaperManager.getLockscreenFramePath(GlobalStates.wallpaperManager.currentWallpaper);
+                return path ? "file://" + path : "";
+            }
+        }
+
         ColumnLayout {
             id: workspaceColumnLayout
             anchors.centerIn: parent
@@ -243,20 +259,12 @@ Item {
                             border.color: hoveredWhileDragging ? hoveredBorderColor : "transparent"
                             clip: true
 
-                            // Wallpaper background for each workspace
-                            TintedWallpaper {
-                                id: workspaceWallpaper
+                            ShaderEffectSource {
                                 anchors.fill: parent
-                                radius: Styling.radius(2)
-                                tintEnabled: GlobalStates.wallpaperManager ? GlobalStates.wallpaperManager.tintEnabled : false
-
-                                property string lockscreenFramePath: {
-                                    if (!GlobalStates.wallpaperManager)
-                                        return "";
-                                    return GlobalStates.wallpaperManager.getLockscreenFramePath(GlobalStates.wallpaperManager.currentWallpaper);
-                                }
-
-                                source: lockscreenFramePath ? "file://" + lockscreenFramePath : ""
+                                sourceItem: sharedWorkspaceWallpaper
+                                hideSource: false
+                                live: true
+                                visible: sharedWorkspaceWallpaper.source !== ""
                             }
 
                             MouseArea {

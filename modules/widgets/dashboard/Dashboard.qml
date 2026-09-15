@@ -7,10 +7,6 @@ import qs.modules.components
 import qs.modules.globals
 import qs.modules.services
 import qs.modules.notch
-import qs.modules.widgets.dashboard.widgets
-import qs.modules.widgets.dashboard.controls
-import qs.modules.widgets.dashboard.wallpapers
-import qs.modules.widgets.dashboard.metrics
 import qs.config
 
 NotchAnimationBehavior {
@@ -34,11 +30,11 @@ NotchAnimationBehavior {
     implicitHeight: 430
 
     // Track which tabs have been loaded (for lazy loading)
-    property var loadedTabs: ({0: true}) // Tab 0 (widgets) loaded by default
+    property var loadedTabs: ({})
 
     // LRU Tab Management
-    property var lruAccessOrder: [0]  // Tracks access order: [0] means tab 0 is most recent
-    property var lruTabsLoaded: ({0: true})  // Reflects which tabs are actually loaded
+    property var lruAccessOrder: []
+    property var lruTabsLoaded: ({})
 
     // Update LRU on tab access
     function updateLRUAccess(tabIndex) {
@@ -55,15 +51,10 @@ NotchAnimationBehavior {
     // Determine which tabs should be loaded based on LRU and config
     function updateLoadedTabs() {
         let newLoadedTabs = {};
-        
-        // Always load tab 0 (WidgetsTab) to avoid "jumpy" opening
-        newLoadedTabs[0] = true;
-        
-        // Always load current tab
+
         newLoadedTabs[root.state.currentTab] = true;
 
         if (Config.performance.dashboardPersistTabs) {
-            // Load up to maxPersistentTabs most recent tabs
             const maxTabs = Math.max(1, Config.performance.dashboardMaxPersistentTabs);
             const startIdx = Math.max(0, lruAccessOrder.length - maxTabs);
             for (let i = startIdx; i < lruAccessOrder.length; i++) {
@@ -74,16 +65,14 @@ NotchAnimationBehavior {
         lruTabsLoaded = newLoadedTabs;
     }
 
-    // Check if a tab should be loaded
     function shouldTabBeLoaded(tabIndex) {
-        if (tabIndex === 0) return true; // Always load WidgetsTab (Tab 0)
+        if (root.state.currentTab === tabIndex)
+            return true;
 
-        if (Config.performance.dashboardPersistTabs) {
+        if (Config.performance.dashboardPersistTabs)
             return lruTabsLoaded[tabIndex] === true;
-        } else {
-            // Without persistence, only load current tab
-            return root.state.currentTab === tabIndex;
-        }
+
+        return false;
     }
 
     focus: true
@@ -398,6 +387,7 @@ NotchAnimationBehavior {
                 // Generic Tab Loader Component
                 component TabLoader : Loader {
                     anchors.fill: parent
+                    asynchronous: true
                     // Load based on LRU strategy or if currently active
                     active: root.shouldTabBeLoaded(index) || root.state.currentTab === index
                     
@@ -421,6 +411,9 @@ NotchAnimationBehavior {
 
                     // Forward focus
                     onLoaded: {
+                        if (item && item.leftPanelWidth !== undefined) {
+                            item.leftPanelWidth = Qt.binding(function () { return root.leftPanelWidth; });
+                        }
                         if (visible && item && item.focusSearchInput) {
                             focusUnifiedLauncherTimer.restart();
                         }
@@ -437,21 +430,21 @@ NotchAnimationBehavior {
                 // Tab 0: Unified Launcher
                 TabLoader {
                     property int index: 0
-                    sourceComponent: unifiedLauncherComponent
+                    source: "widgets/WidgetsTab.qml"
                     z: visible ? 1 : 0
                 }
 
                 // Tab 1: Wallpapers
                 TabLoader {
                     property int index: 1
-                    sourceComponent: wallpapersComponent
+                    source: "wallpapers/WallpapersTab.qml"
                     z: visible ? 1 : 0
                 }
 
                 // Tab 2: Metrics
                 TabLoader {
                     property int index: 2
-                    sourceComponent: metricsComponent
+                    source: "metrics/MetricsTab.qml"
                     z: visible ? 1 : 0
                 }
                 
@@ -565,23 +558,5 @@ NotchAnimationBehavior {
             duration: Config.animDuration
             easing.type: Styling.animEasing
         }
-    }
-
-    // Component definitions for better performance (defined once, reused)
-    Component {
-        id: unifiedLauncherComponent
-        WidgetsTab {
-            leftPanelWidth: root.leftPanelWidth
-        }
-    }
-
-    Component {
-        id: metricsComponent
-        MetricsTab {}
-    }
-
-    Component {
-        id: wallpapersComponent
-        WallpapersTab {}
     }
 }

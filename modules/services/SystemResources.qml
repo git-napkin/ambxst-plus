@@ -92,6 +92,7 @@ Singleton {
 
         stdout: SplitParser {
             onRead: data => {
+                Qt.callLater(() => {
                 try {
                     const stats = JSON.parse(data);
 
@@ -129,6 +130,7 @@ Singleton {
                 } catch (e) {
                     console.warn("SystemResources: Failed to parse monitor data: " + e);
                 }
+                });
             }
         }
     }

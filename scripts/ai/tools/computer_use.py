@@ -228,10 +228,7 @@ def _a11y_followup(ctx, node=None):
     if node:
         payload["element"] = atspi.slim_node(node)
         payload["element_index"] = node.get("index")
-    try:
-        focused = atspi.focused_element(max_nodes=120, max_depth=10)
-    except Exception:
-        focused = None
+    focused = atspi.focused_from_nodes(getattr(ctx, "computer_use_nodes", None) or [])
     if focused:
         payload["focused"] = focused
     return payload
@@ -429,12 +426,13 @@ class UseComputerTool(Tool):
         if action == "screenshot":
             return _capture(ctx, args, raise_window=args.get("raise_window"))
         if action == "snapshot":
-            windows = _slim_windows(_window_list(ctx))
+            windows_raw = _window_list(ctx)
+            windows = _slim_windows(windows_raw)
             win = None
             if args.get("address") or args.get("pid") or args.get("title") or args.get("class"):
-                win = cu_windows.resolve_window(_window_list(ctx), args)
-            elif windows:
-                win = next((w for w in _window_list(ctx) if w.get("focused") or w.get("is_focused")), None)
+                win = cu_windows.resolve_window(windows_raw, args)
+            elif windows_raw:
+                win = next((w for w in windows_raw if w.get("focused") or w.get("is_focused")), None)
             tree = []
             tree_error = ""
             try:
@@ -448,11 +446,7 @@ class UseComputerTool(Tool):
             except Exception as exc:
                 tree_error = str(exc)
                 ctx.computer_use_nodes = []
-            focused = None
-            try:
-                focused = atspi.focused_element(max_nodes=200, max_depth=12)
-            except Exception:
-                focused = None
+            focused = atspi.focused_from_nodes(tree)
             usable = atspi.tree_usable(tree)
             out = _ok(
                 {

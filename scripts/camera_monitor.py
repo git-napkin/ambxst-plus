@@ -38,52 +38,69 @@ def _camera_name(node):
 def _list_cameras():
     cameras = []
     try:
-        for entry in sorted(os.listdir("/dev")):
-            if not entry.startswith("video"):
-                continue
-            node = os.path.join("/dev", entry)
+        with os.scandir("/dev") as it:
+            entries = sorted(e.name for e in it if e.name.startswith("video"))
+    except OSError:
+        return cameras
+    for entry in entries:
+        node = os.path.join("/dev", entry)
+        try:
             if not os.path.exists(node):
                 continue
-            cameras.append({"name": _camera_name(node), "node": node})
-    except OSError:
-        pass
+        except OSError:
+            continue
+        cameras.append({"name": _camera_name(node), "node": node})
     return cameras
+
+
+def _camera_nodes(cameras):
+    nodes = set()
+    for cam in cameras:
+        node = cam.get("node") or ""
+        if node:
+            nodes.add(node)
+        try:
+            nodes.add(os.path.realpath(node))
+        except OSError:
+            pass
+    return nodes
 
 
 def _open_camera_users(cameras):
     if not cameras:
         return []
-    dev_numbers = set()
-    for cam in cameras:
-        try:
-            dev_numbers.add(os.stat(cam["node"]).st_rdev)
-        except OSError:
-            continue
-    if not dev_numbers:
+    nodes = _camera_nodes(cameras)
+    if not nodes:
         return []
 
     users = []
     try:
-        entries = os.listdir("/proc")
+        proc_iter = os.scandir("/proc")
     except OSError:
         return users
 
-    for entry in entries:
-        if not entry.isdigit():
-            continue
-        fd_dir = os.path.join("/proc", entry, "fd")
-        try:
-            fds = os.listdir(fd_dir)
-        except OSError:
-            continue
-        for fd in fds:
+    with proc_iter:
+        for entry in proc_iter:
+            if not entry.name.isdigit():
+                continue
+            fd_dir = os.path.join(entry.path, "fd")
             try:
-                st = os.stat(os.path.join(fd_dir, fd))
+                fds = os.scandir(fd_dir)
             except OSError:
                 continue
-            if st.st_rdev in dev_numbers:
-                users.append(entry)
-                break
+            matched = False
+            with fds:
+                for fd in fds:
+                    try:
+                        target = os.readlink(fd.path)
+                    except OSError:
+                        continue
+                    if target in nodes or target.startswith("/dev/video"):
+                        users.append(entry.name)
+                        matched = True
+                        break
+            if matched:
+                continue
     return users
 
 

@@ -44,7 +44,7 @@ Item {
         width: root.width + (isHorizontal ? 0 : cornerSize)
         height: root.height + (isHorizontal ? cornerSize : 0)
 
-        layer.enabled: true
+        layer.enabled: root.cornersVisible
         layer.effect: MultiEffect {
             maskEnabled: true
             maskSource: barMask
@@ -67,7 +67,7 @@ Item {
         y: barBackground.y
         width: barBackground.width
         height: barBackground.height
-        layer.enabled: true
+        layer.enabled: root.cornersVisible
         layer.smooth: true
 
         // Rectangulo central (la bar misma)

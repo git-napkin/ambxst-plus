@@ -136,8 +136,7 @@ Singleton {
 
 
     
-    readonly property list<DesktopEntry> list: Array.from(DesktopEntries.applications.values)
-        .sort((a, b) => a.name.localeCompare(b.name))
+    readonly property var list: Array.from(DesktopEntries.applications.values)
     
     // Index structure: [{ name: "lower", command: "lower", keywords: ["lower"], original: appObject }, ...]
     property var searchIndex: []
@@ -167,14 +166,8 @@ Singleton {
 
     onListChanged: {
         allAppsCache = null;
-        buildIndex();
+        searchIndex = [];
     }
-    
-    Component.onCompleted: {
-        buildIndex();
-        // Pre-build cache in background if possible, or just wait for first access
-    }
-    
 
     function launchApp(app) {
         const path = app.fileName || app.path || app.filePath;
