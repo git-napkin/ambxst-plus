@@ -19,6 +19,11 @@ import qs.modules.lockscreen
 import qs.modules.dock
 import qs.modules.globals
 import qs.modules.shell
+// Sidebar + assistant modules must be registered in the shell tree so the
+// deferred Loader.source overlays can import them. Instantiation stays lazy
+// (Loader.active); only the module URI is registered at startup.
+import qs.modules.sidebar
+import qs.modules.widgets.assistant
 import qs.config
 
 ShellRoot {

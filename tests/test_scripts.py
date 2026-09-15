@@ -337,7 +337,11 @@ class TestJustWorksContracts(unittest.TestCase):
 
     def test_shell_defers_heavy_overlays(self):
         shell = self._read("shell.qml")
-        self.assertNotIn("import qs.modules.widgets.assistant", shell)
+        # Assistant module URI is registered at shell scope so URL-loaded
+        # AssistantPopup can resolve sibling types; the PanelWindow itself
+        # stays behind Loader.active + Loader.source (not sourceComponent).
+        self.assertIn("import qs.modules.widgets.assistant", shell)
+        self.assertIn("import qs.modules.sidebar", shell)
         self.assertNotIn("import qs.modules.widgets.overview", shell)
         self.assertNotIn("sourceComponent: AssistantPopup", shell)
         self.assertIn("modules/widgets/assistant/AssistantPopup.qml", shell)

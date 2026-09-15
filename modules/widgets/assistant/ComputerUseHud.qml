@@ -7,7 +7,7 @@ import qs.modules.theme
 import qs.modules.services
 import qs.modules.components
 import qs.config
-import "."
+import qs.modules.widgets.assistant
 
 PanelWindow {
     id: hud

@@ -8,8 +8,8 @@ import qs.modules.theme
 import qs.modules.services
 import qs.modules.components
 import qs.modules.sidebar
+import qs.modules.widgets.assistant
 import qs.config
-import "."
 
 PanelWindow {
     id: assistantPopup
@@ -26,13 +26,6 @@ PanelWindow {
     WlrLayershell.layer: WlrLayer.Overlay
     WlrLayershell.namespace: "ambxst+:assistant"
     WlrLayershell.keyboardFocus: assistantOpen && !ComputerUse.sessionActive ? WlrKeyboardFocus.Exclusive : WlrKeyboardFocus.None
-
-    Keys.enabled: assistantOpen && !ComputerUse.sessionActive
-    Keys.priority: Keys.BeforeItem
-    Keys.onPressed: event => {
-        if (AxctlService.forwardBoundKey(event))
-            event.accepted = true;
-    }
 
     readonly property var screenVisibilities: Visibilities.getForScreen(screen.name)
     readonly property bool assistantOpen: screenVisibilities ? screenVisibilities.assistant : false
@@ -103,6 +96,14 @@ PanelWindow {
 
     Item {
         id: mainContainer
+        focus: assistantOpen && !ComputerUse.sessionActive
+        // PanelWindow is not an Item — Keys must live on a child Item.
+        Keys.enabled: assistantOpen && !ComputerUse.sessionActive
+        Keys.priority: Keys.BeforeItem
+        Keys.onPressed: event => {
+            if (AxctlService.forwardBoundKey(event))
+                event.accepted = true;
+        }
         width: assistantPopup.overlayWidth
         height: bar.height + body.height + assistantPopup.stackGap
         x: {
