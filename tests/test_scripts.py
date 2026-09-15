@@ -1254,6 +1254,12 @@ class TestComputerUse(unittest.TestCase):
         self.assertFalse(agent.computer_use_approved)
         self.assertEqual(agent.computer_use_nodes, [])
 
+        agent.computer_use_approved = True
+        agent.ctx.computer_use_approved = True
+        agent.handle_command({"cmd": "cancel"})
+        self.assertFalse(agent.computer_use_approved)
+        self.assertFalse(agent.ctx.computer_use_approved)
+
     def test_preview_to_logical_per_monitor(self):
         from ai.computer_use.coords import preview_to_logical
 

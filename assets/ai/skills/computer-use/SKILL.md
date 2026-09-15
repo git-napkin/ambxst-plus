@@ -20,7 +20,7 @@ For web prices or page text, prefer `exa_search` / `run_shell_command` (curl) ov
 
 ## HUD
 
-The user sees a bottom-right response card while computer use is active. A separate steer box may appear when they type; both are hidden for captures and must not be clicked or typed into. Steer text is not typed into apps.
+The user sees a bottom-right response card while computer use is active. A separate steer box may appear when they type; both are hidden for captures and must not be clicked or typed into. Steer text is not typed into apps. The desktop grab ends when you finish the turn — do not keep using the mouse after that; call `request_computer_use` again if you need another pass.
 
 ## Targeting
 

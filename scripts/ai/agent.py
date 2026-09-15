@@ -230,6 +230,7 @@ class Agent:
                 pass
             for pending in list(self.pending.values()):
                 pending.resolve("cancel")
+            self._clear_computer_use()
             self.emit({"type": "cancelled"})
             return
         if cmd == "approve":
@@ -339,6 +340,8 @@ class Agent:
         try:
             self._run_turn()
         except Exception as exc:
+            if self.computer_use_approved:
+                self._clear_computer_use()
             self.emit({"type": "error", "error": str(exc)})
 
     def _max_tool_iters(self):
@@ -353,6 +356,7 @@ class Agent:
         endpoint = self.ctx.custom_endpoint or self.model.get("endpoint") or ""
         for _ in range(self._max_tool_iters()):
             if self.cancel_event.is_set():
+                self._clear_computer_use()
                 self.emit({"type": "cancelled"})
                 return
             assistant_text = []
@@ -367,6 +371,7 @@ class Agent:
                 endpoint=endpoint,
             ):
                 if self.cancel_event.is_set():
+                    self._clear_computer_use()
                     self.emit({"type": "cancelled"})
                     return
                 if event.get("type") == "token":
@@ -375,11 +380,15 @@ class Agent:
                 elif event.get("type") == "tool_call":
                     tool_calls.append(event)
                 elif event.get("type") == "error":
+                    if self.computer_use_approved:
+                        self._clear_computer_use()
                     self.emit(event)
                     return
             if not tool_calls:
                 if assistant_text:
                     self.messages.append({"role": "assistant", "content": "".join(assistant_text)})
+                if self.computer_use_approved:
+                    self._clear_computer_use()
                 self.emit({"type": "done"})
                 return
             openai_calls = []

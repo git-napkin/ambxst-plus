@@ -12,39 +12,37 @@ import "."
 PanelWindow {
     id: hud
 
-    implicitWidth: hudRoot.width
-    implicitHeight: hudRoot.height
-    color: "transparent"
-    visible: ComputerUse.sessionActive && !ComputerUse.hudHiddenForCapture
-    exclusionMode: ExclusionMode.Ignore
-
     anchors {
-        right: true
+        top: true
         bottom: true
+        left: true
+        right: true
     }
-    margins {
-        right: ComputerUse.insetRight
-        bottom: ComputerUse.insetBottom
-    }
+    color: "transparent"
+    visible: ComputerUse.sessionActive
+    exclusionMode: ExclusionMode.Ignore
+    focus: true
 
     WlrLayershell.layer: WlrLayer.Overlay
     WlrLayershell.namespace: "ambxst+:computer-use"
     WlrLayershell.keyboardFocus: {
         if (!ComputerUse.sessionActive)
             return WlrKeyboardFocus.None;
-        if (ComputerUse.userHasControl || ComputerUse.hudHiddenForCapture || ComputerUse.injectingInput)
+        if (ComputerUse.userHasControl || ComputerUse.injectingInput)
             return WlrKeyboardFocus.None;
         return WlrKeyboardFocus.Exclusive;
     }
 
     mask: Region {
-        item: hud.clickThrough ? emptyMask : hudRoot
+        item: hud.clickThrough ? grabPixel : hudAnchor
     }
 
     Item {
-        id: emptyMask
-        width: 0
-        height: 0
+        id: grabPixel
+        width: 1
+        height: 1
+        anchors.right: parent.right
+        anchors.bottom: parent.bottom
     }
 
     readonly property int minWidth: 280
@@ -91,7 +89,22 @@ PanelWindow {
             event.accepted = true;
             return;
         }
+        if (event.key === Qt.Key_Escape) {
+            ComputerUse.handleEscape();
+            event.accepted = true;
+            return;
+        }
         hud.handleUserKey(event);
+    }
+
+    function claimKeys() {
+        if (!ComputerUse.sessionActive || ComputerUse.userHasControl || ComputerUse.injectingInput)
+            return;
+        if (hud.requestActivate)
+            hud.requestActivate();
+        hud.forceActiveFocus();
+        if (ComputerUse.steerOpen)
+            Qt.callLater(() => steerInput.focusInput());
     }
 
     function openSteer(ch) {
@@ -107,34 +120,11 @@ PanelWindow {
         ComputerUse.composerFocused = false;
         steerInput.blurInput();
         steerInput.clear();
-    }
-
-    function armEscExit() {
-        ComputerUse.escArmed = true;
-        escArmTimer.restart();
-    }
-
-    function handleEscape() {
-        if (Ai.approvalPending) {
-            Ai.rejectPendingApproval();
-            return;
-        }
-        if (ComputerUse.steerOpen) {
-            hud.closeSteer();
-            hud.armEscExit();
-            return;
-        }
-        if (ComputerUse.escArmed) {
-            ComputerUse.escArmed = false;
-            escArmTimer.stop();
-            Ai.stopComputerUse();
-            return;
-        }
-        hud.armEscExit();
+        hud.claimKeys();
     }
 
     function handleUserKey(event) {
-        if (ComputerUse.steerOpen || ComputerUse.userHasControl || ComputerUse.hudHiddenForCapture || ComputerUse.injectingInput)
+        if (ComputerUse.steerOpen || ComputerUse.userHasControl || ComputerUse.injectingInput)
             return;
         if (Ai.approvalPending)
             return;
@@ -209,13 +199,6 @@ PanelWindow {
         }
     }
 
-    Timer {
-        id: escArmTimer
-        interval: 1500
-        repeat: false
-        onTriggered: ComputerUse.escArmed = false
-    }
-
     Connections {
         target: Ai
         function onLastHudActivityAtChanged() {
@@ -238,18 +221,31 @@ PanelWindow {
         function onSessionActiveChanged() {
             if (!ComputerUse.sessionActive)
                 hud.closeSteer();
+            else
+                hud.claimKeys();
             hud.refreshPresence();
         }
         function onUserHasControlChanged() {
             if (ComputerUse.userHasControl)
                 hud.closeSteer();
+            else
+                hud.claimKeys();
             hud.refreshPresence();
         }
         function onHudCollapsedChanged() {
             hud.refreshPresence();
         }
+        function onInjectingInputChanged() {
+            if (!ComputerUse.injectingInput)
+                hud.claimKeys();
+        }
         function onSteerOpenChanged() {
             ComputerUse.composerFocused = ComputerUse.steerOpen;
+            if (!ComputerUse.steerOpen) {
+                steerInput.blurInput();
+                steerInput.clear();
+                hud.claimKeys();
+            }
         }
     }
 
@@ -260,21 +256,34 @@ PanelWindow {
         when: ComputerUse.sessionActive
     }
 
+    Component.onCompleted: hud.claimKeys()
+    onVisibleChanged: if (visible)
+        hud.claimKeys()
+
     Item {
-        id: hudRoot
-        width: Math.round(Math.min(hud.maxWidth, Math.max(hud.minWidth, ComputerUse.hudWidth)))
-        height: {
-            let h = 0;
-            if (hud.showChip && !hud.cardVisible)
-                h += chip.height;
-            if (hud.cardVisible)
-                h += card.height;
-            if (ComputerUse.steerOpen && !ComputerUse.userHasControl)
-                h += (h > 0 ? 8 : 0) + steerBox.height;
-            return Math.max(h, 1);
-        }
-        opacity: (hud.cardVisible || hud.showChip || ComputerUse.steerOpen) ? 1 : 0
-        y: (hud.cardVisible || hud.showChip || ComputerUse.steerOpen) ? 0 : 12
+        id: hudAnchor
+        anchors.right: parent.right
+        anchors.bottom: parent.bottom
+        anchors.rightMargin: ComputerUse.insetRight
+        anchors.bottomMargin: ComputerUse.insetBottom
+        width: hudRoot.width
+        height: hudRoot.height
+
+        Item {
+            id: hudRoot
+            width: Math.round(Math.min(hud.maxWidth, Math.max(hud.minWidth, ComputerUse.hudWidth)))
+            height: {
+                let h = 0;
+                if (hud.showChip && !hud.cardVisible)
+                    h += chip.height;
+                if (hud.cardVisible)
+                    h += card.height;
+                if (ComputerUse.steerOpen && !ComputerUse.userHasControl)
+                    h += (h > 0 ? 8 : 0) + steerBox.height;
+                return Math.max(h, 1);
+            }
+            opacity: !ComputerUse.hudHiddenForCapture && (hud.cardVisible || hud.showChip || ComputerUse.steerOpen) ? 1 : 0
+            y: (hud.cardVisible || hud.showChip || ComputerUse.steerOpen) ? 0 : 12
 
         Behavior on opacity {
             enabled: Config.animDuration > 0
@@ -519,10 +528,11 @@ PanelWindow {
                     placeholderText: qsTr("Steer the agent…")
                     clearOnEscape: false
                     onAccepted: hud.submitSteer()
-                    onEscapePressed: hud.handleEscape()
+                    onEscapePressed: ComputerUse.handleEscape()
                 }
             }
         }
+    }
     }
 
     Shortcut {
@@ -534,11 +544,6 @@ PanelWindow {
         sequence: "Enter"
         enabled: ComputerUse.sessionState === "approvalWait"
         onActivated: Ai.approvePendingApproval()
-    }
-    Shortcut {
-        sequence: "Escape"
-        enabled: ComputerUse.sessionActive && !ComputerUse.userHasControl && !ComputerUse.injectingInput && !ComputerUse.steerOpen
-        onActivated: hud.handleEscape()
     }
 
     component HudIconButton: Item {

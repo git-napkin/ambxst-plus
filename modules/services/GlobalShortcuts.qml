@@ -120,6 +120,8 @@ QtObject {
             case "dashboard": superChord(); toggleDashboardTab(0); break;
             case "wallpapers": superChord(); toggleDashboardTab(1); break;
             case "assistant": superChord(); toggleAssistant(); break;
+            case "cu-stop": superChord(); stopComputerUse(); break;
+            case "cu-escape": superChord(); ComputerUse.handleEscape(); break;
             case "dashboard-widgets": superChord(); toggleDashboardTab(0); break;
             case "dashboard-wallpapers": superChord(); toggleDashboardTab(1); break;
             case "dashboard-kanban": superChord(); toggleDashboardTab(2); break;
@@ -325,6 +327,9 @@ QtObject {
 
     function toggleAssistant() {
         GlobalStates.toggleAssistant();
+    }
+    function stopComputerUse() {
+        Ai.stopComputerUse();
     }
     function seekActivePlayer(offset) {
         const player = MprisController.activePlayer;

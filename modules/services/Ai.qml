@@ -52,10 +52,18 @@ Singleton {
                     ComputerUse.workUserIndex = root.lastUserIndex();
                 return;
             }
+            if (root.isLoading)
+                root.cancel();
             root.endComputerUseGrant();
         }
         function onSessionFinished(userIndex, durationMs) {
             Qt.callLater(() => root.collapseComputerUseWork(userIndex, durationMs));
+        }
+        function onStopRequested() {
+            root.stopComputerUse();
+        }
+        function onRejectRequested() {
+            root.rejectPendingApproval();
         }
     }
 
@@ -439,9 +447,12 @@ Singleton {
         writeCmd({ cmd: "end_computer_use" });
     }
 
+    function finishComputerUseSession() {
+        ComputerUse.end({ restoreSpotlight: true });
+    }
+
     function stopComputerUse() {
-        cancel();
-        endComputerUseGrant();
+        root.cancel();
         ComputerUse.end({ restoreSpotlight: true });
     }
 
@@ -718,16 +729,22 @@ Singleton {
                     next[next.length - 1] = Object.assign({}, next[next.length - 1], { streaming: false });
                 currentChat = next;
                 chatModelChanged();
+                if (ComputerUse.sessionActive)
+                    root.finishComputerUseSession();
             }
             break;
         case "cancelled":
             isLoading = false;
             chatModelChanged();
+            if (ComputerUse.sessionActive)
+                root.finishComputerUseSession();
             break;
         case "error":
             lastError = ev.error || "error";
             isLoading = false;
             pushSystemMessage("Error: " + lastError);
+            if (ComputerUse.sessionActive)
+                root.finishComputerUseSession();
             break;
         case "models":
             ingestModels(ev.models || []);

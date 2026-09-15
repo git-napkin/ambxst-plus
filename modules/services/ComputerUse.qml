@@ -28,8 +28,11 @@ Singleton {
     property bool steerOpen: false
     property bool escArmed: false
     property var _disabledMice: []
+    property string _devicesIntent: ""
 
     signal sessionFinished(var userIndex, var durationMs)
+    signal stopRequested
+    signal rejectRequested
 
     property var _actionCb: null
     property var _pendingCapture: null
@@ -244,6 +247,9 @@ Singleton {
         root.injectingInput = false;
         root.steerOpen = false;
         root.escArmed = false;
+        injectWatchdog.stop();
+        captureWatchdog.stop();
+        escArmTimer.stop();
         root.unlockPointer();
         if (restore && Visibilities.currentActiveModule !== "assistant")
             Visibilities.setActiveModule("assistant");
@@ -288,14 +294,38 @@ Singleton {
             root.sessionState = "agentDriving";
     }
 
+    function armEscExit() {
+        root.escArmed = true;
+        escArmTimer.restart();
+    }
+
+    function handleEscape() {
+        if (!root.sessionActive || root.userHasControl)
+            return;
+        if (root.sessionState === "approvalWait") {
+            root.rejectRequested();
+            return;
+        }
+        if (root.steerOpen) {
+            root.steerOpen = false;
+            root.composerFocused = false;
+            root.armEscExit();
+            return;
+        }
+        if (root.escArmed) {
+            root.escArmed = false;
+            escArmTimer.stop();
+            root.stopRequested();
+            return;
+        }
+        root.armEscExit();
+    }
+
     function gate(action, summary) {
         if (GlobalStates.lockscreenVisible)
             return { locked: true, error: "computer use is blocked while the session is locked" };
-        if (!root.sessionActive) {
-            const started = root.begin(summary || action || "");
-            if (started.error)
-                return started;
-        }
+        if (!root.sessionActive)
+            return { error: "computer use session is not active" };
         if (summary)
             root.lastAction = String(summary);
         else if (action)
@@ -321,10 +351,12 @@ Singleton {
             return root.gate((args && args.action) || "", (args && args.summary) || "");
         if (op === "inject_begin") {
             root.injectingInput = true;
+            injectWatchdog.restart();
             return { ok: true };
         }
         if (op === "inject_end") {
             root.injectingInput = false;
+            injectWatchdog.stop();
             return { ok: true };
         }
         return { error: "unknown computer_use_session op" };
@@ -333,20 +365,104 @@ Singleton {
     function lockPointer() {
         if (root.userHasControl)
             return;
+        root._devicesIntent = "lock";
+        root.restartDevicesProc();
+    }
+
+    function unlockPointer() {
+        root._devicesIntent = "unlock";
+        const names = root._disabledMice || [];
+        for (let i = 0; i < names.length; i++)
+            root.setPointerDeviceEnabled(names[i], true);
+        root.persistDisabledMice([]);
+        if (devicesProc.running)
+            devicesProc.running = false;
+    }
+
+    function recoverPointers() {
+        if (!recoverProc.running)
+            recoverProc.running = true;
+    }
+
+    function persistDisabledMice(names) {
+        root._disabledMice = names || [];
+        const path = (Quickshell.env("XDG_RUNTIME_DIR") || "/tmp") + "/ambxst+_cu_pointers";
+        if (!root._disabledMice.length) {
+            Quickshell.execDetached(["rm", "-f", path]);
+            return;
+        }
+        Quickshell.execDetached(["sh", "-c", "umask 077; printf %s " + root.shellQuote(root._disabledMice.join("\n") + "\n") + " > " + root.shellQuote(path)]);
+    }
+
+    function shellQuote(value) {
+        return "'" + String(value || "").replace(/'/g, "'\\''") + "'";
+    }
+
+    function restartDevicesProc() {
         if (devicesProc.running)
             devicesProc.running = false;
         devicesProc.running = true;
     }
 
-    function unlockPointer() {
-        const names = root._disabledMice || [];
-        for (let i = 0; i < names.length; i++)
-            root.setPointerDeviceEnabled(names[i], true);
-        root._disabledMice = [];
-    }
-
     function isVirtualPointerName(name) {
         return /ydotool|ydotoold|virtual|uinput/i.test(String(name || ""));
+    }
+
+    function isKeyboardDeviceName(name) {
+        return /keyboard|\bkbd\b/.test(String(name || "").toLowerCase());
+    }
+
+    function sharesKeyboardName(name, keyboardNames) {
+        const n = String(name || "").toLowerCase();
+        if (!n)
+            return false;
+        const list = keyboardNames || [];
+        for (let i = 0; i < list.length; i++) {
+            const k = String(list[i] || "").toLowerCase();
+            if (!k || root.isVirtualPointerName(k))
+                continue;
+            if (n === k || n.indexOf(k) === 0)
+                return true;
+        }
+        return false;
+    }
+
+    function shouldDisablePointer(name, keyboardNames) {
+        if (!name || root.isVirtualPointerName(name))
+            return false;
+        if (root.isKeyboardDeviceName(name))
+            return false;
+        if (root.sharesKeyboardName(name, keyboardNames))
+            return false;
+        return true;
+    }
+
+    function pointerNamesFromDevices(data) {
+        const groups = [(data && data.mice) || [], (data && data.touchpads) || [], (data && data.touch) || [], (data && data.tablets) || []];
+        const names = [];
+        const seen = {};
+        for (let g = 0; g < groups.length; g++) {
+            const list = groups[g] || [];
+            for (let i = 0; i < list.length; i++) {
+                const name = String(list[i].name || "").trim();
+                if (!name || seen[name] || root.isVirtualPointerName(name))
+                    continue;
+                seen[name] = true;
+                names.push(name);
+            }
+        }
+        return names;
+    }
+
+    function keyboardNamesFromDevices(data) {
+        const list = (data && data.keyboards) || [];
+        const names = [];
+        for (let i = 0; i < list.length; i++) {
+            const name = String(list[i].name || "").trim();
+            if (name)
+                names.push(name);
+        }
+        return names;
     }
 
     function handleAction(args, cb) {
@@ -517,7 +633,10 @@ Singleton {
         running: false
     }
 
-    Component.onCompleted: root.ensureAtSpi()
+    Component.onCompleted: {
+        root.recoverPointers();
+        root.ensureAtSpi();
+    }
 
     Process {
         id: devicesProc
@@ -526,29 +645,46 @@ Singleton {
         stdout: StdioCollector {}
         onExited: () => {
             Qt.callLater(() => {
-                if (root.userHasControl || !root.sessionActive)
-                    return;
                 let data = {};
                 try {
                     data = JSON.parse((devicesProc.stdout && devicesProc.stdout.text) || "{}");
                 } catch (e) {
                     return;
                 }
-                const groups = [data.mice, data.touchpads, data.touch, data.tablets];
-                const names = [];
-                const seen = {};
-                for (let g = 0; g < groups.length; g++) {
-                    const list = groups[g] || [];
-                    for (let i = 0; i < list.length; i++) {
-                        const name = String(list[i].name || "").trim();
-                        if (!name || seen[name] || root.isVirtualPointerName(name))
+                const pointers = root.pointerNamesFromDevices(data);
+                const keyboards = root.keyboardNamesFromDevices(data);
+                if (root._devicesIntent === "lock") {
+                    if (root.userHasControl || !root.sessionActive)
+                        return;
+                    const names = [];
+                    for (let i = 0; i < pointers.length; i++) {
+                        const name = pointers[i];
+                        if (!root.shouldDisablePointer(name, keyboards))
                             continue;
-                        seen[name] = true;
                         names.push(name);
                         root.setPointerDeviceEnabled(name, false);
                     }
+                    root.persistDisabledMice(names);
+                    return;
                 }
-                root._disabledMice = names;
+            });
+        }
+    }
+
+    Process {
+        id: recoverProc
+        running: false
+        command: ["sh", "-c", "p=\"${XDG_RUNTIME_DIR:-/tmp}/ambxst+_cu_pointers\"; if [ -f \"$p\" ]; then cat \"$p\"; rm -f \"$p\"; fi"]
+        stdout: StdioCollector {}
+        onExited: () => {
+            Qt.callLater(() => {
+                const text = (recoverProc.stdout && recoverProc.stdout.text) || "";
+                const names = text.split("\n");
+                for (let i = 0; i < names.length; i++) {
+                    const name = String(names[i] || "").trim();
+                    if (name)
+                        root.setPointerDeviceEnabled(name, true);
+                }
             });
         }
     }
@@ -623,6 +759,41 @@ Singleton {
             if (pending && pending.opts)
                 Screenshot.captureSilent(pending.opts);
         }
+    }
+
+    Timer {
+        id: injectWatchdog
+        interval: 15000
+        repeat: false
+        onTriggered: root.injectingInput = false
+    }
+
+    Timer {
+        id: captureWatchdog
+        interval: 8000
+        repeat: false
+        onTriggered: root.hudHiddenForCapture = false
+    }
+
+    Timer {
+        id: escArmTimer
+        interval: 1500
+        repeat: false
+        onTriggered: root.escArmed = false
+    }
+
+    onHudHiddenForCaptureChanged: {
+        if (root.hudHiddenForCapture)
+            captureWatchdog.restart();
+        else
+            captureWatchdog.stop();
+    }
+
+    onInjectingInputChanged: {
+        if (root.injectingInput)
+            injectWatchdog.restart();
+        else
+            injectWatchdog.stop();
     }
 
     Timer {

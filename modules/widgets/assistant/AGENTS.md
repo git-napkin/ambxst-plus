@@ -8,7 +8,7 @@ Spotlight-style AI overlay. Compact bar on the focused monitor; transcript grows
 | File | Role |
 |------|------|
 | `AssistantPopup.qml` | PanelWindow, Overlay, namespace `ambxst+:assistant`, FocusGrab, scrim |
-| `ComputerUseHud.qml` | HUD-sized PanelWindow, namespace `ambxst+:computer-use`; last assistant text via `AssistantMessage`; 3s auto-hide output card; type-to-open steer box (Esc once closes, Esc twice in 1.5s exits); Exclusive keys while the agent is driving, with compositor binds (workspace switch) replayed |
+| `ComputerUseHud.qml` | HUD-sized overlay on a fullscreen click-through PanelWindow, namespace `ambxst+:computer-use`; last assistant text via `AssistantMessage`; 3s auto-hide output card; type-to-open steer box (Esc once closes, Esc twice in 1.5s exits); Exclusive keys while the agent is driving, with compositor binds (workspace switch) replayed. Stays mapped during captures so Escape never goes nowhere. |
 | `AssistantBar.qml` | Search input, send/stop |
 | `AssistantIdleList.qml` | Saved commands, slash hints |
 | `AssistantTranscript.qml` | Message list |
@@ -38,7 +38,7 @@ CodeBlock and ModelSelectorPopup live in `modules/sidebar/` and are imported fro
 - Colors via `Colors.*`, radii via `Styling.popupRadius()`, no hardcoded hex
 - Hover/press: `Styling.hoverAlpha` / `pressAlpha`, icon buttons scale 0.96
 - Mutate `Ai.currentChat` from Process handlers only via `Qt.callLater`
-- Super+A and `ambxst+ run assistant` toggle `Visibilities` module `"assistant"`. During computer use the Spotlight scrim drops and `ComputerUseHud` takes over; Super+A still closes the session. Typing opens a separate steer box; Esc closes it, Esc twice within 1.5s stops computer use and restores Spotlight. Agent turns finishing do **not** end the session. The screen frame ring keeps the user's `srBg` opacity/halftone and tints it with `Config.theme.computerUseFrameColor1/2/3`.
+- Super+A and `ambxst+ run assistant` toggle `Visibilities` module `"assistant"`. During computer use the Spotlight scrim drops and `ComputerUseHud` takes over; Super+A still closes the session. Typing opens a separate steer box; Esc closes it, Esc twice within 1.5s stops computer use and restores Spotlight. The computer-use grab also ends when the agent turn finishes (`done`), errors, or is cancelled — do not leave mice/exclusive keyboard held after the agent is idle. Physical pointer devices are disabled while driving, but never devices whose name looks like a keyboard (Hyprland lists some keyboards under `mice`). The screen frame ring keeps the user's `srBg` opacity/halftone and tints it with `Config.theme.computerUseFrameColor1/2/3`.
 
 ## ANTI-PATTERNS
 
