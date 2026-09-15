@@ -56,7 +56,7 @@ Button {
         Rectangle {
             anchors.fill: parent
             color: parent.item || "transparent"
-            opacity: root.pressed ? 0.5 : (root.hovered ? 0.25 : 0)
+            opacity: root.pressed ? Styling.pressAlpha : (root.hovered ? Styling.hoverAlpha : 0)
             radius: parent.radius ?? 0
 
             Behavior on opacity {

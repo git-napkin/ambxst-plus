@@ -77,7 +77,7 @@ Item {
         Item {
             id: background
             width: parent.width
-            property int criticalMargins: (onlyNotification || expanded) && latestNotification && latestNotification.urgency == NotificationUrgency.Critical ? 16 : 0
+            property int criticalMargins: (onlyNotification || expanded) && latestNotification && latestNotification.urgencyLevel == NotificationUrgency.Critical ? 16 : 0
             implicitHeight: contentColumn.implicitHeight + (criticalMargins * 2)
             height: implicitHeight
             visible: root.isValid
@@ -99,7 +99,7 @@ Item {
             DiagonalStripePattern {
                 id: stripeContainer
                 anchors.fill: parent
-                visible: latestNotification && latestNotification.urgency == NotificationUrgency.Critical
+                visible: latestNotification && latestNotification.urgencyLevel == NotificationUrgency.Critical
                 radius: Styling.radius(4)
                 animationRunning: visible
             }
@@ -139,7 +139,7 @@ Item {
                             appIcon: latestNotification ? (latestNotification.cachedAppIcon || latestNotification.appIcon) : ""
                             image: latestNotification ? (latestNotification.cachedImage || latestNotification.image) : ""
                             summary: latestNotification ? latestNotification.summary : ""
-                            urgency: latestNotification ? latestNotification.urgency : NotificationUrgency.Normal
+                            urgency: latestNotification ? latestNotification.urgencyLevel : NotificationUrgency.Normal
                         }
 
                         // Textos de la notificación
@@ -174,8 +174,8 @@ Item {
                                         font.family: Config.theme.font
                                         font.pixelSize: Config.theme.fontSize
                                         font.weight: Font.Bold
-                                        font.underline: latestNotification && latestNotification.urgency == NotificationUrgency.Critical && onlyNotification
-                                        color: latestNotification && latestNotification.urgency == NotificationUrgency.Critical ? Colors.criticalText : Styling.srItem("overprimary")
+                                        font.underline: latestNotification && latestNotification.urgencyLevel == NotificationUrgency.Critical && onlyNotification
+                                        color: latestNotification && latestNotification.urgencyLevel == NotificationUrgency.Critical ? Colors.criticalText : Styling.srItem("overprimary")
                                         elide: Text.ElideRight
                                         maximumLineCount: 1
                                         wrapMode: Text.NoWrap
@@ -195,7 +195,7 @@ Item {
                                         font.family: Config.theme.font
                                         font.pixelSize: Styling.fontSize(-2)
                                         font.weight: Font.Bold
-                                        color: latestNotification && latestNotification.urgency == NotificationUrgency.Critical ? Colors.criticalText : Colors.outline
+                                        color: latestNotification && latestNotification.urgencyLevel == NotificationUrgency.Critical ? Colors.criticalText : Colors.outline
                                         elide: Text.ElideRight
                                         maximumLineCount: 1
                                         wrapMode: Text.NoWrap
@@ -211,7 +211,7 @@ Item {
                                     font.family: Config.theme.font
                                     font.pixelSize: Config.theme.fontSize
                                     font.weight: Font.Bold
-                                    color: latestNotification && latestNotification.urgency == NotificationUrgency.Critical ? Colors.criticalText : Colors.outline
+                                    color: latestNotification && latestNotification.urgencyLevel == NotificationUrgency.Critical ? Colors.criticalText : Colors.outline
                                     verticalAlignment: Text.AlignVCenter
                                     visible: text !== ""
                                     Layout.alignment: Qt.AlignVCenter
@@ -223,8 +223,8 @@ Item {
                                 text: latestNotification ? NotificationUtils.processNotificationBody(latestNotification.body, latestNotification.appName) : ""
                                 font.family: Config.theme.font
                                 font.pixelSize: Config.theme.fontSize
-                                font.weight: latestNotification && latestNotification.urgency == NotificationUrgency.Critical ? Font.Bold : Font.Normal
-                                color: latestNotification && latestNotification.urgency == NotificationUrgency.Critical ? Colors.criticalText : Colors.overBackground
+                                font.weight: latestNotification && latestNotification.urgencyLevel == NotificationUrgency.Critical ? Font.Bold : Font.Normal
+                                color: latestNotification && latestNotification.urgencyLevel == NotificationUrgency.Critical ? Colors.criticalText : Colors.overBackground
                                 wrapMode: onlyNotification ? Text.Wrap : Text.NoWrap
                                 maximumLineCount: onlyNotification ? 3 : 1
                                 elide: Text.ElideRight
@@ -241,7 +241,7 @@ Item {
 
                         NotificationDismissButton {
                             visibleWhen: onlyNotification
-                            urgency: latestNotification ? latestNotification.urgency : NotificationUrgency.Normal
+                            urgency: latestNotification ? latestNotification.urgencyLevel : NotificationUrgency.Normal
                             onClicked: root.destroyWithAnimation()
                         }
                     }
@@ -269,7 +269,7 @@ Item {
                             appIcon: latestNotification ? (latestNotification.cachedAppIcon || latestNotification.appIcon) : ""
                             image: latestNotification ? (latestNotification.cachedImage || latestNotification.image) : ""
                             summary: latestNotification ? latestNotification.summary : ""
-                            urgency: latestNotification ? latestNotification.urgency : NotificationUrgency.Normal
+                            urgency: latestNotification ? latestNotification.urgencyLevel : NotificationUrgency.Normal
                         }
 
                         Item {
@@ -297,8 +297,8 @@ Item {
                                             font.family: Config.theme.font
                                             font.pixelSize: Config.theme.fontSize
                                             font.weight: Font.Bold
-                                            font.underline: latestNotification && latestNotification.urgency == NotificationUrgency.Critical && expanded
-                                            color: latestNotification && latestNotification.urgency == NotificationUrgency.Critical ? Colors.criticalText : Styling.srItem("overprimary")
+                                            font.underline: latestNotification && latestNotification.urgencyLevel == NotificationUrgency.Critical && expanded
+                                            color: latestNotification && latestNotification.urgencyLevel == NotificationUrgency.Critical ? Colors.criticalText : Styling.srItem("overprimary")
                                             elide: Text.ElideRight
                                         }
 
@@ -307,7 +307,7 @@ Item {
                                             font.family: Config.theme.font
                                             font.pixelSize: Config.theme.fontSize
                                             font.weight: Font.Bold
-                                            color: latestNotification && latestNotification.urgency == NotificationUrgency.Critical ? Colors.criticalText : Colors.outline
+                                            color: latestNotification && latestNotification.urgencyLevel == NotificationUrgency.Critical ? Colors.criticalText : Colors.outline
                                             visible: text !== ""
                                             Layout.alignment: Qt.AlignRight | Qt.AlignVCenter
                                         }
@@ -326,8 +326,8 @@ Item {
                                                 text: NotificationUtils.processNotificationBody(modelData.body || "", modelData.appName)
                                                 font.family: Config.theme.font
                                                 font.pixelSize: root.fontSize
-                                                font.weight: modelData.urgency == NotificationUrgency.Critical ? Font.Bold : Font.Normal
-                                                color: modelData.urgency == NotificationUrgency.Critical ? Colors.criticalText : Colors.overBackground
+                                                font.weight: modelData.urgencyLevel == NotificationUrgency.Critical ? Font.Bold : Font.Normal
+                                                color: modelData.urgencyLevel == NotificationUrgency.Critical ? Colors.criticalText : Colors.overBackground
                                                 wrapMode: Text.Wrap
                                                 maximumLineCount: 3
                                                 elide: Text.ElideRight
@@ -350,7 +350,7 @@ Item {
                                     font.family: Config.theme.font
                                     font.pixelSize: Config.theme.fontSize
                                     font.weight: Font.Bold
-                                    color: latestNotification && latestNotification.urgency == NotificationUrgency.Critical ? Colors.criticalText : Styling.srItem("overprimary")
+                                    color: latestNotification && latestNotification.urgencyLevel == NotificationUrgency.Critical ? Colors.criticalText : Styling.srItem("overprimary")
                                     elide: Text.ElideRight
                                 }
 
@@ -359,7 +359,7 @@ Item {
                                     font.family: Config.theme.font
                                     font.pixelSize: Config.theme.fontSize
                                     font.weight: Font.Bold
-                                    color: latestNotification && latestNotification.urgency == NotificationUrgency.Critical ? Colors.criticalText : Colors.outline
+                                    color: latestNotification && latestNotification.urgencyLevel == NotificationUrgency.Critical ? Colors.criticalText : Colors.outline
                                     visible: latestNotification && latestNotification.body && latestNotification.body.length > 0
                                 }
 
@@ -367,8 +367,8 @@ Item {
                                     text: latestNotification ? NotificationUtils.processNotificationBody(latestNotification.body || "").replace(/\n/g, ' ') : ""
                                     font.family: Config.theme.font
                                     font.pixelSize: root.fontSize
-                                    font.weight: latestNotification && latestNotification.urgency == NotificationUrgency.Critical ? Font.Bold : Font.Normal
-                                    color: latestNotification && latestNotification.urgency == NotificationUrgency.Critical ? Colors.criticalText : Colors.overBackground
+                                    font.weight: latestNotification && latestNotification.urgencyLevel == NotificationUrgency.Critical ? Font.Bold : Font.Normal
+                                    color: latestNotification && latestNotification.urgencyLevel == NotificationUrgency.Critical ? Colors.criticalText : Colors.overBackground
                                     wrapMode: Text.NoWrap
                                     elide: Text.ElideRight
                                     Layout.fillWidth: true
@@ -387,7 +387,7 @@ Item {
 
                         NotificationDismissButton {
                             visibleWhen: expanded
-                            urgency: latestNotification ? latestNotification.urgency : NotificationUrgency.Normal
+                            urgency: latestNotification ? latestNotification.urgencyLevel : NotificationUrgency.Normal
                             onClicked: root.destroyWithAnimation()
                         }
                     }
@@ -422,7 +422,7 @@ Item {
 
                         background: Item {
                             id: delegateBtnBg
-                            property bool isCritical: latestNotification && latestNotification.urgency == NotificationUrgency.Critical
+                            property bool isCritical: latestNotification && latestNotification.urgencyLevel == NotificationUrgency.Critical
                             property color textColor: isCritical ? Colors.shadow : styledBg.item
 
                             Rectangle {

@@ -13,6 +13,7 @@ QtObject {
     id: root
 
     readonly property string appId: "ambxst+"
+    readonly property int mediaSeekStepMs: 5000
     readonly property string ipcPipe: (Quickshell.env("XDG_RUNTIME_DIR") || "/tmp") + "/ambxst+_ipc.pipe"
     property bool _shuttingDown: false
 

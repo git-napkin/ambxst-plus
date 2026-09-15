@@ -12,7 +12,7 @@ Item {
     property var appIcon: ""
     property string appName: ""
     property var summary: ""
-    property var urgency: NotificationUrgency.Normal
+    property int urgency: NotificationUrgency.Normal
     property var image: ""
     property real scale: 1
     property real size: 48 * scale

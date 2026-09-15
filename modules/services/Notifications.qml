@@ -25,6 +25,17 @@ Singleton {
         property string summary: ""
         property double time
         property string urgency: "normal"
+        // urgency reaches us in three shapes: the D-Bus enum stringified ("2"),
+        // a word from notifyInternal callers ("critical"), or a restored history
+        // value. Normalize once here so the UI can compare against the enum.
+        readonly property int urgencyLevel: {
+            const u = String(urgency).toLowerCase();
+            if (u === "critical" || u === String(NotificationUrgency.Critical))
+                return NotificationUrgency.Critical;
+            if (u === "low" || u === String(NotificationUrgency.Low))
+                return NotificationUrgency.Low;
+            return NotificationUrgency.Normal;
+        }
         property int historyPriority: 0
         property string replaceKey: ""
         property var localActionHandlers: ({})

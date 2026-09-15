@@ -40,7 +40,13 @@ FocusScope {
     Component.onCompleted: {
         root.forceActiveFocus();
         if (repeater.count > 0) {
-            repeater.itemAt(0).forceActiveFocus();
+            // Delegates may not exist yet on completion, so defer like the
+            // activeFocus handler below does.
+            Qt.callLater(() => {
+                let item = repeater.itemAt(0);
+                if (item)
+                    item.forceActiveFocus();
+            });
         }
     }
 

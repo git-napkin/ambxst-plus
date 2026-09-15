@@ -60,7 +60,7 @@ Item {
         Rectangle {
             anchors.fill: parent
             color: Styling.srItem("overprimary")
-            opacity: root.popupOpen ? 0 : (root.isHovered ? 0.25 : 0)
+            opacity: root.popupOpen ? 0 : (root.isHovered ? Styling.hoverAlpha : 0)
             radius: parent.radius ?? 0
 
             Behavior on opacity {
@@ -82,7 +82,7 @@ Item {
                 text: root.weatherAvailable ? WeatherService.weatherSymbol : root.currentDayAbbrev
                 color: root.popupOpen ? buttonBg.item : Colors.overBackground
                 font.pixelSize: root.weatherAvailable ? Styling.fontSize(2) : Styling.fontSize(0)
-                font.family: root.weatherAvailable ? Config.theme.font : Config.theme.font
+                font.family: root.weatherAvailable ? Icons.font : Config.theme.font
                 font.bold: !root.weatherAvailable
             }
 
@@ -113,7 +113,7 @@ Item {
                 text: root.weatherAvailable ? WeatherService.weatherSymbol : root.currentDayAbbrev
                 color: root.popupOpen ? buttonBg.item : Colors.overBackground
                 font.pixelSize: root.weatherAvailable ? Styling.fontSize(2) : Styling.fontSize(0)
-                font.family: Config.theme.font
+                font.family: root.weatherAvailable ? Icons.font : Config.theme.font
                 font.bold: !root.weatherAvailable
                 horizontalAlignment: Text.AlignHCenter
                 wrapMode: Text.NoWrap
@@ -387,10 +387,12 @@ Item {
                                                 font.weight: Font.Medium
                                             }
 
-                                            // Weather emoji
+                                            // Weather icon
                                             Text {
                                                 anchors.horizontalCenter: parent.horizontalCenter
-                                                text: forecastDayRow.modelData.emoji
+                                                text: forecastDayRow.modelData.icon
+                                                color: Colors.overBackground
+                                                font.family: Icons.font
                                                 font.pixelSize: Styling.fontSize(4)
                                             }
 
@@ -475,62 +477,50 @@ Item {
                                 readonly property var weatherTypes: [
                                     {
                                         code: 0,
-                                        icon: "☀️",
                                         name: "Clear"
                                     },
                                     {
                                         code: 1,
-                                        icon: "🌤️",
                                         name: "Mainly clear"
                                     },
                                     {
                                         code: 2,
-                                        icon: "⛅",
                                         name: "Partly cloudy"
                                     },
                                     {
                                         code: 3,
-                                        icon: "☁️",
                                         name: "Overcast"
                                     },
                                     {
                                         code: 45,
-                                        icon: "🌫️",
                                         name: "Fog"
                                     },
                                     {
                                         code: 51,
-                                        icon: "🌦️",
                                         name: "Drizzle"
                                     },
                                     {
                                         code: 61,
-                                        icon: "🌧️",
                                         name: "Rain"
                                     },
                                     {
                                         code: 65,
-                                        icon: "🌧️",
                                         name: "Heavy rain"
                                     },
                                     {
                                         code: 71,
-                                        icon: "❄️",
                                         name: "Snow"
                                     },
                                     {
                                         code: 75,
-                                        icon: "❄️",
                                         name: "Heavy snow"
                                     },
                                     {
                                         code: 95,
-                                        icon: "⛈️",
                                         name: "Thunder"
                                     },
                                     {
                                         code: 96,
-                                        icon: "🌩️",
                                         name: "Hail"
                                     }
                                 ]
@@ -581,7 +571,9 @@ Item {
 
                                             Text {
                                                 anchors.centerIn: parent
-                                                text: weatherBtn.modelData.icon
+                                                text: WeatherService.getWeatherCodeIcon(weatherBtn.modelData.code)
+                                                color: Styling.srItem(weatherBtn.variant)
+                                                font.family: Icons.font
                                                 font.pixelSize: Styling.fontSize(0)
                                             }
 

@@ -75,7 +75,7 @@ Item {
         Rectangle {
             anchors.fill: parent
             color: Styling.srItem("overprimary")
-            opacity: root.popupOpen ? 0 : (root.isHovered ? 0.25 : 0)
+            opacity: root.popupOpen ? 0 : (root.isHovered ? Styling.hoverAlpha : 0)
             radius: parent.radius ?? 0
 
             Behavior on opacity {

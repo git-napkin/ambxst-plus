@@ -4,6 +4,7 @@ import qs.modules.services
 import qs.modules.globals
 import qs.modules.notch
 import qs.modules.widgets.powermenu
+import qs.modules.theme
 import qs.config
 
 NotchAnimationBehavior {

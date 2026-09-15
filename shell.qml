@@ -262,7 +262,9 @@ ShellRoot {
 
         Loader {
             id: screenshotOverlayLoader
-            active: SuspendManager.wakeReady
+            // Only exists while a preview is pending; the overlay re-reads
+            // Screenshot.previewPath in its Component.onCompleted.
+            active: SuspendManager.wakeReady && Screenshot.previewPath !== ""
             required property ShellScreen modelData
             asynchronous: true
             onActiveChanged: root._loadNamedItem(screenshotOverlayLoader, "modules/tools/ScreenshotOverlay.qml", "targetScreen", modelData)

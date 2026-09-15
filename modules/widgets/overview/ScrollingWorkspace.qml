@@ -11,6 +11,7 @@ import qs.modules.globals
 import qs.modules.theme
 import qs.modules.services
 import qs.modules.components
+import qs.modules.bar.workspaces
 import qs.config
 
 Item {
@@ -422,7 +423,7 @@ Item {
                         id: previewOverlay
                         anchors.fill: parent
                         radius: windowDelegate.calculatedRadius
-                        color: windowDelegate.dragging ? Styling.tint(Colors.surfaceContainerHighest, 0.5) : windowDelegate.hovered ? Styling.tint(Colors.surfaceContainer, 0.2) : "transparent"
+                        color: windowDelegate.dragging ? Styling.tint(Colors.surfaceContainerHighest, Styling.pressAlpha) : windowDelegate.hovered ? Styling.tint(Colors.surfaceContainer, Styling.hoverAlpha) : "transparent"
                         border.color: windowDelegate.isSelected ? Colors.tertiary : windowDelegate.isMatched ? Styling.srItem("overprimary") : Styling.srItem("overprimary")
                         border.width: windowDelegate.isSelected ? 3 : windowDelegate.isMatched ? 2 : (windowDelegate.hovered ? 2 : 0)
                         visible: Config.performance.windowPreview && (windowDelegate.hovered || windowDelegate.dragging || windowDelegate.isMatched || windowDelegate.isSelected)

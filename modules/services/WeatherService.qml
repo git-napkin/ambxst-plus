@@ -4,6 +4,7 @@ import Quickshell
 import Quickshell.Io
 import qs.config
 import qs.modules.globals
+import qs.modules.theme
 
 Singleton {
     id: root
@@ -176,7 +177,7 @@ Singleton {
     readonly property string effectiveTimeOfDay: debugMode ? debugTimeOfDay : timeOfDay
     readonly property bool effectiveIsDay: debugMode ? debugIsDay : realIsDay
     readonly property int effectiveWeatherCode: debugMode ? debugWeatherCode : weatherCode
-    readonly property string effectiveWeatherSymbol: debugMode ? getWeatherCodeEmoji(debugWeatherCode) : weatherSymbol
+    readonly property string effectiveWeatherSymbol: debugMode ? getWeatherCodeIcon(debugWeatherCode) : weatherSymbol
     readonly property string effectiveWeatherDescription: debugMode ? getWeatherDescription(debugWeatherCode) : weatherDescription
 
     // Weather effect types based on code
@@ -324,42 +325,34 @@ Singleton {
         }
     }
 
-    function getWeatherCodeEmoji(code) {
+    // WMO weather codes -> Phosphor glyphs. Rendered with Icons.font so the
+    // symbol tints with the palette like every other icon in the shell.
+    function getWeatherCodeIcon(code) {
         if (code === 0)
-            return "☀️";
-        if (code === 1)
-            return "🌤️";
-        if (code === 2)
-            return "⛅";
+            return Icons.sun;
+        if (code === 1 || code === 2)
+            return Icons.cloudSun;
         if (code === 3)
-            return "☁️";
-        if (code === 45)
-            return "🌫️";
-        if (code === 48)
-            return "🌨️";
-        if (code >= 51 && code <= 53)
-            return "🌦️";
-        if (code === 55)
-            return "🌧️";
+            return Icons.cloud;
+        if (code === 45 || code === 48)
+            return Icons.cloudFog;
+        if (code >= 51 && code <= 55)
+            return Icons.cloudRain;
         if (code >= 56 && code <= 57)
-            return "🧊";
+            return Icons.cloudSnow;
         if (code >= 61 && code <= 65)
-            return "🌧️";
+            return Icons.cloudRain;
         if (code >= 66 && code <= 67)
-            return "🧊";
+            return Icons.cloudSnow;
         if (code >= 71 && code <= 77)
-            return "❄️";
-        if (code >= 80 && code <= 81)
-            return "🌦️";
-        if (code === 82)
-            return "🌧️";
+            return Icons.cloudSnow;
+        if (code >= 80 && code <= 82)
+            return Icons.cloudRain;
         if (code >= 85 && code <= 86)
-            return "🌨️";
-        if (code === 95)
-            return "⛈️";
-        if (code >= 96 && code <= 99)
-            return "🌩️";
-        return "❓";
+            return Icons.cloudSnow;
+        if (code >= 95 && code <= 99)
+            return Icons.cloudLightning;
+        return Icons.cloudWarning;
     }
 
     function convertTemp(temp) {
@@ -445,14 +438,14 @@ Singleton {
                                     date: daily.time[i],
                                     dayName: dayName,
                                     weatherCode: daily.weathercode ? daily.weathercode[i] : 0,
-                                    emoji: getWeatherCodeEmoji(daily.weathercode ? daily.weathercode[i] : 0),
+                                    icon: getWeatherCodeIcon(daily.weathercode ? daily.weathercode[i] : 0),
                                     maxTemp: convertTemp(daily.temperature_2m_max ? daily.temperature_2m_max[i] : 0),
                                     minTemp: convertTemp(daily.temperature_2m_min ? daily.temperature_2m_min[i] : 0)
                                 });
                             }
                             root.forecast = forecastData;
 
-                            root.weatherSymbol = getWeatherCodeEmoji(root.weatherCode);
+                            root.weatherSymbol = getWeatherCodeIcon(root.weatherCode);
                             root.weatherDescription = getWeatherDescription(root.weatherCode);
                             root.calculateSunPosition();
                             root.dataAvailable = true;

@@ -9,10 +9,8 @@ with pkgs; [
   # Launcher
   fuzzel
 
-  # Control panels
+  # Control panels (pavucontrol/blueman dropped — in-shell Sound/Bluetooth panels cover them)
   networkmanagerapplet
-  blueman
-  pavucontrol
   easyeffects
   gradia
 

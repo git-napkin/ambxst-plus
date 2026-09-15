@@ -127,7 +127,7 @@ Item {
                 anchors.fill: parent
                 color: Styling.srItem("overprimary")
                 radius: parent.radius ?? 0
-                opacity: parent.isHovered ? 0.15 : 0
+                opacity: parent.isHovered ? Styling.hoverAlpha : 0
                 Behavior on opacity {
                     enabled: (Config.animDuration ?? 0) > 0
                     NumberAnimation {
@@ -1020,7 +1020,7 @@ Item {
                                         anchors.fill: parent
                                         color: Styling.srItem("overprimary")
                                         radius: shadowColorButton.radius ?? 0
-                                        opacity: shadowColorButton.isHovered ? 0.15 : 0
+                                        opacity: shadowColorButton.isHovered ? Styling.hoverAlpha : 0
 
                                         Behavior on opacity {
                                             enabled: (Config.animDuration ?? 0) > 0
@@ -1233,7 +1233,7 @@ Item {
                                             anchors.fill: parent
                                             color: Styling.srItem("overprimary")
                                             radius: parent.radius ?? 0
-                                            opacity: isHovered ? 0.15 : 0
+                                            opacity: isHovered ? Styling.hoverAlpha : 0
 
                                             Behavior on opacity {
                                                 enabled: Config.animDuration > 0
@@ -1387,7 +1387,7 @@ Item {
                                                         anchors.fill: parent
                                                         color: Styling.srItem("overprimary")
                                                         radius: variantTagRow.radius ?? 0
-                                                        opacity: variantTagRow.isHovered ? 0.15 : 0
+                                                        opacity: variantTagRow.isHovered ? Styling.hoverAlpha : 0
 
                                                         Behavior on opacity {
                                                             enabled: (Config.animDuration ?? 0) > 0
@@ -1544,7 +1544,7 @@ Item {
                                                 anchors.fill: parent
                                                 color: Styling.srItem("overprimary")
                                                 radius: variantTag.radius ?? 0
-                                                opacity: variantTag.isHovered ? 0.15 : 0
+                                                opacity: variantTag.isHovered ? Styling.hoverAlpha : 0
 
                                                 Behavior on opacity {
                                                     enabled: (Config.animDuration ?? 0) > 0

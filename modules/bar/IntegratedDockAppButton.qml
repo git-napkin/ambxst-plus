@@ -43,7 +43,7 @@ Button {
         Rectangle {
             anchors.fill: parent
             radius: Styling.radius(-3)
-            color: root.appIsActive ? Styling.srItem("overprimary") : (root.hovered || root.pressed) ? Styling.tint(Styling.srItem("overprimary"), 0.15) : "transparent"
+            color: root.appIsActive ? Styling.srItem("overprimary") : (root.hovered || root.pressed) ? Styling.tint(Styling.srItem("overprimary"), Styling.hoverAlpha) : "transparent"
             opacity: root.pressed ? 1 : (root.appIsActive ? 0.3 : 0.7)
 
             Behavior on color {

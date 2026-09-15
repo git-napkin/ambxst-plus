@@ -65,13 +65,6 @@ Item {
 
                 actions: [
                     {
-                        icon: Icons.popOpen,
-                        tooltip: "Open Blueman",
-                        onClicked: function () {
-                            Quickshell.execDetached(["blueman-manager"]);
-                        }
-                    },
-                    {
                         icon: Icons.sync,
                         tooltip: "Scan for devices",
                         enabled: BluetoothService.enabled,

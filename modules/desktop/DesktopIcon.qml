@@ -58,7 +58,7 @@ Item {
         anchors.fill: root
         color: Styling.srItem("overprimary")
         radius: Styling.radius(0)
-        opacity: hoverHandler.hovered ? 0.25 : 0.0
+        opacity: hoverHandler.hovered ? Styling.hoverAlpha : 0.0
 
         Behavior on color {
             enabled: Config.animDuration > 0

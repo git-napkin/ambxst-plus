@@ -1,7 +1,6 @@
 pragma ComponentBehavior: Bound
 import QtQuick
 import QtQuick.Layouts
-import Quickshell
 import qs.modules.services
 import qs.modules.components
 import qs.modules.theme
@@ -52,7 +51,7 @@ Item {
         Rectangle {
             anchors.fill: parent
             color: Styling.srItem("overprimary")
-            opacity: root.popupOpen ? 0 : (root.isHovered ? 0.25 : 0)
+            opacity: root.popupOpen ? 0 : (root.isHovered ? Styling.hoverAlpha : 0)
             radius: parent.radius ?? 0
 
             Behavior on opacity {
@@ -75,15 +74,7 @@ Item {
             anchors.fill: parent
             hoverEnabled: false
             cursorShape: Qt.PointingHandCursor
-            acceptedButtons: Qt.LeftButton | Qt.RightButton
-            onClicked: mouse => {
-                if (mouse.button === Qt.RightButton) {
-                    Quickshell.execDetached(["pavucontrol"]);
-                    return;
-                } else if (mouse.button === Qt.LeftButton) {
-                    controlsPopup.toggle();
-                }
-            }
+            onClicked: controlsPopup.toggle()
         }
     }
 

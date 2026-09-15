@@ -81,27 +81,12 @@ PanelWindow {
     onAssistantTextChanged: hud.refreshPresence()
     onStreamingChanged: hud.refreshPresence()
 
-    Keys.enabled: ComputerUse.sessionActive && !ComputerUse.userHasControl && !ComputerUse.injectingInput
-    Keys.priority: Keys.BeforeItem
-    Keys.onPressed: event => {
-        if (AxctlService.forwardBoundKey(event)) {
-            event.accepted = true;
-            return;
-        }
-        if (event.key === Qt.Key_Escape) {
-            ComputerUse.handleEscape();
-            event.accepted = true;
-            return;
-        }
-        hud.handleUserKey(event);
-    }
-
     function claimKeys() {
         if (!ComputerUse.sessionActive || ComputerUse.userHasControl || ComputerUse.injectingInput)
             return;
         if (hud.requestActivate)
             hud.requestActivate();
-        hud.forceActiveFocus();
+        hudAnchor.forceActiveFocus();
         if (ComputerUse.steerOpen)
             Qt.callLater(() => steerInput.focusInput());
     }
@@ -261,6 +246,22 @@ PanelWindow {
 
     Item {
         id: hudAnchor
+        focus: ComputerUse.sessionActive && !ComputerUse.userHasControl && !ComputerUse.injectingInput
+        // PanelWindow is not an Item — Keys must live on a child Item.
+        Keys.enabled: ComputerUse.sessionActive && !ComputerUse.userHasControl && !ComputerUse.injectingInput
+        Keys.priority: Keys.BeforeItem
+        Keys.onPressed: event => {
+            if (AxctlService.forwardBoundKey(event)) {
+                event.accepted = true;
+                return;
+            }
+            if (event.key === Qt.Key_Escape) {
+                ComputerUse.handleEscape();
+                event.accepted = true;
+                return;
+            }
+            hud.handleUserKey(event);
+        }
         anchors.right: parent.right
         anchors.bottom: parent.bottom
         anchors.rightMargin: ComputerUse.insetRight

@@ -2,6 +2,7 @@ import QtQuick
 import Quickshell
 import Quickshell.Wayland
 import qs.modules.globals
+import qs.modules.services
 import qs.config
 
 PanelWindow {

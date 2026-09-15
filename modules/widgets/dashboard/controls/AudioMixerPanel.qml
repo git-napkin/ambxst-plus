@@ -50,13 +50,6 @@ Item {
                             onClicked: function () {
                                 Audio.setProtectionEnabled(!Audio.protectionEnabled);
                             }
-                        },
-                        {
-                            icon: Icons.popOpen,
-                            tooltip: "Open PipeWire Volume Control",
-                            onClicked: function () {
-                                Quickshell.execDetached(["pavucontrol"]);
-                            }
                         }
                     ]
 

@@ -211,7 +211,7 @@ Rectangle {
                             Rectangle {
                                 anchors.fill: parent
                                 color: Colors.overSurface
-                                opacity: parent.containsMouse ? 0.1 : 0
+                                opacity: parent.containsMouse ? Styling.hoverAlpha : 0
                                 radius: avatarContainer.radius
 
                                 Behavior on opacity {

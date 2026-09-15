@@ -35,8 +35,8 @@ QtObject {
 
     // Consistent interaction feedback alphas used across every interactive
     // surface (buttons, app icons, list rows) so hover/press feel is uniform.
-    readonly property real hoverAlpha: 0.12
-    readonly property real pressAlpha: 0.24
+    readonly property real hoverAlpha: 0.25
+    readonly property real pressAlpha: 0.5
 
     // Animation duration tiers — each surface picks the tier that matches its
     // purpose. Centralized here so the entire shell shares one timing system.

@@ -386,7 +386,7 @@ Item {
                             // Contenido principal de la notificación
                             Item {
                                 width: parent.width
-                                property int criticalMargins: hovered && notification && notification.urgency == NotificationUrgency.Critical ? 16 : 0
+                                property int criticalMargins: hovered && notification && notification.urgencyLevel == NotificationUrgency.Critical ? 16 : 0
                                 implicitHeight: mainContentRow.implicitHeight + (criticalMargins * 2)
 
                                 Behavior on criticalMargins {
@@ -400,7 +400,7 @@ Item {
                                 DiagonalStripePattern {
                                     id: notchStripeContainer
                                     anchors.fill: parent
-                                    visible: notification && notification.urgency == NotificationUrgency.Critical
+                                    visible: notification && notification.urgencyLevel == NotificationUrgency.Critical
                                     radius: Styling.radius(4)
                                     animationRunning: visible
                                 }
@@ -433,7 +433,7 @@ Item {
                                             appIcon: notification ? (notification.cachedAppIcon || notification.appIcon) : ""
                                             image: notification ? (notification.cachedImage || notification.image) : ""
                                             summary: notification ? notification.summary : ""
-                                            urgency: notification ? notification.urgency : NotificationUrgency.Normal
+                                            urgency: notification ? notification.urgencyLevel : NotificationUrgency.Normal
 
                                             Behavior on iconSize {
                                                 enabled: Config.animDuration > 0
@@ -481,8 +481,8 @@ Item {
                                                             font.family: Config.theme.font
                                                             font.pixelSize: Config.theme.fontSize
                                                             font.weight: Font.Bold
-                                                            font.underline: notification && notification.urgency == NotificationUrgency.Critical && hovered
-                                                            color: notification && notification.urgency == NotificationUrgency.Critical ? Colors.criticalText : Styling.srItem("overprimary")
+                                                            font.underline: notification && notification.urgencyLevel == NotificationUrgency.Critical && hovered
+                                                            color: notification && notification.urgencyLevel == NotificationUrgency.Critical ? Colors.criticalText : Styling.srItem("overprimary")
                                                             elide: Text.ElideRight
                                                             maximumLineCount: 1
                                                             wrapMode: Text.NoWrap
@@ -502,7 +502,7 @@ Item {
                                                             font.family: Config.theme.font
                                                             font.pixelSize: Config.theme.fontSize
                                                             font.weight: Font.Bold
-                                                            color: notification && notification.urgency == NotificationUrgency.Critical ? Colors.criticalText : Colors.outline
+                                                            color: notification && notification.urgencyLevel == NotificationUrgency.Critical ? Colors.criticalText : Colors.outline
                                                             elide: Text.ElideRight
                                                             maximumLineCount: 1
                                                             wrapMode: Text.NoWrap
@@ -519,7 +519,7 @@ Item {
                                                         font.family: Config.theme.font
                                                         font.pixelSize: Config.theme.fontSize
                                                         font.weight: Font.Bold
-                                                        color: notification && notification.urgency == NotificationUrgency.Critical ? Colors.criticalText : Colors.outline
+                                                        color: notification && notification.urgencyLevel == NotificationUrgency.Critical ? Colors.criticalText : Colors.outline
                                                         verticalAlignment: Text.AlignVCenter
                                                         visible: text !== ""
                                                     }
@@ -530,8 +530,8 @@ Item {
                                                     text: notification ? processNotificationBody(notification.body, notification.appName) : ""
                                                     font.family: Config.theme.font
                                                     font.pixelSize: Config.theme.fontSize
-                                                    font.weight: notification && notification.urgency == NotificationUrgency.Critical ? Font.Bold : Font.Normal
-                                                    color: notification && notification.urgency == NotificationUrgency.Critical ? Colors.criticalText : Colors.overBackground
+                                                    font.weight: notification && notification.urgencyLevel == NotificationUrgency.Critical ? Font.Bold : Font.Normal
+                                                    color: notification && notification.urgencyLevel == NotificationUrgency.Critical ? Colors.criticalText : Colors.overBackground
                                                     wrapMode: Text.Wrap
                                                     maximumLineCount: 3
                                                     elide: Text.ElideRight
@@ -558,7 +558,7 @@ Item {
                                                     font.family: Config.theme.font
                                                     font.pixelSize: Config.theme.fontSize
                                                     font.weight: Font.Bold
-                                                    color: notification && notification.urgency == NotificationUrgency.Critical ? Colors.criticalText : Styling.srItem("overprimary")
+                                                    color: notification && notification.urgencyLevel == NotificationUrgency.Critical ? Colors.criticalText : Styling.srItem("overprimary")
                                                     elide: Text.ElideRight
                                                     maximumLineCount: 1
                                                     wrapMode: Text.NoWrap
@@ -571,7 +571,7 @@ Item {
                                                     font.family: Config.theme.font
                                                     font.pixelSize: Config.theme.fontSize
                                                     font.weight: Font.Bold
-                                                    color: notification && notification.urgency == NotificationUrgency.Critical ? Colors.criticalText : Colors.outline
+                                                    color: notification && notification.urgencyLevel == NotificationUrgency.Critical ? Colors.criticalText : Colors.outline
                                                     verticalAlignment: Text.AlignVCenter
                                                     visible: notification && notification.body && notification.body.length > 0
                                                 }
@@ -588,8 +588,8 @@ Item {
                                                     text: notification ? processNotificationBody(notification.body || "").replace(/\n/g, ' ') : ""
                                                     font.family: Config.theme.font
                                                     font.pixelSize: Config.theme.fontSize
-                                                    font.weight: notification && notification.urgency == NotificationUrgency.Critical ? Font.Bold : Font.Normal
-                                                    color: notification && notification.urgency == NotificationUrgency.Critical ? Colors.criticalText : Colors.overBackground
+                                                    font.weight: notification && notification.urgencyLevel == NotificationUrgency.Critical ? Font.Bold : Font.Normal
+                                                    color: notification && notification.urgencyLevel == NotificationUrgency.Critical ? Colors.criticalText : Colors.overBackground
                                                     wrapMode: Text.NoWrap
                                                     elide: Text.ElideRight
                                                     maximumLineCount: 1
@@ -628,11 +628,11 @@ Item {
 
                                                 background: Item {
                                                     id: notchDismissBg
-                                                    property color iconColor: notification && notification.urgency == NotificationUrgency.Critical ? Colors.shadow : (dismissButton.pressed ? Colors.overError : Colors.error)
+                                                    property color iconColor: notification && notification.urgencyLevel == NotificationUrgency.Critical ? Colors.shadow : (dismissButton.pressed ? Colors.overError : Colors.error)
 
                                                     Rectangle {
                                                         anchors.fill: parent
-                                                        visible: notification && notification.urgency == NotificationUrgency.Critical
+                                                        visible: notification && notification.urgencyLevel == NotificationUrgency.Critical
                                                         color: parent.parent.hovered ? Qt.lighter(Colors.criticalRed, 1.3) : Colors.criticalRed
                                                         radius: Styling.radius(4)
 
@@ -647,7 +647,7 @@ Item {
                                                     StyledRect {
                                                         id: notchDismissStyled
                                                         anchors.fill: parent
-                                                        visible: !(notification && notification.urgency == NotificationUrgency.Critical)
+                                                        visible: !(notification && notification.urgencyLevel == NotificationUrgency.Critical)
                                                         variant: parent.parent.pressed ? "error" : (parent.parent.hovered ? "focus" : "common")
                                                         radius: Styling.radius(4)
                                                     }
@@ -704,11 +704,11 @@ Item {
 
                                             background: Item {
                                                 id: notchActionBg
-                                                property color textColor: notification && notification.urgency == NotificationUrgency.Critical ? Colors.shadow : notchActionStyled.item
+                                                property color textColor: notification && notification.urgencyLevel == NotificationUrgency.Critical ? Colors.shadow : notchActionStyled.item
 
                                                 Rectangle {
                                                     anchors.fill: parent
-                                                    visible: notification && notification.urgency == NotificationUrgency.Critical
+                                                    visible: notification && notification.urgencyLevel == NotificationUrgency.Critical
                                                     color: parent.parent.hovered ? Qt.lighter(Colors.criticalRed, 1.3) : Colors.criticalRed
                                                     radius: Styling.radius(4)
 
@@ -723,7 +723,7 @@ Item {
                                                 StyledRect {
                                                     id: notchActionStyled
                                                     anchors.fill: parent
-                                                    visible: !(notification && notification.urgency == NotificationUrgency.Critical)
+                                                    visible: !(notification && notification.urgencyLevel == NotificationUrgency.Critical)
                                                     variant: parent.parent.pressed ? "primary" : (parent.parent.hovered ? "focus" : "common")
                                                     radius: Styling.radius(4)
                                                 }
@@ -810,7 +810,7 @@ Item {
                             width: 8
                             height: 8
                             radius: 4
-                            property bool isCritical: Notifications.popupList[index] && Notifications.popupList[index].urgency == NotificationUrgency.Critical
+                            property bool isCritical: Notifications.popupList[index] && Notifications.popupList[index].urgencyLevel === NotificationUrgency.Critical
                             color: isCritical ? Colors.criticalRed : (index === root.currentIndex ? Styling.srItem("overprimary") : Colors.surfaceBright)
 
                             Behavior on color {

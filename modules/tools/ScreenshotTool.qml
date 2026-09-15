@@ -229,7 +229,7 @@ PanelWindow {
                     Rectangle {
                         anchors.fill: parent
                         color: Styling.srItem("overprimary")
-                        opacity: hoverHandler.hovered ? 0.2 : 0
+                        opacity: hoverHandler.hovered ? Styling.hoverAlpha : 0
                     }
 
                     HoverHandler {

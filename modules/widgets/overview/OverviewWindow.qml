@@ -7,6 +7,7 @@ import qs.modules.globals
 import qs.modules.theme
 import qs.modules.services
 import qs.modules.components
+import qs.modules.bar.workspaces
 import qs.config
 
 Item {
@@ -189,7 +190,7 @@ Item {
         id: previewOverlay
         anchors.fill: parent
         radius: root.calculatedRadius
-        color: pressed ? Styling.tint(Colors.surfaceContainerHighest, 0.5) : hovered ? Styling.tint(Colors.surfaceContainer, 0.2) : "transparent"
+        color: pressed ? Styling.tint(Colors.surfaceContainerHighest, Styling.pressAlpha) : hovered ? Styling.tint(Colors.surfaceContainer, Styling.hoverAlpha) : "transparent"
         border.color: root.isSearchSelected ? Colors.tertiary : root.isSearchMatch ? Styling.srItem("overprimary") : Styling.srItem("overprimary")
         border.width: root.isSearchSelected ? 3 : root.isSearchMatch ? 2 : (hovered ? 2 : 0)
         visible: windowPreview.hasContent && Config.performance.windowPreview

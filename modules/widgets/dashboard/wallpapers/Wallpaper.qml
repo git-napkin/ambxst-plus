@@ -159,28 +159,28 @@ PanelWindow {
     Binding {
         target: wallpaper
         property: "wallpaperPaths"
-        value: GlobalStates.wallpaperManager.wallpaperPaths
+        value: GlobalStates.wallpaperManager?.wallpaperPaths
         when: GlobalStates.wallpaperManager !== null && GlobalStates.wallpaperManager !== wallpaper
     }
 
     Binding {
         target: wallpaper
         property: "currentIndex"
-        value: GlobalStates.wallpaperManager.currentIndex
+        value: GlobalStates.wallpaperManager?.currentIndex
         when: GlobalStates.wallpaperManager !== null && GlobalStates.wallpaperManager !== wallpaper
     }
 
     Binding {
         target: wallpaper
         property: "subfolderFilters"
-        value: GlobalStates.wallpaperManager.subfolderFilters
+        value: GlobalStates.wallpaperManager?.subfolderFilters
         when: GlobalStates.wallpaperManager !== null && GlobalStates.wallpaperManager !== wallpaper
     }
 
     Binding {
         target: wallpaper
         property: "initialLoadCompleted"
-        value: GlobalStates.wallpaperManager.initialLoadCompleted
+        value: GlobalStates.wallpaperManager?.initialLoadCompleted
         when: GlobalStates.wallpaperManager !== null && GlobalStates.wallpaperManager !== wallpaper
     }
 

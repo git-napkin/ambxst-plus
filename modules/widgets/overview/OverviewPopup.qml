@@ -27,13 +27,6 @@ PanelWindow {
     WlrLayershell.namespace: "ambxst+:overview"
     WlrLayershell.keyboardFocus: overviewOpen ? WlrKeyboardFocus.Exclusive : WlrKeyboardFocus.None
 
-    Keys.enabled: overviewOpen
-    Keys.priority: Keys.BeforeItem
-    Keys.onPressed: event => {
-        if (AxctlService.forwardBoundKey(event))
-            event.accepted = true;
-    }
-
     // Get this screen's visibility state
     readonly property var screenVisibilities: Visibilities.getForScreen(screen.name)
     readonly property bool overviewOpen: screenVisibilities ? screenVisibilities.overview : false
@@ -100,6 +93,14 @@ PanelWindow {
     // Main content column (search + overview)
     Item {
         id: mainContainer
+        focus: overviewOpen
+        // PanelWindow is not an Item — Keys must live on a child Item.
+        Keys.enabled: overviewOpen
+        Keys.priority: Keys.BeforeItem
+        Keys.onPressed: event => {
+            if (AxctlService.forwardBoundKey(event))
+                event.accepted = true;
+        }
         anchors.centerIn: parent
         width: Math.max(searchContainer.width, overviewContainer.width + (scrollbarContainer.visible ? scrollbarContainer.width + 8 : 0))
         height: searchContainer.height + 8 + overviewContainer.height
