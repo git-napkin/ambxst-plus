@@ -195,7 +195,7 @@ Item {
     Loader {
         id: persistentLauncherViewLoader
         active: false
-        source: "../widgets/launcher/LauncherView.qml"
+        source: Qt.resolvedUrl("../widgets/launcher/LauncherView.qml")
         onLoaded: {
             if (item)
                 item.visible = false;
@@ -205,7 +205,7 @@ Item {
     Loader {
         id: persistentDashboardViewLoader
         active: false
-        source: "../widgets/dashboard/DashboardView.qml"
+        source: Qt.resolvedUrl("../widgets/dashboard/DashboardView.qml")
         onLoaded: {
             if (item) {
                 item.visible = false;
@@ -217,7 +217,7 @@ Item {
     Loader {
         id: persistentPowerMenuViewLoader
         active: false
-        source: "../widgets/powermenu/PowerMenuView.qml"
+        source: Qt.resolvedUrl("../widgets/powermenu/PowerMenuView.qml")
         onLoaded: {
             if (item)
                 item.visible = false;
@@ -227,7 +227,7 @@ Item {
     Loader {
         id: persistentToolsMenuViewLoader
         active: false
-        source: "../widgets/tools/ToolsMenuView.qml"
+        source: Qt.resolvedUrl("../widgets/tools/ToolsMenuView.qml")
         onLoaded: {
             if (item)
                 item.visible = false;

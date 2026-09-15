@@ -428,23 +428,25 @@ NotchAnimationBehavior {
                 }
 
                 // Tab 0: Unified Launcher
+                // Qt.resolvedUrl is required: bare relative Loader.source inside an
+                // inline `component` resolves against the wrong base and fails silently.
                 TabLoader {
                     property int index: 0
-                    source: "widgets/WidgetsTab.qml"
+                    source: Qt.resolvedUrl("widgets/WidgetsTab.qml")
                     z: visible ? 1 : 0
                 }
 
                 // Tab 1: Wallpapers
                 TabLoader {
                     property int index: 1
-                    source: "wallpapers/WallpapersTab.qml"
+                    source: Qt.resolvedUrl("wallpapers/WallpapersTab.qml")
                     z: visible ? 1 : 0
                 }
 
                 // Tab 2: Metrics
                 TabLoader {
                     property int index: 2
-                    source: "metrics/MetricsTab.qml"
+                    source: Qt.resolvedUrl("metrics/MetricsTab.qml")
                     z: visible ? 1 : 0
                 }
                 

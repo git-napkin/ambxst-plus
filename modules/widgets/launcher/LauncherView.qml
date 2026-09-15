@@ -938,7 +938,7 @@ NotchAnimationBehavior {
             id: clipboardLoader
             asynchronous: true
             active: currentTab === 1 || (Config.performance.dashboardPersistTabs && item !== null)
-            source: "../dashboard/clipboard/ClipboardTab.qml"
+            source: Qt.resolvedUrl("../dashboard/clipboard/ClipboardTab.qml")
             onLoaded: {
                 item.leftPanelWidth = Qt.binding(function () { return root.leftPanelWidth; });
                 item.prefixIcon = Icons.clipboard;
@@ -964,7 +964,7 @@ NotchAnimationBehavior {
             Layout.fillHeight: true
             asynchronous: true
             active: currentTab === 2 || (Config.performance.dashboardPersistTabs && item !== null)
-            source: "../dashboard/emoji/EmojiTab.qml"
+            source: Qt.resolvedUrl("../dashboard/emoji/EmojiTab.qml")
             onLoaded: {
                 item.anchors.fill = item.parent;
                 item.leftPanelWidth = Qt.binding(function () { return root.width; });
@@ -988,7 +988,7 @@ NotchAnimationBehavior {
             Layout.fillHeight: true
             asynchronous: true
             active: currentTab === 3 || (Config.performance.dashboardPersistTabs && item !== null)
-            source: "../dashboard/tmux/TmuxTab.qml"
+            source: Qt.resolvedUrl("../dashboard/tmux/TmuxTab.qml")
             onLoaded: {
                 item.leftPanelWidth = Qt.binding(function () { return root.leftPanelWidth; });
                 item.prefixIcon = Icons.terminal;
@@ -1011,7 +1011,7 @@ NotchAnimationBehavior {
             Layout.fillHeight: true
             asynchronous: true
             active: currentTab === 4 || (Config.performance.dashboardPersistTabs && item !== null)
-            source: "../dashboard/notes/NotesTab.qml"
+            source: Qt.resolvedUrl("../dashboard/notes/NotesTab.qml")
             onLoaded: {
                 item.anchors.fill = item.parent;
                 item.leftPanelWidth = Qt.binding(function () { return root.leftPanelWidth; });

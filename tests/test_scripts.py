@@ -1794,10 +1794,11 @@ class TestPerformanceContracts(unittest.TestCase):
         dash = Path(__file__).parent.parent.joinpath("modules/widgets/dashboard/Dashboard.qml").read_text()
         self.assertNotIn("import qs.modules.widgets.dashboard.wallpapers", dash)
         self.assertNotIn("import qs.modules.widgets.dashboard.metrics", dash)
-        self.assertIn('source: "wallpapers/WallpapersTab.qml"', dash)
+        self.assertIn('Qt.resolvedUrl("wallpapers/WallpapersTab.qml")', dash)
+        self.assertIn('Qt.resolvedUrl("metrics/MetricsTab.qml")', dash)
         launcher = Path(__file__).parent.parent.joinpath("modules/widgets/launcher/LauncherView.qml").read_text()
-        self.assertNotIn("import \"../dashboard/clipboard\"", launcher)
-        self.assertIn("../dashboard/clipboard/ClipboardTab.qml", launcher)
+        self.assertNotIn('import "../dashboard/clipboard"', launcher)
+        self.assertIn('Qt.resolvedUrl("../dashboard/clipboard/ClipboardTab.qml")', launcher)
 
 
 if __name__ == "__main__":
