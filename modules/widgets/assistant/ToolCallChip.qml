@@ -60,14 +60,14 @@ Item {
         }
 
         Image {
-            visible: root.previewPath.length > 0
+            visible: root.expanded && root.previewPath.length > 0
             Layout.fillWidth: true
-            Layout.preferredHeight: 72
+            Layout.preferredHeight: visible ? 72 : 0
             fillMode: Image.PreserveAspectFit
             asynchronous: true
             sourceSize.width: 160
             sourceSize.height: 72
-            source: root.previewPath.length ? ("file://" + root.previewPath) : ""
+            source: root.expanded && root.previewPath.length ? ("file://" + root.previewPath) : ""
         }
 
         Text {

@@ -168,7 +168,7 @@ ShellRoot {
 
         Loader {
             id: computerUseHudLoader
-            active: SuspendManager.wakeReady && ComputerUse.sessionActive && ComputerUse.hudScreen === modelData.name
+            active: SuspendManager.wakeReady && ComputerUse.hudKeepAlive && ComputerUse.hudScreen === modelData.name
             required property ShellScreen modelData
             sourceComponent: ComputerUseHud {
                 screen: computerUseHudLoader.modelData

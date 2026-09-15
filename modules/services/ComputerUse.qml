@@ -29,6 +29,13 @@ Singleton {
     property bool escArmed: false
     property var _disabledMice: []
     property string _devicesIntent: ""
+    property bool ending: false
+    property bool _restoreSpotlight: true
+    property int _pendingUserIndex: -1
+    property real _pendingDurationMs: 0
+    property bool hudLinger: false
+    property bool spotlightReady: false
+    readonly property bool hudKeepAlive: sessionActive || hudLinger
 
     signal sessionFinished(var userIndex, var durationMs)
     signal stopRequested
@@ -207,6 +214,11 @@ Singleton {
     function begin(summary) {
         if (GlobalStates.lockscreenVisible)
             return Object.assign({ error: "computer use is blocked while the session is locked" }, root.sessionSnapshot());
+        if (root.ending)
+            root.completeEnd();
+        root.hudLinger = false;
+        root.spotlightReady = false;
+        hudLingerTimer.stop();
         if (!root.sessionActive)
             root.sessionStartedAt = Date.now();
         root.taskSummary = summary || "";
@@ -232,10 +244,43 @@ Singleton {
 
     function end(opts) {
         const restore = !opts || opts.restoreSpotlight !== false;
-        const wasActive = root.sessionActive;
-        const userIndex = root.workUserIndex;
-        const durationMs = root.sessionStartedAt ? (Date.now() - root.sessionStartedAt) : 0;
+        const immediate = !!(opts && opts.immediate) || !restore;
+        if (root.ending) {
+            if (immediate)
+                root.completeEnd();
+            return;
+        }
+        if (!root.sessionActive) {
+            if (restore && Visibilities.currentActiveModule !== "assistant")
+                Visibilities.setActiveModule("assistant");
+            return;
+        }
+        root.ending = true;
+        root._restoreSpotlight = restore;
+        root._pendingUserIndex = root.workUserIndex;
+        root._pendingDurationMs = root.sessionStartedAt ? (Date.now() - root.sessionStartedAt) : 0;
+        root.injectingInput = false;
+        root.steerOpen = false;
+        root.escArmed = false;
+        injectWatchdog.stop();
+        captureWatchdog.stop();
+        escArmTimer.stop();
+        root.unlockPointer();
+        root.sessionFinished(root._pendingUserIndex, root._pendingDurationMs);
+        if (immediate)
+            root.completeEnd();
+        else
+            endWatchdog.restart();
+    }
+
+    function completeEnd() {
+        if (!root.ending)
+            return;
+        const restore = root._restoreSpotlight;
+        endWatchdog.stop();
+        root.ending = false;
         root.sessionState = "idle";
+        root.spotlightReady = false;
         root.userHasControl = false;
         root.composerFocused = false;
         root.hudHiddenForCapture = false;
@@ -247,14 +292,12 @@ Singleton {
         root.injectingInput = false;
         root.steerOpen = false;
         root.escArmed = false;
-        injectWatchdog.stop();
-        captureWatchdog.stop();
-        escArmTimer.stop();
-        root.unlockPointer();
+        root._pendingUserIndex = -1;
+        root._pendingDurationMs = 0;
+        root.hudLinger = true;
+        hudLingerTimer.restart();
         if (restore && Visibilities.currentActiveModule !== "assistant")
             Visibilities.setActiveModule("assistant");
-        if (wasActive)
-            root.sessionFinished(userIndex, durationMs);
     }
 
     function stop() {
@@ -324,6 +367,8 @@ Singleton {
     function gate(action, summary) {
         if (GlobalStates.lockscreenVisible)
             return { locked: true, error: "computer use is blocked while the session is locked" };
+        if (root.ending)
+            return { error: "computer use session is ending" };
         if (!root.sessionActive)
             return { error: "computer use session is not active" };
         if (summary)
@@ -472,6 +517,10 @@ Singleton {
         });
         args = args || {};
         const action = args.action || "";
+        if (root.ending || !root.sessionActive) {
+            done({ error: "computer use session is not active" });
+            return;
+        }
         if (action === "screenshot") {
             root.captureScreenshot(args, done);
             return;
@@ -780,6 +829,20 @@ Singleton {
         interval: 1500
         repeat: false
         onTriggered: root.escArmed = false
+    }
+
+    Timer {
+        id: endWatchdog
+        interval: 400
+        repeat: false
+        onTriggered: root.completeEnd()
+    }
+
+    Timer {
+        id: hudLingerTimer
+        interval: Math.max(180, Config.animDuration || 300)
+        repeat: false
+        onTriggered: root.hudLinger = false
     }
 
     onHudHiddenForCaptureChanged: {

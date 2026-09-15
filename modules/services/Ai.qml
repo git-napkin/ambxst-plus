@@ -47,17 +47,19 @@ Singleton {
     Connections {
         target: ComputerUse
         function onSessionActiveChanged() {
-            if (ComputerUse.sessionActive) {
-                if (ComputerUse.workUserIndex < 0)
-                    ComputerUse.workUserIndex = root.lastUserIndex();
-                return;
-            }
+            if (ComputerUse.sessionActive && ComputerUse.workUserIndex < 0)
+                ComputerUse.workUserIndex = root.lastUserIndex();
+        }
+        function onSessionFinished(userIndex, durationMs) {
             if (root.isLoading)
                 root.cancel();
             root.endComputerUseGrant();
-        }
-        function onSessionFinished(userIndex, durationMs) {
-            Qt.callLater(() => root.collapseComputerUseWork(userIndex, durationMs));
+            Qt.callLater(() => {
+                root.collapseComputerUseWork(userIndex, durationMs);
+                if (ComputerUse.ending)
+                    ComputerUse.spotlightReady = true;
+                Qt.callLater(() => ComputerUse.completeEnd());
+            });
         }
         function onStopRequested() {
             root.stopComputerUse();
