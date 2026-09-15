@@ -6,6 +6,10 @@ import Quickshell.Wayland
 import qs.modules.globals
 import qs.modules.theme
 import qs.modules.widgets.defaultview
+import qs.modules.widgets.launcher
+import qs.modules.widgets.dashboard
+import qs.modules.widgets.powermenu
+import qs.modules.widgets.tools
 import qs.modules.services
 import qs.modules.components
 import qs.modules.bar.workspaces
@@ -198,11 +202,14 @@ Item {
         }
     }
 
-    // Persistent views to avoid creation lag when opening the notch
+    // Persistent views to avoid creation lag when opening the notch.
+    // Must use sourceComponent + qs.modules imports (above): Loader.source URLs
+    // load the file alone, so sibling types (ToolsMenu, PowerMenu, tab pages)
+    // and never-registered qs.modules paths fail with "is not a type / not installed".
     Loader {
         id: persistentLauncherViewLoader
         active: false
-        source: Qt.resolvedUrl("../widgets/launcher/LauncherView.qml")
+        sourceComponent: LauncherView {}
         onLoaded: {
             if (item)
                 item.visible = false;
@@ -212,7 +219,7 @@ Item {
     Loader {
         id: persistentDashboardViewLoader
         active: false
-        source: Qt.resolvedUrl("../widgets/dashboard/DashboardView.qml")
+        sourceComponent: DashboardView {}
         onLoaded: {
             if (item) {
                 item.visible = false;
@@ -224,7 +231,7 @@ Item {
     Loader {
         id: persistentPowerMenuViewLoader
         active: false
-        source: Qt.resolvedUrl("../widgets/powermenu/PowerMenuView.qml")
+        sourceComponent: PowerMenuView {}
         onLoaded: {
             if (item)
                 item.visible = false;
@@ -234,7 +241,7 @@ Item {
     Loader {
         id: persistentToolsMenuViewLoader
         active: false
-        source: Qt.resolvedUrl("../widgets/tools/ToolsMenuView.qml")
+        sourceComponent: ToolsMenuView {}
         onLoaded: {
             if (item)
                 item.visible = false;

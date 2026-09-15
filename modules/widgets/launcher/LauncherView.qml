@@ -10,6 +10,9 @@ import qs.modules.globals
 import qs.modules.services
 import qs.config
 import "../dashboard/list_utils.js" as ListUtils
+// These tab modules are only resolvable once this file is loaded as a
+// qs.modules.widgets.launcher type (NotchContent sourceComponent), not via
+// a bare Loader.source URL.
 import qs.modules.widgets.dashboard.clipboard
 import qs.modules.widgets.dashboard.emoji
 import qs.modules.widgets.dashboard.tmux

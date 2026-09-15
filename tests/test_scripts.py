@@ -1807,6 +1807,12 @@ class TestPerformanceContracts(unittest.TestCase):
         self.assertIn("import qs.modules.widgets.tools", tools)
         power = Path(__file__).parent.parent.joinpath("modules/widgets/powermenu/PowerMenuView.qml").read_text()
         self.assertIn("import qs.modules.widgets.powermenu", power)
+        notch = Path(__file__).parent.parent.joinpath("modules/notch/NotchContent.qml").read_text()
+        self.assertIn("import qs.modules.widgets.launcher", notch)
+        self.assertIn("import qs.modules.widgets.tools", notch)
+        self.assertIn("sourceComponent: LauncherView {}", notch)
+        self.assertIn("sourceComponent: ToolsMenuView {}", notch)
+        self.assertNotIn('source: Qt.resolvedUrl("../widgets/launcher/LauncherView.qml")', notch)
 
 
 if __name__ == "__main__":
