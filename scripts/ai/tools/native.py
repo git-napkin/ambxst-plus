@@ -30,7 +30,6 @@ FRIENDLY = {
     "screenshot": labels("Taking screenshot", "Took screenshot", ask="Screenshot"),
     "focus_window": labels("Focusing window", "Focused window", ask="Focus window"),
     "copy_to_clipboard": labels("Copying to clipboard", "Copied to clipboard", ask="Copy to clipboard"),
-    "load_preset": labels("Loading preset", "Loaded preset", ask="Load preset"),
 }
 
 

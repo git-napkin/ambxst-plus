@@ -423,12 +423,6 @@ Singleton {
         toml += "blur_popups = true\n";
         toml += "no_anim = true\n";
 
-        toml += "\n[[layer_rules]]\n";
-        toml += "namespace = \"presets\"\n";
-        toml += "blur = true\n";
-        toml += "blur_popups = true\n";
-        toml += "no_anim = true\n";
-
 
 
         // Input section (placeholder for keyboard layout)

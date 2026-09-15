@@ -153,10 +153,6 @@ QtObject {
             if (args.address)
                 AxctlService.dispatch("focuswindow address:" + args.address);
             return { ok: true };
-        case "load_preset":
-            if (args.name)
-                PresetsService.loadPreset(args.name);
-            return { ok: true, name: args.name || "" };
         default:
             return { error: "unknown native tool: " + name };
         }

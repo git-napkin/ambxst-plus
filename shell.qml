@@ -202,26 +202,6 @@ ShellRoot {
         }
     }
 
-    // Presets popup
-    Variants {
-        model: {
-            const screens = Quickshell.screens;
-            const list = (Config.bar && Config.bar.screenList !== undefined ? Config.bar.screenList : []);
-            if (!list || list.length === 0)
-                return screens;
-            return screens.filter(screen => list.indexOf(screen.name) !== -1);
-        }
-
-        Loader {
-            id: presetsLoader
-            active: SuspendManager.wakeReady && Visibilities.currentActiveModule === "presets" && Visibilities.lastFocusedScreen === modelData.name
-            required property ShellScreen modelData
-            asynchronous: true
-            onActiveChanged: root._loadScreenItem(presetsLoader, "modules/widgets/presets/PresetsPopup.qml", modelData)
-            Component.onCompleted: root._loadScreenItem(presetsLoader, "modules/widgets/presets/PresetsPopup.qml", modelData)
-        }
-    }
-
     // Secure WlSessionLock lockscreen
     WlSessionLock {
         id: sessionLock

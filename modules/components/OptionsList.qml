@@ -7,8 +7,8 @@ import qs.config
 import qs.modules.theme
 import qs.modules.components
 
-// Shared expandable option list (context-menu style) used by the launcher,
-// clipboard and presets tabs. Each model item: { text, icon, highlightColor,
+// Shared expandable option list (context-menu style) used by the launcher
+// and clipboard tabs. Each model item: { text, icon, highlightColor,
 // textColor, action }. Selection is driven externally via `currentIndex`; a
 // hover emits `itemSelected(index)` so the owner can sync its state.
 Item {

@@ -45,7 +45,6 @@ Singleton {
 
     property string configDir: (Quickshell.env("XDG_CONFIG_HOME") || (Quickshell.env("HOME") + "/.config")) + "/ambxst+/config"
     property string keybindsPath: (Quickshell.env("XDG_CONFIG_HOME") || (Quickshell.env("HOME") + "/.config")) + "/ambxst+/binds.json"
-    property string presetDir: decodeURIComponent(Qt.resolvedUrl("../assets/presets/ambxst+ Default").toString().replace("file://", ""))
 
     // First-boot migration: copy ~/.config/ambxst to ~/.config/ambxst+ if it exists
     // Only runs once, tracked by ~/.config/ambxst+/.migrated stamp file
@@ -130,36 +129,15 @@ Singleton {
     // ============================================
     // BATCH INITIALIZATION
     // ============================================
-    // Ensure config directory exists and copy preset files if missing.
-    // Failures are surfaced on stderr (logged below) instead of being
-    // swallowed with `2>/dev/null || true`, so a broken/missing preset dir
-    // can't silently leave the shell without seeded config.
+    // Ensure the config directory exists. Missing JSON files are created
+    // from defaults/*.js via handleMissingConfig when each FileView loads.
     Process {
         id: ensureConfigDir
         running: true
-        command: [
-            "bash", "-c",
-            "mkdir -p '" + root.configDir + "'\n" +
-            "seed() { local f=\"$1\"; if [ -f '" + root.presetDir + "/'$f ]; then cp -n '" + root.presetDir + "/'$f '" + root.configDir + "/'$f || echo \"ERROR: failed to seed $f\" 1>&2; fi; }\n" +
-            "seed theme.json\n" +
-            "seed bar.json\n" +
-            "seed workspaces.json\n" +
-            "seed overview.json\n" +
-            "seed notch.json\n" +
-            "seed compositor.json\n" +
-            "seed performance.json\n" +
-            "seed desktop.json\n" +
-            "seed lockscreen.json\n" +
-            // ai.json / weather.json / prefix.json are intentionally absent from
-            // presets (see PresetsService.excludedFiles); FileView handleMissingConfig
-            // writes them from defaults/*.js when first needed.
-            "seed dock.json\n" +
-            "seed system.json\n" +
-            "echo 'Preset files copied if missing'"
-        ]
+        command: ["mkdir", "-p", root.configDir]
         stderr: StdioCollector {
             onStreamFinished: {
-                if (text.trim().length > 0) console.warn("Config: preset seeding: " + text.trim());
+                if (text.trim().length > 0) console.warn("Config: mkdir: " + text.trim());
             }
         }
     }
@@ -3530,58 +3508,16 @@ Singleton {
         }
     }
 
-    // Compiled once; created per missing-config copy. Reloads the loader only
-    // after the copy has actually finished, and destroys itself on exit.
-    Component {
-        id: copyProcessComp
-        Process {
-            property string presetPath: ""
-            property string targetPath: ""
-            property string moduleName: ""
-            property var loader: null
-            property string defaultText: ""
-            property var onCompleteCb: null
-
-            command: ["cp", presetPath, targetPath]
-            running: true
-
-            onExited: (exitCode, exitStatus) => {
-                root._missingConfigInFlight[moduleName] = false;
-                if (exitCode === 0) {
-                    // Only now is the file on disk; reload so onLoaded runs
-                    // validateModule and onComplete through the normal path.
-                    loader.reload();
-                } else {
-                    console.warn(moduleName + ".json: preset copy failed (" + presetPath + "), writing defaults");
-                    loader.setText(defaultText);
-                    onCompleteCb();
-                }
-                destroy();
-            }
-        }
-    }
-
-    // Handles missing config files - copy from preset or create with defaults.
-    // Uses an in-flight guard per module so repeated load failures can't spawn
-    // concurrent copies (previous version raced a Qt.callLater against the
-    // copy, which could clobber the freshly-copied preset with defaults).
+    // Handles missing config files by writing defaults/*.js. Uses an in-flight
+    // guard per module so repeated load failures can't spawn concurrent writes.
     property var _missingConfigInFlight: ({})
     function handleMissingConfig(name, loader, defaults, onComplete) {
-        var presetPath = root.presetDir + "/" + name + ".json";
-        var targetPath = root.configDir + "/" + name + ".json";
-        console.log(name + ".json not found, checking preset: " + presetPath);
-
         if (root._missingConfigInFlight[name]) return;
         root._missingConfigInFlight[name] = true;
-
-        copyProcessComp.createObject(root, {
-            presetPath: presetPath,
-            targetPath: targetPath,
-            moduleName: name,
-            loader: loader,
-            defaultText: JSON.stringify(defaults, null, 2),
-            onCompleteCb: onComplete
-        });
+        console.log(name + ".json not found, writing defaults");
+        loader.setText(JSON.stringify(defaults, null, 2));
+        root._missingConfigInFlight[name] = false;
+        onComplete();
     }
 
 

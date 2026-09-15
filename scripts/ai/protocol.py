@@ -63,7 +63,6 @@ NATIVE_WRITE_TOOLS = (
     "screenshot",
     "focus_window",
     "copy_to_clipboard",
-    "load_preset",
 )
 
 CORE_TOOLS = (

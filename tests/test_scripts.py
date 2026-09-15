@@ -409,7 +409,6 @@ class TestJustWorksContracts(unittest.TestCase):
 
     def test_qml_toasts_use_in_shell_notifications(self):
         for rel in (
-            "modules/services/PresetsService.qml",
             "modules/services/ScreenRecorder.qml",
             "modules/services/UpdateService.qml",
             "modules/bar/clock/Pomodoro.qml",
@@ -432,7 +431,6 @@ class TestJustWorksContracts(unittest.TestCase):
         cli = self._read("cli.sh")
         shortcuts = self._read("modules/services/GlobalShortcuts.qml")
         self.assertIn("wallpaper-set", cli)
-        self.assertIn("preset-load", cli)
         self.assertIn("is_nix_store_symlink", cli)
         self.assertIn('case "notify":', shortcuts)
         self.assertIn('case "wallpaper-set":', shortcuts)
@@ -458,7 +456,7 @@ class TestCliPort(unittest.TestCase):
     def test_cli_syntax(self):
         subprocess.run(["bash", "-n", str(self.CLI)], check=True)
 
-    def test_help_lists_wallpaper_and_preset(self):
+    def test_help_lists_wallpaper(self):
         result = subprocess.run(
             ["bash", str(self.CLI), "help"],
             capture_output=True,
@@ -466,7 +464,7 @@ class TestCliPort(unittest.TestCase):
             check=True,
         )
         self.assertIn("wallpaper <file>", result.stdout)
-        self.assertIn('preset -l', result.stdout)
+        self.assertNotIn("preset -l", result.stdout)
 
     def test_wallpaper_missing_file_fails_before_ipc(self):
         result = subprocess.run(
@@ -477,15 +475,6 @@ class TestCliPort(unittest.TestCase):
         )
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("not found", result.stderr)
-
-    def test_preset_list_runs_without_shell(self):
-        result = subprocess.run(
-            ["bash", str(self.CLI), "preset", "-l"],
-            capture_output=True,
-            text=True,
-            check=True,
-        )
-        self.assertIn("ambxst+ Default", result.stdout)
 
     def test_nix_store_symlink_detection(self):
         text = self.CLI.read_text()

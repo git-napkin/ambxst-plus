@@ -190,10 +190,6 @@ QtObject {
             case "wallpaper-set":
                 applyWallpaperCommand(msg);
                 break;
-            case "preset-load":
-                if (msg.name)
-                    PresetsService.loadPreset(msg.name);
-                break;
             default:
                 console.warn("Unknown IPC JSON verb:", msg.v);
         }

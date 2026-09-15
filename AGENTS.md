@@ -46,8 +46,7 @@ but the binary/command is lowercase `ambxst+` — use that in shell commands.
   `shell`, `tools`, `components`). Most have their own `AGENTS.md` — **read the
   module's `AGENTS.md` first** when working in that subtree instead of guessing
   conventions.
-- `assets/` — presets (under `presets/`, one dir per preset), color schemes, fonts,
-  icons, matugen config.
+- `assets/` — color schemes, fonts, icons, matugen config.
 - `scripts/` — Python (output JSON) and Bash (output line-delimited text) backends
   invoked via `Quickshell.Io.Process`. They assume CLI tools are installed
   (`wl-paste`, `wl-copy`, `grim`, `slurp`, `brightnessctl`, `tesseract`, `hyprpicker`…).

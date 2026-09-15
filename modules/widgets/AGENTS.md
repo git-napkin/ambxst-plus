@@ -1,7 +1,7 @@
 # AGENTS.md - modules/widgets/
 
 ## OVERVIEW
-Dashboard widgets and overlay panels: overview, presets, powermenu, settings,
+Dashboard widgets and overlay panels: overview, powermenu, settings,
 clipboard, notes, metrics, wallpapers, emoji, tmux, and more.
 
 ## STRUCTURE
@@ -9,7 +9,6 @@ clipboard, notes, metrics, wallpapers, emoji, tmux, and more.
 |-------------|------|
 | `overview/` | Mission Control-style workspace overview (grid + scrolling) |
 | `assistant/` | Spotlight AI overlay (bar + transcript, not a sidebar) |
-| `presets/` | Color preset selector with live preview |
 | `powermenu/` | Power actions (lock, suspend, reboot, shutdown) |
 | `dashboard/` | Main dashboard with tabbed widgets |
 | `config/` | Settings window with categorized tabs |

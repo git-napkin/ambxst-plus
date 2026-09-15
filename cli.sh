@@ -13,11 +13,11 @@ if [ -n "${QML2_IMPORT_PATH:-}" ] && [ -z "${QML_IMPORT_PATH:-}" ]; then
 	export QML_IMPORT_PATH="$QML2_IMPORT_PATH"
 fi
 
-# Ensure config files exist - copy from preset if missing
+# Ensure the config directory exists. Missing JSON is written from
+# config/defaults/*.js by Config.qml when the shell loads.
 ensure_config_files() {
 	local old_config_dir="${XDG_CONFIG_HOME:-$HOME/.config}/ambxst"
 	local config_dir="${XDG_CONFIG_HOME:-$HOME/.config}/ambxst+/config"
-	local preset_dir="${SCRIPT_DIR}/assets/presets/ambxst+ Default"
 
 	# First-boot migration: copy old ~/.config/ambxst to ~/.config/ambxst+
 	if [ -d "$old_config_dir" ] && [ ! -f "${XDG_CONFIG_HOME:-$HOME/.config}/ambxst+/.migrated" ]; then
@@ -50,14 +50,6 @@ ensure_config_files() {
 		cp "$old_wallpaper_config" "$new_wallpaper_config"
 		echo "Migrated wallpaper config from $old_wallpaper_config to $new_wallpaper_config"
 	fi
-
-	# Copy preset files if they don't exist (cp -n = no-clobber).
-	# ai.json is not shipped in presets; Config.qml seeds it from defaults.
-	for file in theme bar workspaces overview notch compositor performance desktop lockscreen dock system; do
-		if [ -f "${preset_dir}/${file}.json" ]; then
-			cp -n "${preset_dir}/${file}.json" "${config_dir}/${file}.json" 2>/dev/null || true
-		fi
-	done
 }
 
 show_help() {
@@ -82,8 +74,6 @@ Commands:
         -oled                         OLED mode for this wallpaper only
         -tint                         Tint for this wallpaper only
         -monitor <id|name>            Apply to one monitor
-    preset -l                         List presets
-    preset "Name"                     Load a preset
     help                              Show this help message
     version, -v, --version            Show Ambxst[+] version
     goodbye                           Uninstall Ambxst[+] :(
@@ -99,8 +89,6 @@ Examples:
     ambxst+ brightness -s HDMI-A-1     Save current brightness of HDMI-A-1
     ambxst+ brightness -r              Restore saved brightness
     ambxst+ wallpaper ~/Pictures/wall.png -scheme scheme-tonal-spot
-    ambxst+ preset -l
-    ambxst+ preset "ambxst+ Default"
 
 EOF
 }
@@ -708,22 +696,6 @@ print(json.dumps(payload))
 	)
 	send_json_ipc "$WP_JSON" || exit 1
 	echo "Wallpaper set: $WP_ABS"
-	;;
-preset)
-	shift
-	PRESET_ARG="${1:-}"
-	PRESET_USER="${XDG_CONFIG_HOME:-$HOME/.config}/ambxst+/presets"
-	PRESET_ASSETS="${SCRIPT_DIR}/assets/presets"
-	if [ -z "$PRESET_ARG" ] || [ "$PRESET_ARG" = "-l" ]; then
-		{
-			[ -d "$PRESET_USER" ] && find "$PRESET_USER" -mindepth 1 -maxdepth 1 -type d -printf '%f\n'
-			[ -d "$PRESET_ASSETS" ] && find "$PRESET_ASSETS" -mindepth 1 -maxdepth 1 -type d -printf '%f\n'
-		} | sort -u
-		exit 0
-	fi
-	PRESET_JSON=$(python3 -c 'import json,sys; print(json.dumps({"v":"preset-load","name":sys.argv[1]}))' "$PRESET_ARG")
-	send_json_ipc "$PRESET_JSON" || exit 1
-	echo "Preset load requested: $PRESET_ARG"
 	;;
 version | -v | --version)
 	echo "Ambxst[+] $(cat "${SCRIPT_DIR}/version")"
