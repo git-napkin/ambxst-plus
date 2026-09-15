@@ -1285,6 +1285,30 @@ class TestComputerUse(unittest.TestCase):
         self.assertEqual(len(public), 150)
         self.assertTrue(tree_usable([fat]))
         self.assertFalse(tree_usable([{"name": "", "actions": [], "text": ""}]))
+        from ai.computer_use.atspi import is_shell_app, _ref_parts
+
+        self.assertTrue(is_shell_app({"name": "ambxst+", "role": "application"}))
+        self.assertTrue(is_shell_app({"name": "quickshell", "role": ""}))
+        self.assertFalse(is_shell_app({"name": "Firefox", "role": "application"}))
+        self.assertEqual(
+            select_app_roots(
+                [
+                    {"path": "/qs", "pid": 1, "name": "ambxst+", "role": "application"},
+                    {"path": "/a", "pid": 10, "name": "Firefox", "role": "application"},
+                ]
+            ),
+            ["/a"],
+        )
+        self.assertEqual(
+            select_app_roots(
+                [
+                    {"path": "/a", "pid": 10, "name": "Firefox", "role": "application"},
+                ],
+                want_pid=99,
+            ),
+            [],
+        )
+        self.assertEqual(_ref_parts((":1.42", "/org/a11y/atspi/accessible/2")), (":1.42", "/org/a11y/atspi/accessible/2"))
 
     def test_snapshot_has_no_image_by_default(self):
         from unittest.mock import patch
@@ -1325,6 +1349,7 @@ class TestComputerUse(unittest.TestCase):
         cands = ydotool_socket_candidates("/pref.sock")
         self.assertEqual(cands[0], "/pref.sock")
         self.assertIn("/tmp/.ydotool_socket", cands)
+        self.assertIn("/run/ydotoold/socket", cands)
         with patch("ai.computer_use.doctor.find_ydotool_socket", return_value=""), patch(
             "ai.computer_use.doctor.layer_noscreenshare", return_value=False
         ):
@@ -1346,6 +1371,162 @@ class TestComputerUse(unittest.TestCase):
         )
         self.assertTrue(found)
         self.assertTrue(flagged)
+
+    def test_flatten_cu_work_messages(self):
+        from ai.agent import flatten_ui_messages
+
+        flat = flatten_ui_messages(
+            [
+                {"role": "user", "content": "open kitty"},
+                {
+                    "role": "cu_work",
+                    "durationMs": 3200,
+                    "items": [
+                        {"role": "tool_call", "name": "use_computer"},
+                        {"role": "assistant", "content": "clicking"},
+                    ],
+                },
+                {"role": "assistant", "content": "done"},
+            ]
+        )
+        self.assertEqual([m["role"] for m in flat], ["user", "tool_call", "assistant", "assistant"])
+        self.assertEqual(flat[-1]["content"], "done")
+
+    def test_movecursor_prefers_hyprland_lua_dispatcher(self):
+        from unittest.mock import patch
+        from ai.computer_use import input as cu_input
+
+        calls = []
+
+        def fake_run(argv, **kwargs):
+            calls.append(list(argv))
+
+            class Result:
+                returncode = 0
+                stdout = b"ok"
+                stderr = b""
+
+            return Result()
+
+        with patch.object(cu_input, "_run", side_effect=fake_run), patch.object(
+            cu_input, "cursor_position", return_value=(400, 500)
+        ), patch(
+            "ai.computer_use.input.shutil.which",
+            side_effect=lambda n: "/usr/bin/" + n if n in ("hyprctl", "axctl") else None,
+        ), patch("ai.computer_use.input.time.sleep"):
+            self.assertTrue(cu_input.movecursor(400, 500))
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(calls[0][1], "dispatch")
+        self.assertIn("hl.dsp.cursor.move", calls[0][2])
+        self.assertIn("400", calls[0][2])
+        self.assertIn("500", calls[0][2])
+
+    def test_movecursor_surfaces_hyprland_and_axctl_errors(self):
+        from unittest.mock import patch
+        from ai.computer_use import input as cu_input
+
+        def fake_run(argv, **kwargs):
+            joined = " ".join(str(a) for a in argv)
+
+            class Result:
+                returncode = 7
+                stdout = b"error: 3 ')' expected near '400'"
+                stderr = b""
+
+            if "move-cursor" in joined:
+                Result.returncode = 0
+                Result.stdout = b"Error: method not found"
+            return Result()
+
+        with patch.object(cu_input, "_run", side_effect=fake_run), patch.object(
+            cu_input, "cursor_position", return_value=(400, 400)
+        ), patch(
+            "ai.computer_use.input.shutil.which",
+            side_effect=lambda n: "/usr/bin/" + n if n in ("hyprctl", "axctl") else None,
+        ), patch("ai.computer_use.input.time.sleep"):
+            with self.assertRaises(RuntimeError) as raised:
+                cu_input.movecursor(400, 400)
+        text = str(raised.exception)
+        self.assertIn("movecursor failed", text)
+        self.assertIn("method not found", text)
+
+    def test_movecursor_eases_from_current_position(self):
+        from unittest.mock import patch
+        from ai.computer_use import input as cu_input
+
+        calls = []
+
+        def fake_run(argv, **kwargs):
+            calls.append(list(argv))
+
+            class Result:
+                returncode = 0
+                stdout = b"ok"
+                stderr = b""
+
+            return Result()
+
+        with patch.object(cu_input, "_run", side_effect=fake_run), patch.object(
+            cu_input, "cursor_position", return_value=(0, 0)
+        ), patch(
+            "ai.computer_use.input.shutil.which",
+            side_effect=lambda n: "/usr/bin/" + n if n in ("hyprctl", "axctl") else None,
+        ), patch("ai.computer_use.input.time.sleep"):
+            self.assertTrue(cu_input.movecursor(400, 500))
+        lua = [c for c in calls if len(c) > 2 and "hl.dsp.cursor.move" in str(c[2])]
+        self.assertGreaterEqual(len(lua), cu_input.MOVE_STEPS_MIN)
+        self.assertIn("400", lua[-1][2])
+        self.assertIn("500", lua[-1][2])
+
+    def test_pixel_click_requires_last_shot(self):
+        from ai.tools.computer_use import PIXEL_SHOT_NEEDED, UseComputerTool
+
+        ctx = _ctx(".", execution_profile={"computerUse": "AlwaysAllow"})
+        ctx.computer_use_approved = True
+        out = UseComputerTool()._dispatch(ctx, "click", {"x": 10, "y": 10})
+        self.assertEqual(out["status"], "error")
+        self.assertIn("screenshot", out["error"].lower())
+        self.assertEqual(out["error"], PIXEL_SHOT_NEEDED)
+
+    def test_click_echoes_preview_coords(self):
+        from unittest.mock import patch
+        from ai.tools.computer_use import UseComputerTool
+
+        ctx = _ctx(".", execution_profile={"computerUse": "AlwaysAllow"})
+        ctx.computer_use_approved = True
+        ctx.computer_use_last_shot = {
+            "scale": 0.5,
+            "monitor_scale": 1,
+            "origin_x": 0,
+            "origin_y": 0,
+            "crop_x": 0,
+            "crop_y": 0,
+            "width": 1280,
+            "height": 720,
+        }
+        with patch("ai.tools.computer_use.cu_input.movecursor", return_value=True), patch(
+            "ai.tools.computer_use.cu_input.click"
+        ):
+            out = UseComputerTool()._dispatch(ctx, "click", {"x": 100, "y": 50})
+        self.assertEqual(out["status"], "ok")
+        self.assertEqual(out["x"], 100)
+        self.assertEqual(out["y"], 50)
+        self.assertEqual(out["logical_x"], 200)
+        self.assertEqual(out["logical_y"], 100)
+
+    def test_steer_open_blocks_mutating_actions(self):
+        from unittest.mock import patch
+        from ai.tools.computer_use import UseComputerTool
+
+        ctx = _ctx(".", execution_profile={"computerUse": "AlwaysAllow"})
+        ctx.computer_use_approved = True
+        with patch(
+            "ai.tools.computer_use._native",
+            return_value={"user_control": False, "steer_open": True, "locked": False},
+        ):
+            out = UseComputerTool()._one(ctx, {"action": "click", "x": 1, "y": 1})
+        self.assertEqual(out["status"], "error")
+        self.assertIn("steer", out["error"].lower())
 
     def test_computer_use_iter_cap(self):
         from io import StringIO

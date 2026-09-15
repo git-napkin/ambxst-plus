@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 import shutil
 import subprocess
@@ -14,6 +15,10 @@ INPUT_LOCK = threading.Lock()
 MOVE_SETTLE = 0.03
 CLICK_HOLD = 0.035
 FOCUS_SETTLE = 0.05
+MOVE_MIN_MS = 80
+MOVE_MAX_MS = 350
+MOVE_STEPS_MIN = 8
+MOVE_STEPS_MAX = 16
 YDOTOOL_CLICK = {
     "left": "0xC0",
     "primary": "0xC0",
@@ -103,20 +108,100 @@ def _run(argv, timeout=10, stdin_data=None, env=None):
     )
 
 
-def movecursor(x, y):
-    hypr = shutil.which("hyprctl")
-    if hypr:
-        result = _run([hypr, "dispatch", "movecursor", str(int(x)), str(int(y))])
-        if result.returncode == 0 and (result.stdout or b"").strip() in (b"ok", b""):
-            time.sleep(MOVE_SETTLE)
-            return True
+def _decode_proc(result):
+    blob = (result.stderr or b"") + b"\n" + (result.stdout or b"")
+    return blob.decode("utf-8", "replace").strip()
+
+
+def _hypr_dispatch_ok(result):
+    if result.returncode != 0:
+        return False
+    return (result.stdout or b"").strip() in (b"ok", b"")
+
+
+def _parse_cursor_text(text):
+    raw = str(text or "").strip()
+    if raw.startswith("{"):
+        try:
+            obj = json.loads(raw)
+            return int(obj.get("x") or 0), int(obj.get("y") or 0)
+        except (TypeError, ValueError):
+            pass
+    parts = raw.replace(" ", "").split(",")
+    if len(parts) >= 2:
+        try:
+            return int(float(parts[0])), int(float(parts[1]))
+        except (TypeError, ValueError):
+            return None
+    return None
+
+
+def cursor_position():
     axctl = shutil.which("axctl")
     if axctl:
-        result = _run([axctl, "system", "move-cursor", str(int(x)), str(int(y))])
-        if result.returncode == 0 and b"Error" not in (result.stderr or b"") + (result.stdout or b""):
-            time.sleep(MOVE_SETTLE)
+        result = _run([axctl, "system", "get-cursor-position"], timeout=4)
+        parsed = _parse_cursor_text((result.stdout or b"").decode("utf-8", "replace"))
+        if parsed:
+            return parsed
+    hypr = shutil.which("hyprctl")
+    if hypr:
+        result = _run([hypr, "cursorpos"], timeout=4)
+        parsed = _parse_cursor_text((result.stdout or b"").decode("utf-8", "replace"))
+        if parsed:
+            return parsed
+    return None
+
+
+def _ease_in_out(t):
+    t = max(0.0, min(1.0, float(t)))
+    if t < 0.5:
+        return 2.0 * t * t
+    return 1.0 - ((-2.0 * t + 2.0) ** 2) / 2.0
+
+
+def _dispatch_move(x, y):
+    ix, iy = int(round(x)), int(round(y))
+    errors = []
+    hypr = shutil.which("hyprctl")
+    if hypr:
+        lua = "hl.dsp.cursor.move({ x = %d, y = %d })" % (ix, iy)
+        result = _run([hypr, "dispatch", lua])
+        if _hypr_dispatch_ok(result):
             return True
-    return False
+        errors.append("hyprctl lua: " + (_decode_proc(result) or ("exit %s" % result.returncode)))
+        result = _run([hypr, "dispatch", "movecursor", str(ix), str(iy)])
+        if _hypr_dispatch_ok(result):
+            return True
+        errors.append("hyprctl movecursor: " + (_decode_proc(result) or ("exit %s" % result.returncode)))
+    axctl = shutil.which("axctl")
+    if axctl:
+        result = _run([axctl, "system", "move-cursor", str(ix), str(iy)])
+        blob = (result.stderr or b"") + (result.stdout or b"")
+        if result.returncode == 0 and b"Error" not in blob and b"method not found" not in blob.lower():
+            return True
+        errors.append("axctl: " + (_decode_proc(result) or ("exit %s" % result.returncode)))
+    raise RuntimeError("movecursor failed: " + ("; ".join(errors) or "no hyprctl/axctl"))
+
+
+def movecursor(x, y):
+    ix, iy = int(round(x)), int(round(y))
+    start = cursor_position()
+    if start:
+        sx, sy = start
+        dist = ((ix - sx) ** 2 + (iy - sy) ** 2) ** 0.5
+        if dist >= 2:
+            duration = min(MOVE_MAX_MS, max(MOVE_MIN_MS, dist * 0.35)) / 1000.0
+            steps = min(MOVE_STEPS_MAX, max(MOVE_STEPS_MIN, int(dist / 90) + 8))
+            dt = duration / float(steps)
+            for i in range(1, steps + 1):
+                t = _ease_in_out(i / float(steps))
+                _dispatch_move(sx + (ix - sx) * t, sy + (iy - sy) * t)
+                if i < steps:
+                    time.sleep(dt)
+            return True
+    _dispatch_move(ix, iy)
+    time.sleep(MOVE_SETTLE)
+    return True
 
 
 def _ydotool_env():
@@ -202,14 +287,12 @@ def drag(start, end, button="left"):
     sx, sy = start
     ex, ey = end
     with INPUT_LOCK:
-        if not movecursor(sx, sy):
-            raise RuntimeError("movecursor failed")
+        movecursor(sx, sy)
         _held.append(up)
         try:
             _ydotool(["click", down])
             time.sleep(CLICK_HOLD)
-            if not movecursor(ex, ey):
-                raise RuntimeError("movecursor failed")
+            movecursor(ex, ey)
             time.sleep(CLICK_HOLD)
             _ydotool(["click", up])
         finally:

@@ -27,6 +27,13 @@ PanelWindow {
     WlrLayershell.namespace: "ambxst+:assistant"
     WlrLayershell.keyboardFocus: assistantOpen && !ComputerUse.sessionActive ? WlrKeyboardFocus.Exclusive : WlrKeyboardFocus.None
 
+    Keys.enabled: assistantOpen && !ComputerUse.sessionActive
+    Keys.priority: Keys.BeforeItem
+    Keys.onPressed: event => {
+        if (AxctlService.forwardBoundKey(event))
+            event.accepted = true;
+    }
+
     readonly property var screenVisibilities: Visibilities.getForScreen(screen.name)
     readonly property bool assistantOpen: screenVisibilities ? screenVisibilities.assistant : false
 
@@ -37,6 +44,7 @@ PanelWindow {
 
     visible: assistantOpen && !ComputerUse.sessionActive
     exclusionMode: ExclusionMode.Ignore
+    property bool restoringAfterComputerUse: false
 
     mask: Region {
         item: assistantOpen && !ComputerUse.sessionActive ? fullMask : emptyMask
@@ -56,9 +64,11 @@ PanelWindow {
     FocusGrab {
         id: focusGrab
         windows: [assistantPopup]
-        active: assistantOpen && !ComputerUse.sessionActive
+        active: assistantOpen && !ComputerUse.sessionActive && !assistantPopup.restoringAfterComputerUse
 
         onCleared: {
+            if (assistantPopup.restoringAfterComputerUse)
+                return;
             Qt.callLater(() => {
                 if (assistantOpen)
                     Visibilities.setActiveModule("");
@@ -171,6 +181,24 @@ PanelWindow {
         if (assistantOpen && !ComputerUse.sessionActive) {
             Qt.callLater(() => bar.focusInput());
         }
+    }
+
+    Connections {
+        target: ComputerUse
+        function onSessionActiveChanged() {
+            if (assistantOpen && !ComputerUse.sessionActive) {
+                assistantPopup.restoringAfterComputerUse = true;
+                restoreGrabTimer.restart();
+                Qt.callLater(() => bar.focusInput());
+            }
+        }
+    }
+
+    Timer {
+        id: restoreGrabTimer
+        interval: 120
+        repeat: false
+        onTriggered: assistantPopup.restoringAfterComputerUse = false
     }
 
     Component.onCompleted: {

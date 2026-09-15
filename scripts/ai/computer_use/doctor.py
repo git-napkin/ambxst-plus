@@ -19,10 +19,13 @@ def _which(name):
 
 def ydotool_socket_candidates(preferred=None):
     seen = []
+    runtime = Path(os.environ.get("XDG_RUNTIME_DIR") or "/tmp")
     for path in (
         preferred,
         os.environ.get("YDOTOOL_SOCKET"),
-        str(Path(os.environ.get("XDG_RUNTIME_DIR") or "/tmp") / ".ydotool_socket"),
+        str(runtime / ".ydotool_socket"),
+        str(runtime / "ydotoold" / "socket"),
+        "/run/ydotoold/socket",
         "/tmp/.ydotool_socket",
     ):
         text = str(path or "").strip()
@@ -143,7 +146,7 @@ def doctor_report(native=None, atspi_ok=None):
         "screens": native.get("screens") or [],
         "focused_window": native.get("focused_window"),
         "windows": native.get("windows") or [],
-        "coordinate_space": "per-monitor grim physical mapped with that output's scale",
+        "coordinate_space": "attached screenshot pixels (width x height); mapped to compositor logical via last_shot scale/origin/crop",
         "binaries": bins,
     }
     blockers = []

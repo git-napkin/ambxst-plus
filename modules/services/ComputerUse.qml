@@ -22,6 +22,14 @@ Singleton {
     property string taskSummary: ""
     property string hudScreen: ""
     property real hudWidth: 360
+    property int workUserIndex: -1
+    property real sessionStartedAt: 0
+    property bool injectingInput: false
+    property bool steerOpen: false
+    property bool escArmed: false
+    property var _disabledMice: []
+
+    signal sessionFinished(var userIndex, var durationMs)
 
     property var _actionCb: null
     property var _pendingCapture: null
@@ -102,7 +110,13 @@ Singleton {
 
     function windowsPayload() {
         const clients = AxctlService.clients.values || [];
-        return clients.map(c => root.windowPayload(c));
+        const focusedAddr = AxctlService.focusedClient ? AxctlService.focusedClient.address : "";
+        return clients.map(c => {
+            const payload = root.windowPayload(c);
+            if (focusedAddr && payload && payload.address === focusedAddr)
+                payload.focused = true;
+            return payload;
+        });
     }
 
     function findWindow(args) {
@@ -160,9 +174,38 @@ Singleton {
         ydoProbeProc.running = true;
     }
 
+    function ensureAtSpi() {
+        if (atspiProc.running)
+            return;
+        atspiProc.command = ["sh", "-c", "for p in at-spi-bus-launcher /usr/libexec/at-spi-bus-launcher /usr/lib/at-spi-bus-launcher /usr/lib/at-spi2-core/at-spi-bus-launcher; do if command -v \"$p\" >/dev/null 2>&1; then exec \"$(command -v \"$p\")\" --launch-immediately; fi; if [ -x \"$p\" ]; then exec \"$p\" --launch-immediately; fi; done; exit 1"];
+        atspiProc.running = true;
+    }
+
+    function luaQuote(value) {
+        return '"' + String(value || "").replace(/\\/g, "\\\\").replace(/"/g, '\\"') + '"';
+    }
+
+    function setPointerDeviceEnabled(name, on) {
+        const n = String(name || "").trim();
+        if (!n)
+            return;
+        Quickshell.execDetached(["hyprctl", "eval", "hl.device({ name = " + root.luaQuote(n) + ", enabled = " + (on ? "true" : "false") + " })"]);
+    }
+
+    function formatWorkedDuration(ms) {
+        const n = Math.max(0, Number(ms) || 0);
+        if (n < 60000)
+            return Math.max(1, Math.round(n / 1000)) + "s";
+        if (n < 3600000)
+            return Math.max(1, Math.round(n / 60000)) + "m";
+        return Math.max(1, Math.round(n / 3600000)) + "h";
+    }
+
     function begin(summary) {
         if (GlobalStates.lockscreenVisible)
             return Object.assign({ error: "computer use is blocked while the session is locked" }, root.sessionSnapshot());
+        if (!root.sessionActive)
+            root.sessionStartedAt = Date.now();
         root.taskSummary = summary || "";
         root.lastAction = "session started";
         root.userHasControl = false;
@@ -172,6 +215,12 @@ Singleton {
         root.hudScreen = Visibilities.lastFocusedScreen || (root.pickScreen("") ? root.pickScreen("").name : "");
         root.applyNoscreenshare();
         root.ensureYdotoold();
+        root.ensureAtSpi();
+        root.injectingInput = false;
+        root.steerOpen = false;
+        root.escArmed = false;
+        if (!root.sessionActive)
+            root.lockPointer();
         root.sessionState = "agentDriving";
         if (Visibilities.currentActiveModule !== "assistant")
             Visibilities.setActiveModule("assistant");
@@ -180,6 +229,9 @@ Singleton {
 
     function end(opts) {
         const restore = !opts || opts.restoreSpotlight !== false;
+        const wasActive = root.sessionActive;
+        const userIndex = root.workUserIndex;
+        const durationMs = root.sessionStartedAt ? (Date.now() - root.sessionStartedAt) : 0;
         root.sessionState = "idle";
         root.userHasControl = false;
         root.composerFocused = false;
@@ -187,8 +239,16 @@ Singleton {
         root.hudCollapsed = false;
         root.lastAction = "";
         root.taskSummary = "";
+        root.workUserIndex = -1;
+        root.sessionStartedAt = 0;
+        root.injectingInput = false;
+        root.steerOpen = false;
+        root.escArmed = false;
+        root.unlockPointer();
         if (restore && Visibilities.currentActiveModule !== "assistant")
             Visibilities.setActiveModule("assistant");
+        if (wasActive)
+            root.sessionFinished(userIndex, durationMs);
     }
 
     function stop() {
@@ -200,8 +260,11 @@ Singleton {
             return;
         root.userHasControl = true;
         root.composerFocused = false;
+        root.steerOpen = false;
+        root.injectingInput = false;
         root.sessionState = "userControl";
         root.lastAction = "user has control";
+        root.unlockPointer();
     }
 
     function handBack() {
@@ -210,6 +273,7 @@ Singleton {
         root.userHasControl = false;
         root.sessionState = "agentDriving";
         root.lastAction = "agent driving";
+        root.lockPointer();
         root.syncFromChat(false);
     }
 
@@ -239,7 +303,9 @@ Singleton {
         return {
             locked: false,
             user_control: root.userHasControl,
-            session_state: root.sessionState
+            session_state: root.sessionState,
+            composer_focused: root.composerFocused,
+            steer_open: root.steerOpen
         };
     }
 
@@ -253,7 +319,34 @@ Singleton {
         }
         if (op === "gate")
             return root.gate((args && args.action) || "", (args && args.summary) || "");
+        if (op === "inject_begin") {
+            root.injectingInput = true;
+            return { ok: true };
+        }
+        if (op === "inject_end") {
+            root.injectingInput = false;
+            return { ok: true };
+        }
         return { error: "unknown computer_use_session op" };
+    }
+
+    function lockPointer() {
+        if (root.userHasControl)
+            return;
+        if (devicesProc.running)
+            devicesProc.running = false;
+        devicesProc.running = true;
+    }
+
+    function unlockPointer() {
+        const names = root._disabledMice || [];
+        for (let i = 0; i < names.length; i++)
+            root.setPointerDeviceEnabled(names[i], true);
+        root._disabledMice = [];
+    }
+
+    function isVirtualPointerName(name) {
+        return /ydotool|ydotoold|virtual|uinput/i.test(String(name || ""));
     }
 
     function handleAction(args, cb) {
@@ -324,10 +417,10 @@ Singleton {
         const opts = {
             includeCursor: args.include_cursor !== false && args.include_cursor !== "false",
             fullScreen: fullScreen,
-            monitor: fullScreen ? "" : mon.name,
-            origin_x: fullScreen ? 0 : mon.origin_x,
-            origin_y: fullScreen ? 0 : mon.origin_y,
-            monitor_scale: fullScreen ? 1 : (mon.scale || 1),
+            monitor: fullScreen ? "" : (mon ? mon.name : ""),
+            origin_x: fullScreen ? 0 : (mon ? mon.origin_x : 0),
+            origin_y: fullScreen ? 0 : (mon ? mon.origin_y : 0),
+            monitor_scale: mon ? (mon.scale || 1) : 1,
             window_title: win ? (win.title || "") : ""
         };
         if (win && !fullScreen) {
@@ -420,9 +513,50 @@ Singleton {
     }
 
     Process {
+        id: atspiProc
+        running: false
+    }
+
+    Component.onCompleted: root.ensureAtSpi()
+
+    Process {
+        id: devicesProc
+        running: false
+        command: ["hyprctl", "devices", "-j"]
+        stdout: StdioCollector {}
+        onExited: () => {
+            Qt.callLater(() => {
+                if (root.userHasControl || !root.sessionActive)
+                    return;
+                let data = {};
+                try {
+                    data = JSON.parse((devicesProc.stdout && devicesProc.stdout.text) || "{}");
+                } catch (e) {
+                    return;
+                }
+                const groups = [data.mice, data.touchpads, data.touch, data.tablets];
+                const names = [];
+                const seen = {};
+                for (let g = 0; g < groups.length; g++) {
+                    const list = groups[g] || [];
+                    for (let i = 0; i < list.length; i++) {
+                        const name = String(list[i].name || "").trim();
+                        if (!name || seen[name] || root.isVirtualPointerName(name))
+                            continue;
+                        seen[name] = true;
+                        names.push(name);
+                        root.setPointerDeviceEnabled(name, false);
+                    }
+                }
+                root._disabledMice = names;
+            });
+        }
+    }
+
+    Process {
         id: ydoProbeProc
         running: false
-        command: ["sh", "-c", "for s in \"${YDOTOOL_SOCKET}\" \"${XDG_RUNTIME_DIR:-/tmp}/.ydotool_socket\" /tmp/.ydotool_socket; do [ -S \"$s\" ] && printf '%s' \"$s\" && exit 0; done; exit 1"]
+        command: ["sh", "-c", "for s in \"${YDOTOOL_SOCKET}\" \"${XDG_RUNTIME_DIR:-/tmp}/.ydotool_socket\" \"${XDG_RUNTIME_DIR:-/tmp}/ydotoold/socket\" /run/ydotoold/socket /tmp/.ydotool_socket; do [ -S \"$s\" ] && printf '%s' \"$s\" && exit 0; done; exit 1"]
         stdout: StdioCollector {}
         onExited: code => {
             const found = ((ydoProbeProc.stdout && ydoProbeProc.stdout.text) || "").trim();

@@ -27,6 +27,13 @@ PanelWindow {
     WlrLayershell.namespace: "ambxst+:overview"
     WlrLayershell.keyboardFocus: overviewOpen ? WlrKeyboardFocus.Exclusive : WlrKeyboardFocus.None
 
+    Keys.enabled: overviewOpen
+    Keys.priority: Keys.BeforeItem
+    Keys.onPressed: event => {
+        if (AxctlService.forwardBoundKey(event))
+            event.accepted = true;
+    }
+
     // Get this screen's visibility state
     readonly property var screenVisibilities: Visibilities.getForScreen(screen.name)
     readonly property bool overviewOpen: screenVisibilities ? screenVisibilities.overview : false

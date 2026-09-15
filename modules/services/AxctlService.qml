@@ -4,6 +4,7 @@ import QtQuick
 import Quickshell
 import Quickshell.Io
 import qs.config
+import "../../config/KeybindActions.js" as KeybindActions
 
 Singleton {
     id: root
@@ -165,6 +166,165 @@ Singleton {
         }
 
         Quickshell.execDetached(["axctl"].concat(cmdArgs.filter(x => x !== "" && x !== undefined)));
+    }
+
+    function qtKeyToBindName(event) {
+        const key = event ? event.key : 0;
+        if (key >= Qt.Key_0 && key <= Qt.Key_9)
+            return String(key - Qt.Key_0);
+        if (key >= Qt.Key_A && key <= Qt.Key_Z)
+            return String.fromCharCode(key);
+        if (key === Qt.Key_Escape)
+            return "Escape";
+        if (key === Qt.Key_Return || key === Qt.Key_Enter)
+            return "Return";
+        if (key === Qt.Key_Space)
+            return "SPACE";
+        if (key === Qt.Key_Tab)
+            return "Tab";
+        if (key === Qt.Key_Backspace)
+            return "BackSpace";
+        if (key === Qt.Key_Left)
+            return "left";
+        if (key === Qt.Key_Right)
+            return "right";
+        if (key === Qt.Key_Up)
+            return "up";
+        if (key === Qt.Key_Down)
+            return "down";
+        if (key === Qt.Key_Comma)
+            return "comma";
+        if (key === Qt.Key_Period)
+            return "period";
+        if (key === Qt.Key_Minus)
+            return "minus";
+        if (key === Qt.Key_Equal)
+            return "equal";
+        if (key === Qt.Key_Slash)
+            return "slash";
+        if (key === Qt.Key_Super_L || key === Qt.Key_Super_R || key === Qt.Key_Meta)
+            return "";
+        const text = String((event && event.text) || "").trim();
+        if (text.length === 1)
+            return text.toUpperCase();
+        return "";
+    }
+
+    function eventModifierNames(event) {
+        const mods = [];
+        if (!event)
+            return mods;
+        if (event.modifiers & Qt.MetaModifier)
+            mods.push("SUPER");
+        if (event.modifiers & Qt.ShiftModifier)
+            mods.push("SHIFT");
+        if (event.modifiers & Qt.ControlModifier)
+            mods.push("CTRL");
+        if (event.modifiers & Qt.AltModifier)
+            mods.push("ALT");
+        mods.sort();
+        return mods;
+    }
+
+    function modsEqual(a, b) {
+        const left = (a || []).map(m => String(m || "").toUpperCase()).sort();
+        const right = (b || []).map(m => String(m || "").toUpperCase()).sort();
+        if (left.length !== right.length)
+            return false;
+        for (let i = 0; i < left.length; i++) {
+            if (left[i] !== right[i])
+                return false;
+        }
+        return true;
+    }
+
+    function pushBindTarget(out, modifiers, key, dispatcher, argument) {
+        const name = String(key || "").trim();
+        if (!name || name.toLowerCase().indexOf("mouse") === 0)
+            return;
+        if (name === "Super_L" || name === "Super_R" || name === "SUPER_L" || name === "SUPER_R")
+            return;
+        out.push({
+            modifiers: modifiers || [],
+            key: name,
+            dispatcher: dispatcher || "",
+            argument: argument || ""
+        });
+    }
+
+    function collectBindTargets() {
+        const out = [];
+        if (!Config.keybindsLoader || !Config.keybindsLoader.loaded || !Config.keybindsLoader.adapter)
+            return out;
+        const adapter = Config.keybindsLoader.adapter;
+        const custom = adapter.custom || [];
+        for (let i = 0; i < custom.length; i++) {
+            const bind = custom[i];
+            if (!bind || bind.enabled === false)
+                continue;
+            const keys = bind.keys && bind.keys.length ? bind.keys : [bind];
+            const actions = bind.actions || [];
+            for (let k = 0; k < keys.length; k++) {
+                const keyObj = keys[k] || {};
+                for (let a = 0; a < actions.length; a++) {
+                    const action = actions[a] || {};
+                    root.pushBindTarget(out, keyObj.modifiers || [], keyObj.key || "", action.dispatcher || "", action.argument || "");
+                }
+            }
+        }
+        function pushCore(keybind) {
+            if (!keybind)
+                return;
+            const resolved = KeybindActions.resolveAction(keybind.action, keybind);
+            if (!resolved)
+                return;
+            root.pushBindTarget(out, keybind.modifiers || [], keybind.key || "", resolved.dispatcher, resolved.argument);
+        }
+        const plus = adapter.ambxstPlus;
+        if (plus) {
+            pushCore(plus.launcher);
+            pushCore(plus.dashboard);
+            pushCore(plus.assistant);
+            pushCore(plus.clipboard);
+            pushCore(plus.emoji);
+            pushCore(plus.notes);
+            pushCore(plus.tmux);
+            pushCore(plus.wallpapers);
+            const sys = plus.system || {};
+            pushCore(sys.overview);
+            pushCore(sys.powermenu);
+            pushCore(sys.config);
+            pushCore(sys.lockscreen);
+            pushCore(sys.tools);
+            pushCore(sys.screenshot);
+            pushCore(sys.screenrecord);
+            pushCore(sys.lens);
+            pushCore(sys.reload);
+            pushCore(sys.quit);
+        }
+        return out;
+    }
+
+    // Exclusive layer-shell grabs eat Hyprland binds (workspace switch while
+    // the dashboard or computer-use HUD is open). Replay matching binds here.
+    function forwardBoundKey(event) {
+        const name = root.qtKeyToBindName(event);
+        if (!name)
+            return false;
+        const mods = root.eventModifierNames(event);
+        const targets = root.collectBindTargets();
+        let hit = false;
+        for (let i = 0; i < targets.length; i++) {
+            const bind = targets[i];
+            if (!root.modsEqual(mods, bind.modifiers))
+                continue;
+            if (String(bind.key || "").toUpperCase() !== name.toUpperCase())
+                continue;
+            if (bind.dispatcher)
+                root.dispatch(bind.dispatcher + (bind.argument ? " " + bind.argument : ""));
+            hit = true;
+        }
+        return hit;
     }
 
     function monitorFor(screen) {

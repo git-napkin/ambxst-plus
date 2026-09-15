@@ -6,7 +6,7 @@ Native desktop control for the AI panel. Policy default is **Never**. Advertise 
 
 1. Call `request_computer_use` with a short `task_summary`. Wait for the user to approve unless the profile is Always allow.
 2. Call `use_computer` with `action=snapshot` before clicking. Snapshot does **not** take a screenshot. It returns windows, the focused node, and a slim accessibility tree with `element_index` values.
-3. Prefer `element_index` (or role/name selectors) over pixels. Call `action=screenshot` only when `tree_usable` is false or you need a picture (canvas, games, layout). Pixel `x`/`y` are in that image (`coordinate_width` × `coordinate_height`).
+3. Prefer `element_index` (or role/name selectors) over pixels. Call `action=screenshot` only when `tree_usable` is false or you need a picture (canvas, games, layout). Pixel `x`/`y` are in the attached image (`width` × `height`), not `coordinate_width` / grim pixels / compositor logical coords. Screenshot first before any pixel click.
 
 ## Actions
 
@@ -20,10 +20,10 @@ For web prices or page text, prefer `exa_search` / `run_shell_command` (curl) ov
 
 ## HUD
 
-The user sees a bottom-right response card while computer use is active. It is hidden for captures. Do not try to click it. Composer text in the HUD steers you; it is not typed into apps.
+The user sees a bottom-right response card while computer use is active. A separate steer box may appear when they type; both are hidden for captures and must not be clicked or typed into. Steer text is not typed into apps.
 
 ## Targeting
 
 Window `address` is a string from `get_windows` / snapshot. Also: `pid`, `class`, title substring, and terminal `/proc` fields (`tty`, `terminal_pid`, `command`, `cwd`) when present. After `focus`, wait for verification before typing.
 
-If accessibility is empty (`tree_usable` false), ask the user to export `GTK_A11Y=atspi` and `QT_LINUX_ACCESSIBILITY_ALWAYS_ON=1` rather than guessing pixels first.
+If accessibility is empty (`tree_usable` false), the shell starts the AT-SPI bus when it can. Apps still need `GTK_A11Y=atspi` and `QT_LINUX_ACCESSIBILITY_ALWAYS_ON=1` (restart them after exporting). Screenshot when the tree is empty.

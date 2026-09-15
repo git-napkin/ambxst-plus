@@ -34,6 +34,19 @@ MAX_TOOL_ITERS = 25
 MAX_COMPUTER_USE_ITERS = 500
 
 
+def flatten_ui_messages(messages):
+    """Expand display-only cu_work wrappers before sending history to a model."""
+    out = []
+    for msg in messages or []:
+        if not isinstance(msg, dict):
+            continue
+        if msg.get("role") == "cu_work":
+            out.extend(flatten_ui_messages(msg.get("items") or []))
+            continue
+        out.append(msg)
+    return out
+
+
 class Pending:
     def __init__(self):
         self.event = threading.Event()
@@ -128,6 +141,7 @@ class Agent:
                 "Computer use is available. Call request_computer_use first, then use_computer. "
                 "Start with action=snapshot to read the accessibility tree, windows, and focused text. "
                 "Click by element_index. Call action=screenshot only if tree_usable is false or you need pixels. "
+                "Pixel x/y are in the attached screenshot image (width x height). Screenshot before any pixel click. "
                 "The user-only HUD will not appear in screenshots. Read the computer-use skill for details."
             )
         if extra:
@@ -251,7 +265,7 @@ class Agent:
             self.emit({"type": "done", "reason": "set_autoapprove"})
             return
         if cmd == "load_chat":
-            self.messages = list(payload.get("messages") or [])
+            self.messages = flatten_ui_messages(payload.get("messages") or [])
             if not self.messages or payload.get("end_computer_use"):
                 self._clear_computer_use()
             self.emit({"type": "done", "reason": "load_chat"})
@@ -312,6 +326,7 @@ class Agent:
         text = payload.get("text") or ""
         attachments = payload.get("attachments") or []
         self.chat_id = payload.get("chat_id") or self.chat_id
+        self.messages = flatten_ui_messages(self.messages)
         self._ensure_system()
         user_msg = {"role": "user", "content": text}
         if attachments:

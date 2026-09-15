@@ -133,6 +133,8 @@ def _capture(ctx, args, raise_window=None):
         k: prepared[k]
         for k in (
             "scale",
+            "width",
+            "height",
             "origin_x",
             "origin_y",
             "monitor_scale",
@@ -156,23 +158,52 @@ def _window_list(ctx):
     return [cu_windows.enrich_terminal(dict(w)) for w in windows]
 
 
-def _resolve_point(ctx, args):
+PIXEL_SHOT_NEEDED = "screenshot first; x/y are pixels of that image (width x height)"
+
+
+def _preview_xy(args, start=False):
+    if start:
+        x = args.get("start_x") if args.get("start_x") is not None else args.get("x")
+        y = args.get("start_y") if args.get("start_y") is not None else args.get("y")
+        return x, y
+    return args.get("x"), args.get("y")
+
+
+def _resolve_point(ctx, args, start=False):
     meta = ctx.computer_use_last_shot or {}
-    if args.get("x") is None or args.get("y") is None:
+    x, y = _preview_xy(args, start=start)
+    if x is None or y is None:
         node, err = atspi.resolve_node(ctx.computer_use_nodes, args)
         if err:
-            return None, None, err, node
-        if node and node.get("bounds"):
-            b = node["bounds"]
-            return b["x"] + b["width"] // 2, b["y"] + b["height"] // 2, "", node
-        return None, None, "click requires x/y, element_index, or a selector (call snapshot first)", node
-    x, y = args.get("x"), args.get("y")
+            return None, None, err, node, None
+        return None, None, PIXEL_SHOT_NEEDED, node, None
     if args.get("relative") and not meta:
-        return None, None, "relative coordinates need a prior screenshot of the target window", None
-    if meta:
-        lx, ly = coords.preview_to_logical(x, y, meta)
-        return lx, ly, "", None
-    return int(x), int(y), "", None
+        return None, None, "relative coordinates need a prior screenshot of the target window", None, None
+    if not meta:
+        return None, None, PIXEL_SHOT_NEEDED, None, None
+    lx, ly = coords.preview_to_logical(x, y, meta)
+    return lx, ly, "", None, (x, y)
+
+
+def _pointer_payload(preview, logical, extra=None):
+    px, py = preview if preview else (None, None)
+    out = {
+        "x": px,
+        "y": py,
+        "logical_x": logical[0] if logical else None,
+        "logical_y": logical[1] if logical else None,
+    }
+    if extra:
+        out.update(extra)
+    return out
+
+
+def _with_inject(ctx, fn):
+    _native(ctx, "computer_use_session", {"op": "inject_begin"})
+    try:
+        return fn()
+    finally:
+        _native(ctx, "computer_use_session", {"op": "inject_end"})
 
 
 def _slim_windows(windows):
@@ -272,7 +303,9 @@ class UseComputerTool(Tool):
         "description": (
             "Control the local desktop. Observe with action=snapshot (accessibility tree, windows, "
             "focused text — no screenshot). Click by element_index. Use action=screenshot only when "
-            "the tree is empty or you need pixels. Coordinates are in the returned image space."
+            "the tree is empty or you need pixels. Pixel x/y are in the attached screenshot image "
+            "(width x height), not coordinate_width or compositor logical pixels. Screenshot before "
+            "any pixel click, move, or drag."
         ),
         "parameters": {
             "type": "object",
@@ -288,8 +321,14 @@ class UseComputerTool(Tool):
                     "items": {"type": "object"},
                 },
                 "action_summary": {"type": "string"},
-                "x": {"type": "number"},
-                "y": {"type": "number"},
+                "x": {
+                    "type": "number",
+                    "description": "Pixel X in the last attached screenshot (width x height of that image)",
+                },
+                "y": {
+                    "type": "number",
+                    "description": "Pixel Y in the last attached screenshot (width x height of that image)",
+                },
                 "start_x": {"type": "number"},
                 "start_y": {"type": "number"},
                 "end_x": {"type": "number"},
@@ -376,8 +415,8 @@ class UseComputerTool(Tool):
         gate = _native(ctx, "computer_use_session", {"op": "gate", "action": action, "summary": args.get("action_summary") or action})
         if gate.get("status") == "error" or gate.get("error"):
             return gate if gate.get("status") else _error(gate.get("error"))
-        if gate.get("user_control") and action in MUTATING:
-            return _error("user has control")
+        if (gate.get("user_control") or gate.get("composer_focused") or gate.get("steer_open")) and action in MUTATING:
+            return _error("user has control" if gate.get("user_control") else "user is steering")
         if gate.get("locked"):
             return _error("computer use is blocked while the session is locked")
         try:
@@ -454,7 +493,7 @@ class UseComputerTool(Tool):
                     follow = _a11y_followup(ctx, node)
                     follow.update({"implemented": "atspi", "element_index": node.get("index")})
                     return _ok(follow)
-            x, y, err, node = _resolve_point(ctx, args)
+            x, y, err, node, preview = _resolve_point(ctx, args)
             if err:
                 return _error(err)
             if x is None:
@@ -466,21 +505,22 @@ class UseComputerTool(Tool):
                 if focused.get("verified") is False:
                     return _error("could not focus target window")
                 time.sleep(cu_input.FOCUS_SETTLE)
-            if not cu_input.movecursor(x, y):
-                return _error("movecursor failed")
+            cu_input.movecursor(x, y)
             cu_input.click(button, count)
-            return _ok({"implemented": "pointer", "x": x, "y": y})
+            return _ok(_pointer_payload(preview, (x, y), {"implemented": "pointer"}))
         if action == "move":
-            x, y, err, _node = _resolve_point(ctx, args)
+            x, y, err, _node, preview = _resolve_point(ctx, args)
             if err:
                 return _error(err)
-            if not cu_input.movecursor(x, y):
-                return _error("movecursor failed")
-            return _ok({"x": x, "y": y})
+            cu_input.movecursor(x, y)
+            return _ok(_pointer_payload(preview, (x, y)))
         if action == "scroll":
-            x, y, err, _node = _resolve_point(ctx, args)
+            x, y, err, _node, preview = _resolve_point(ctx, args)
             if not err and x is not None:
-                cu_input.movecursor(x, y)
+                try:
+                    cu_input.movecursor(x, y)
+                except RuntimeError:
+                    pass
             elif args.get("address") or args.get("title") or args.get("class") or args.get("pid"):
                 focused = _native(ctx, "use_computer", {"action": "focus", "warp": True, **{k: args.get(k) for k in ("address", "title", "class", "pid") if args.get(k) is not None}})
                 if focused.get("status") == "error" or focused.get("verified") is False:
@@ -488,21 +528,31 @@ class UseComputerTool(Tool):
             cu_input.scroll(args.get("direction") or "down", args.get("pages") or 1)
             return _ok({"implemented": "wheel"})
         if action == "drag":
-            start = coords.preview_to_logical(
-                args.get("start_x") if args.get("start_x") is not None else args.get("x"),
-                args.get("start_y") if args.get("start_y") is not None else args.get("y"),
-                ctx.computer_use_last_shot or {},
+            sx, sy, err, _node, start_preview = _resolve_point(ctx, args, start=True)
+            if err:
+                return _error(err)
+            end_args = dict(args)
+            end_args["x"] = args.get("end_x")
+            end_args["y"] = args.get("end_y")
+            ex, ey, err, _node2, end_preview = _resolve_point(ctx, end_args)
+            if err:
+                return _error(err)
+            cu_input.drag((sx, sy), (ex, ey), args.get("button") or "left")
+            return _ok(
+                {
+                    "from": {"x": (start_preview or [None, None])[0], "y": (start_preview or [None, None])[1]},
+                    "to": {"x": (end_preview or [None, None])[0], "y": (end_preview or [None, None])[1]},
+                    "logical_from": [sx, sy],
+                    "logical_to": [ex, ey],
+                }
             )
-            end = coords.preview_to_logical(args.get("end_x"), args.get("end_y"), ctx.computer_use_last_shot or {})
-            cu_input.drag(start, end, args.get("button") or "left")
-            return _ok({"from": start, "to": end})
         if action == "type":
             if args.get("address") or args.get("title") or args.get("class") or args.get("pid"):
                 focused = _native(ctx, "use_computer", {"action": "focus", **{k: args.get(k) for k in ("address", "title", "class", "pid") if args.get(k) is not None}})
                 if focused.get("status") == "error" or focused.get("verified") is False:
                     return _error(focused.get("error") or "could not focus target window")
                 time.sleep(cu_input.FOCUS_SETTLE)
-            cu_input.type_text(args.get("text") or "")
+            _with_inject(ctx, lambda: cu_input.type_text(args.get("text") or ""))
             note = ""
             focused = atspi.focused_element()
             if focused and not focused.get("editable"):
@@ -515,7 +565,7 @@ class UseComputerTool(Tool):
                 focused = cu_windows.resolve_window(_window_list(ctx), args)
                 if focused:
                     address = focused.get("address") or address
-            cu_input.press_key(spec, address=address)
+            _with_inject(ctx, lambda: cu_input.press_key(spec, address=address))
             return _ok({"implemented": "key", "key": spec})
         if action in ("focus", "move_window", "resize_window", "cursor"):
             native = _native(ctx, "use_computer", args)

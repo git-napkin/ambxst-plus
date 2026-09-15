@@ -32,9 +32,9 @@ PanelWindow {
     WlrLayershell.keyboardFocus: {
         if (!ComputerUse.sessionActive)
             return WlrKeyboardFocus.None;
-        if (ComputerUse.sessionState === "approvalWait" || (hud.cardVisible && ComputerUse.composerFocused))
-            return WlrKeyboardFocus.Exclusive;
-        return WlrKeyboardFocus.None;
+        if (ComputerUse.userHasControl || ComputerUse.hudHiddenForCapture || ComputerUse.injectingInput)
+            return WlrKeyboardFocus.None;
+        return WlrKeyboardFocus.Exclusive;
     }
 
     mask: Region {
@@ -55,7 +55,7 @@ PanelWindow {
     readonly property int innerRadius: Math.max(0, Styling.popupRadius() - pad)
     property bool cardVisible: false
     readonly property bool showChip: ComputerUse.sessionActive && ComputerUse.userHasControl
-    readonly property bool clickThrough: !hud.cardVisible && !hud.showChip
+    readonly property bool clickThrough: !hud.cardVisible && !hud.showChip && !ComputerUse.steerOpen
     readonly property string assistantText: {
         const chat = Ai.currentChat || [];
         for (let i = chat.length - 1; i >= 0; i--) {
@@ -84,9 +84,84 @@ PanelWindow {
     onAssistantTextChanged: hud.refreshPresence()
     onStreamingChanged: hud.refreshPresence()
 
-    onCardVisibleChanged: {
-        if (!hud.cardVisible)
-            ComputerUse.composerFocused = false;
+    Keys.enabled: ComputerUse.sessionActive && !ComputerUse.userHasControl && !ComputerUse.injectingInput
+    Keys.priority: Keys.BeforeItem
+    Keys.onPressed: event => {
+        if (AxctlService.forwardBoundKey(event)) {
+            event.accepted = true;
+            return;
+        }
+        hud.handleUserKey(event);
+    }
+
+    function openSteer(ch) {
+        ComputerUse.steerOpen = true;
+        ComputerUse.hudCollapsed = false;
+        if (ch)
+            steerInput.text = String(steerInput.text || "") + ch;
+        Qt.callLater(() => steerInput.focusInput());
+    }
+
+    function closeSteer() {
+        ComputerUse.steerOpen = false;
+        ComputerUse.composerFocused = false;
+        steerInput.blurInput();
+        steerInput.clear();
+    }
+
+    function armEscExit() {
+        ComputerUse.escArmed = true;
+        escArmTimer.restart();
+    }
+
+    function handleEscape() {
+        if (Ai.approvalPending) {
+            Ai.rejectPendingApproval();
+            return;
+        }
+        if (ComputerUse.steerOpen) {
+            hud.closeSteer();
+            hud.armEscExit();
+            return;
+        }
+        if (ComputerUse.escArmed) {
+            ComputerUse.escArmed = false;
+            escArmTimer.stop();
+            Ai.stopComputerUse();
+            return;
+        }
+        hud.armEscExit();
+    }
+
+    function handleUserKey(event) {
+        if (ComputerUse.steerOpen || ComputerUse.userHasControl || ComputerUse.hudHiddenForCapture || ComputerUse.injectingInput)
+            return;
+        if (Ai.approvalPending)
+            return;
+        if (event.modifiers & Qt.ControlModifier || event.modifiers & Qt.AltModifier || event.modifiers & Qt.MetaModifier)
+            return;
+        if (event.key === Qt.Key_Escape || event.key === Qt.Key_Return || event.key === Qt.Key_Enter || event.key === Qt.Key_Tab)
+            return;
+        if (event.key === Qt.Key_Backspace) {
+            hud.openSteer("");
+            event.accepted = true;
+            return;
+        }
+        const ch = event.text || "";
+        if (ch.length && ch.charCodeAt(0) >= 32) {
+            hud.openSteer(ch);
+            event.accepted = true;
+        }
+    }
+
+    function submitSteer() {
+        const text = String(steerInput.text || "").trim();
+        if (!text.length)
+            return;
+        if (Ai.isLoading)
+            Ai.cancel();
+        Ai.sendMessage(text);
+        hud.closeSteer();
     }
 
     function refreshPresence() {
@@ -94,7 +169,7 @@ PanelWindow {
             hud.cardVisible = false;
             return;
         }
-        if (Ai.approvalPending || ComputerUse.composerFocused) {
+        if (Ai.approvalPending) {
             ComputerUse.hudCollapsed = false;
             hud.cardVisible = true;
             hideTimer.stop();
@@ -128,10 +203,17 @@ PanelWindow {
         interval: 3000
         repeat: false
         onTriggered: {
-            if (Ai.approvalPending || ComputerUse.composerFocused)
+            if (Ai.approvalPending)
                 return;
             hud.cardVisible = false;
         }
+    }
+
+    Timer {
+        id: escArmTimer
+        interval: 1500
+        repeat: false
+        onTriggered: ComputerUse.escArmed = false
     }
 
     Connections {
@@ -154,31 +236,45 @@ PanelWindow {
     Connections {
         target: ComputerUse
         function onSessionActiveChanged() {
+            if (!ComputerUse.sessionActive)
+                hud.closeSteer();
             hud.refreshPresence();
         }
         function onUserHasControlChanged() {
-            hud.refreshPresence();
-        }
-        function onComposerFocusedChanged() {
+            if (ComputerUse.userHasControl)
+                hud.closeSteer();
             hud.refreshPresence();
         }
         function onHudCollapsedChanged() {
             hud.refreshPresence();
         }
+        function onSteerOpenChanged() {
+            ComputerUse.composerFocused = ComputerUse.steerOpen;
+        }
+    }
+
+    Binding {
+        target: ComputerUse
+        property: "composerFocused"
+        value: ComputerUse.steerOpen
+        when: ComputerUse.sessionActive
     }
 
     Item {
         id: hudRoot
         width: Math.round(Math.min(hud.maxWidth, Math.max(hud.minWidth, ComputerUse.hudWidth)))
         height: {
+            let h = 0;
             if (hud.showChip && !hud.cardVisible)
-                return chip.height;
-            if (!hud.cardVisible)
-                return 1;
-            return card.height;
+                h += chip.height;
+            if (hud.cardVisible)
+                h += card.height;
+            if (ComputerUse.steerOpen && !ComputerUse.userHasControl)
+                h += (h > 0 ? 8 : 0) + steerBox.height;
+            return Math.max(h, 1);
         }
-        opacity: (hud.cardVisible || hud.showChip) ? 1 : 0
-        y: (hud.cardVisible || hud.showChip) ? 0 : 12
+        opacity: (hud.cardVisible || hud.showChip || ComputerUse.steerOpen) ? 1 : 0
+        y: (hud.cardVisible || hud.showChip || ComputerUse.steerOpen) ? 0 : 12
 
         Behavior on opacity {
             enabled: Config.animDuration > 0
@@ -195,178 +291,44 @@ PanelWindow {
             }
         }
 
-        Item {
-            id: chip
-            visible: hud.showChip && !hud.cardVisible
+        Column {
             width: parent.width
-            height: visible ? 44 : 0
-
-            StyledRect {
-                anchors.fill: parent
-                variant: "popup"
-                radius: Styling.popupRadius()
-                layer.enabled: true
-                layer.effect: Shadow {}
-            }
-
-            RowLayout {
-                anchors.fill: parent
-                anchors.leftMargin: hud.pad
-                anchors.rightMargin: 4
-                spacing: 4
-
-                Text {
-                    Layout.fillWidth: true
-                    text: qsTr("You have control")
-                    font.family: Config.theme.font
-                    font.pixelSize: Styling.fontSize(-2)
-                    font.weight: Font.Medium
-                    color: Colors.overSurface
-                    elide: Text.ElideRight
-                }
-
-                HudIconButton {
-                    icon: Icons.handGrab
-                    tooltip: qsTr("Hand back")
-                    onClicked: ComputerUse.handBack()
-                }
-
-                HudIconButton {
-                    icon: Icons.stop
-                    tooltip: qsTr("Stop")
-                    onClicked: Ai.stopComputerUse()
-                }
-            }
-        }
-
-        Item {
-            id: card
-            visible: hud.cardVisible
-            width: parent.width
-            height: visible ? (header.height + body.height + 8 + footer.height + (composer.visible ? composer.height + 8 : 0) + hud.pad) : 0
-
-            StyledRect {
-                anchors.fill: parent
-                variant: "popup"
-                radius: Styling.popupRadius()
-                layer.enabled: true
-                layer.effect: Shadow {}
-            }
-
-            MouseArea {
-                id: resizeEdge
-                anchors.left: parent.left
-                anchors.top: parent.top
-                anchors.bottom: parent.bottom
-                width: 8
-                cursorShape: Qt.SizeHorCursor
-                property real startW: 360
-                onPressed: startW = ComputerUse.hudWidth
-                onPositionChanged: ComputerUse.hudWidth = Math.min(hud.maxWidth, Math.max(hud.minWidth, startW - mouseX))
-            }
+            spacing: 8
 
             Item {
-                id: header
-                anchors.top: parent.top
-                anchors.left: parent.left
-                anchors.right: parent.right
-                anchors.topMargin: 6
-                height: hud.steerText.length && !Ai.approvalPending ? 28 : 0
+                id: chip
+                visible: hud.showChip && !hud.cardVisible
+                width: parent.width
+                height: visible ? 44 : 0
 
-                Rectangle {
-                    visible: header.height > 0
-                    anchors.left: parent.left
-                    anchors.right: parent.right
-                    anchors.verticalCenter: parent.verticalCenter
-                    anchors.leftMargin: hud.pad
-                    anchors.rightMargin: hud.pad
-                    height: 22
-                    radius: Math.max(0, hud.innerRadius - 6)
-                    color: Styling.tint(Colors.primary, 0.18)
-
-                    Text {
-                        anchors.fill: parent
-                        anchors.leftMargin: 8
-                        anchors.rightMargin: 8
-                        text: hud.steerText
-                        font.family: Config.theme.font
-                        font.pixelSize: Styling.fontSize(-3)
-                        color: Colors.primary
-                        elide: Text.ElideRight
-                        verticalAlignment: Text.AlignVCenter
-                    }
+                StyledRect {
+                    anchors.fill: parent
+                    variant: "popup"
+                    radius: Styling.popupRadius()
+                    layer.enabled: true
+                    layer.effect: Shadow {}
                 }
-            }
-
-            Item {
-                id: body
-                anchors.top: header.bottom
-                anchors.topMargin: header.height > 0 ? 4 : 0
-                anchors.left: parent.left
-                anchors.right: parent.right
-                anchors.leftMargin: hud.pad
-                anchors.rightMargin: hud.pad
-                height: {
-                    if (Ai.approvalPending)
-                        return Math.min(approvalLoader.implicitHeight, hud.bodyMax);
-                    return Math.min(markdown.implicitHeight, hud.bodyMax);
-                }
-                clip: true
-
-                ApprovalCard {
-                    id: approvalLoader
-                    visible: Ai.approvalPending
-                    width: parent.width
-                    call: Ai.pendingApproval || ({})
-                }
-
-                AssistantMessage {
-                    id: markdown
-                    visible: !Ai.approvalPending
-                    width: parent.width
-                    message: ({
-                            role: "assistant",
-                            content: hud.assistantText
-                        })
-                }
-
-                Rectangle {
-                    visible: !Ai.approvalPending && markdown.implicitHeight > body.height
-                    anchors.left: parent.left
-                    anchors.right: parent.right
-                    anchors.bottom: parent.bottom
-                    height: 28
-                    gradient: Gradient {
-                        GradientStop {
-                            position: 0
-                            color: Qt.rgba(Colors.background.r, Colors.background.g, Colors.background.b, 0)
-                        }
-                        GradientStop {
-                            position: 1
-                            color: Styling.tint(Colors.background, 0.92)
-                        }
-                    }
-                }
-            }
-
-            Item {
-                id: footer
-                anchors.top: body.bottom
-                anchors.topMargin: 8
-                anchors.left: parent.left
-                anchors.right: parent.right
-                anchors.leftMargin: 4
-                anchors.rightMargin: 4
-                height: 40
 
                 RowLayout {
                     anchors.fill: parent
-                    spacing: 2
+                    anchors.leftMargin: hud.pad
+                    anchors.rightMargin: 4
+                    spacing: 4
+
+                    Text {
+                        Layout.fillWidth: true
+                        text: qsTr("You have control")
+                        font.family: Config.theme.font
+                        font.pixelSize: Styling.fontSize(-2)
+                        font.weight: Font.Medium
+                        color: Colors.overSurface
+                        elide: Text.ElideRight
+                    }
 
                     HudIconButton {
-                        icon: ComputerUse.userHasControl ? Icons.handGrab : Icons.hand
-                        tooltip: ComputerUse.userHasControl ? qsTr("Hand back") : qsTr("Take control")
-                        onClicked: ComputerUse.userHasControl ? ComputerUse.handBack() : ComputerUse.takeControl()
+                        icon: Icons.handGrab
+                        tooltip: qsTr("Hand back")
+                        onClicked: ComputerUse.handBack()
                     }
 
                     HudIconButton {
@@ -374,75 +336,190 @@ PanelWindow {
                         tooltip: qsTr("Stop")
                         onClicked: Ai.stopComputerUse()
                     }
+                }
+            }
 
-                    Item { Layout.fillWidth: true }
+            Item {
+                id: card
+                visible: hud.cardVisible
+                width: parent.width
+                height: visible ? (header.height + body.height + 8 + footer.height + hud.pad) : 0
 
-                    Text {
-                        visible: hud.streaming
-                        text: qsTr("Waiting")
-                        font.family: Config.theme.font
-                        font.pixelSize: Styling.fontSize(-4)
-                        color: Colors.outline
+                StyledRect {
+                    anchors.fill: parent
+                    variant: "popup"
+                    radius: Styling.popupRadius()
+                    layer.enabled: true
+                    layer.effect: Shadow {}
+                }
+
+                MouseArea {
+                    id: resizeEdge
+                    anchors.left: parent.left
+                    anchors.top: parent.top
+                    anchors.bottom: parent.bottom
+                    width: 8
+                    cursorShape: Qt.SizeHorCursor
+                    property real startW: 360
+                    onPressed: startW = ComputerUse.hudWidth
+                    onPositionChanged: ComputerUse.hudWidth = Math.min(hud.maxWidth, Math.max(hud.minWidth, startW - mouseX))
+                }
+
+                Item {
+                    id: header
+                    anchors.top: parent.top
+                    anchors.left: parent.left
+                    anchors.right: parent.right
+                    anchors.topMargin: 6
+                    height: hud.steerText.length && !Ai.approvalPending ? 28 : 0
+
+                    Rectangle {
+                        visible: header.height > 0
+                        anchors.left: parent.left
+                        anchors.right: parent.right
+                        anchors.verticalCenter: parent.verticalCenter
+                        anchors.leftMargin: hud.pad
+                        anchors.rightMargin: hud.pad
+                        height: 22
+                        radius: Math.max(0, hud.innerRadius - 6)
+                        color: Styling.tint(Colors.primary, 0.18)
+
+                        Text {
+                            anchors.fill: parent
+                            anchors.leftMargin: 8
+                            anchors.rightMargin: 8
+                            text: hud.steerText
+                            font.family: Config.theme.font
+                            font.pixelSize: Styling.fontSize(-3)
+                            color: Colors.primary
+                            elide: Text.ElideRight
+                            verticalAlignment: Text.AlignVCenter
+                        }
+                    }
+                }
+
+                Item {
+                    id: body
+                    anchors.top: header.bottom
+                    anchors.topMargin: header.height > 0 ? 4 : 0
+                    anchors.left: parent.left
+                    anchors.right: parent.right
+                    anchors.leftMargin: hud.pad
+                    anchors.rightMargin: hud.pad
+                    height: {
+                        if (Ai.approvalPending)
+                            return Math.min(approvalLoader.implicitHeight, hud.bodyMax);
+                        return Math.min(markdown.implicitHeight, hud.bodyMax);
+                    }
+                    clip: true
+
+                    ApprovalCard {
+                        id: approvalLoader
+                        visible: Ai.approvalPending
+                        width: parent.width
+                        call: Ai.pendingApproval || ({})
                     }
 
-                    HudIconButton {
-                        icon: Icons.minusCircle
-                        tooltip: qsTr("Hide")
-                        onClicked: {
-                            ComputerUse.hudCollapsed = true;
-                            hud.cardVisible = false;
+                    AssistantMessage {
+                        id: markdown
+                        visible: !Ai.approvalPending
+                        width: parent.width
+                        message: ({
+                                role: "assistant",
+                                content: hud.assistantText
+                            })
+                    }
+
+                    Rectangle {
+                        visible: !Ai.approvalPending && markdown.implicitHeight > body.height
+                        anchors.left: parent.left
+                        anchors.right: parent.right
+                        anchors.bottom: parent.bottom
+                        height: 28
+                        gradient: Gradient {
+                            GradientStop {
+                                position: 0
+                                color: Qt.rgba(Colors.background.r, Colors.background.g, Colors.background.b, 0)
+                            }
+                            GradientStop {
+                                position: 1
+                                color: Styling.tint(Colors.background, 0.92)
+                            }
+                        }
+                    }
+                }
+
+                Item {
+                    id: footer
+                    anchors.top: body.bottom
+                    anchors.topMargin: 8
+                    anchors.left: parent.left
+                    anchors.right: parent.right
+                    anchors.leftMargin: 4
+                    anchors.rightMargin: 4
+                    height: 40
+
+                    RowLayout {
+                        anchors.fill: parent
+                        spacing: 2
+
+                        HudIconButton {
+                            icon: ComputerUse.userHasControl ? Icons.handGrab : Icons.hand
+                            tooltip: ComputerUse.userHasControl ? qsTr("Hand back") : qsTr("Take control")
+                            onClicked: ComputerUse.userHasControl ? ComputerUse.handBack() : ComputerUse.takeControl()
+                        }
+
+                        HudIconButton {
+                            icon: Icons.stop
+                            tooltip: qsTr("Stop")
+                            onClicked: Ai.stopComputerUse()
+                        }
+
+                        Item { Layout.fillWidth: true }
+
+                        Text {
+                            visible: hud.streaming
+                            text: qsTr("Waiting")
+                            font.family: Config.theme.font
+                            font.pixelSize: Styling.fontSize(-4)
+                            color: Colors.outline
+                        }
+
+                        HudIconButton {
+                            icon: Icons.minusCircle
+                            tooltip: qsTr("Hide")
+                            onClicked: {
+                                ComputerUse.hudCollapsed = true;
+                                hud.cardVisible = false;
+                            }
                         }
                     }
                 }
             }
 
             Item {
-                id: composer
-                visible: !ComputerUse.userHasControl && hud.cardVisible
-                anchors.top: footer.bottom
-                anchors.topMargin: 8
-                anchors.left: parent.left
-                anchors.right: parent.right
-                anchors.leftMargin: hud.pad
-                anchors.rightMargin: hud.pad
-                height: 44
+                id: steerBox
+                visible: ComputerUse.steerOpen && !ComputerUse.userHasControl
+                width: parent.width
+                height: visible ? 52 : 0
 
                 StyledRect {
                     anchors.fill: parent
-                    variant: "internalbg"
-                    radius: hud.innerRadius
+                    variant: "popup"
+                    radius: Styling.popupRadius()
+                    layer.enabled: true
+                    layer.effect: Shadow {}
                 }
 
                 SearchInput {
                     id: steerInput
                     anchors.fill: parent
+                    anchors.margins: 4
                     variant: "transparent"
                     placeholderText: qsTr("Steer the agent…")
                     clearOnEscape: false
-                    onAccepted: {
-                        const text = steerInput.text.trim();
-                        if (Ai.isLoading) {
-                            Ai.cancel();
-                            return;
-                        }
-                        if (!text.length)
-                            return;
-                        Ai.sendMessage(text);
-                        steerInput.clear();
-                    }
-                    onEscapePressed: {
-                        if (Ai.approvalPending)
-                            Ai.rejectPendingApproval();
-                        else
-                            steerInput.blurInput();
-                    }
-                }
-
-                Binding {
-                    target: ComputerUse
-                    property: "composerFocused"
-                    value: steerInput.inputActive
-                    when: hud.visible && hud.cardVisible
+                    onAccepted: hud.submitSteer()
+                    onEscapePressed: hud.handleEscape()
                 }
             }
         }
@@ -460,8 +537,8 @@ PanelWindow {
     }
     Shortcut {
         sequence: "Escape"
-        enabled: ComputerUse.sessionState === "approvalWait"
-        onActivated: Ai.rejectPendingApproval()
+        enabled: ComputerUse.sessionActive && !ComputerUse.userHasControl && !ComputerUse.injectingInput && !ComputerUse.steerOpen
+        onActivated: hud.handleEscape()
     }
 
     component HudIconButton: Item {

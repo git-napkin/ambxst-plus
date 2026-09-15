@@ -29,6 +29,12 @@ Column {
         call: root.message
     }
 
+    ComputerUseWorkChip {
+        width: parent.width
+        visible: role === "cu_work"
+        message: root.message
+    }
+
     ApprovalCard {
         width: parent.width
         visible: role === "approval" && message.pending !== false

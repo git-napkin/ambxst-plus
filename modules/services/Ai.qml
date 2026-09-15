@@ -50,8 +50,15 @@ Singleton {
     Connections {
         target: ComputerUse
         function onSessionActiveChanged() {
-            if (!ComputerUse.sessionActive)
-                root.endComputerUseGrant();
+            if (ComputerUse.sessionActive) {
+                if (ComputerUse.workUserIndex < 0)
+                    ComputerUse.workUserIndex = root.lastUserIndex();
+                return;
+            }
+            root.endComputerUseGrant();
+        }
+        function onSessionFinished(userIndex, durationMs) {
+            Qt.callLater(() => root.collapseComputerUseWork(userIndex, durationMs));
         }
     }
 
@@ -426,6 +433,15 @@ Singleton {
         writeCmd({ cmd: "set_autoapprove", value: autoApprove });
     }
 
+    function lastUserIndex() {
+        const chat = currentChat || [];
+        for (let i = chat.length - 1; i >= 0; i--) {
+            if (chat[i].role === "user")
+                return i;
+        }
+        return -1;
+    }
+
     function lastUserMessage() {
         for (let i = currentChat.length - 1; i >= 0; i--) {
             if (currentChat[i].role === "user")
@@ -437,7 +453,7 @@ Singleton {
     function regenerateLast() {
         let idx = -1;
         for (let i = currentChat.length - 1; i >= 0; i--) {
-            if (currentChat[i].role === "assistant" || currentChat[i].role === "tool_call") {
+            if (currentChat[i].role === "assistant" || currentChat[i].role === "tool_call" || currentChat[i].role === "cu_work") {
                 idx = i;
                 break;
             }
@@ -452,7 +468,7 @@ Singleton {
         const last = lastUserMessage();
         if (last) {
             isLoading = true;
-            writeCmd({ cmd: "load_chat", messages: currentChat });
+            writeCmd({ cmd: "load_chat", messages: flattenChat(currentChat) });
             writeCmd({ cmd: "send", text: last, attachments: [], chat_id: currentChatId });
         }
     }
@@ -465,9 +481,59 @@ Singleton {
         const last = lastUserMessage();
         if (last) {
             isLoading = true;
-            writeCmd({ cmd: "load_chat", messages: currentChat });
+            writeCmd({ cmd: "load_chat", messages: flattenChat(currentChat) });
             writeCmd({ cmd: "send", text: last, chat_id: currentChatId });
         }
+    }
+
+    function flattenChat(chat) {
+        const out = [];
+        const list = chat || [];
+        for (let i = 0; i < list.length; i++) {
+            const msg = list[i];
+            if (msg && msg.role === "cu_work") {
+                const nested = flattenChat(msg.items || []);
+                for (let j = 0; j < nested.length; j++)
+                    out.push(nested[j]);
+                continue;
+            }
+            out.push(msg);
+        }
+        return out;
+    }
+
+    function collapseComputerUseWork(userIndex, durationMs) {
+        const chat = currentChat || [];
+        if (userIndex < 0 || userIndex >= chat.length)
+            return;
+        if (chat[userIndex].role !== "user")
+            return;
+        if (userIndex + 1 < chat.length && chat[userIndex + 1].role === "cu_work")
+            return;
+        let lastAsst = -1;
+        for (let i = chat.length - 1; i > userIndex; i--) {
+            if (chat[i].role === "assistant" && String(chat[i].content || "").trim()) {
+                lastAsst = i;
+                break;
+            }
+        }
+        const endExclusive = lastAsst > userIndex ? lastAsst : chat.length;
+        const items = [];
+        for (let i = userIndex + 1; i < endExclusive; i++)
+            items.push(chat[i]);
+        if (!items.length)
+            return;
+        const next = chat.slice(0, userIndex + 1);
+        next.push({
+            role: "cu_work",
+            durationMs: durationMs,
+            items: items
+        });
+        for (let i = endExclusive; i < chat.length; i++)
+            next.push(chat[i]);
+        currentChat = next;
+        saveCurrentChat();
+        chatModelChanged();
     }
 
     function updateMessage(index, newContent) {
@@ -944,7 +1010,7 @@ for f in files:
                     if (root.autoApprove)
                         root.setAutoApprove(false);
                     root.chatModelChanged();
-                    root.writeCmd({ cmd: "load_chat", messages: root.currentChat });
+                    root.writeCmd({ cmd: "load_chat", messages: root.flattenChat(root.currentChat) });
                 } catch (e) {
                     console.warn("Ai: failed to load chat", e);
                 }

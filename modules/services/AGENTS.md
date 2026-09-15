@@ -12,7 +12,7 @@ Backend singletons bridging Wayland protocols, CLI tools (nmcli, upower, wpctl, 
 | **Bluetooth** | `BluetoothService.qml` | Device listing, connect/disconnect |
 | **Brightness** | `Brightness.qml` | Per-monitor brightness via `brightnessctl` |
 | **AI Assistant** | `Ai.qml` + `scripts/ai/` | Spotlight overlay agent. Python NDJSON loop, Warp-shaped tools, native bridge |
-| **Computer use** | `ComputerUse.qml` + `scripts/ai/computer_use/` | Session HUD (text card, hide for grim), silent grim, Hyprland/axctl movecursor, ydotool clicks, AT-SPI snapshot. Active session paints an animated edge ring via `ScreenFrameContent`. |
+| **Computer use** | `ComputerUse.qml` + `scripts/ai/computer_use/` | Session HUD (output card, type-to-open steer, hide for grim), silent grim, JPEG-space clicks, eased Hyprland cursor, physical mice/trackpads disabled via `hyprctl eval hl.device` while driving, ydotool clicks, AT-SPI bus started if missing. Exclusive HUD/dashboard replay compositor binds (workspace switch). Session ends on Stop / double-Esc / Super+A / lock — not on agent `done`. |
 
 | **Clipboard** | `ClipboardService.qml` | Persistent clipboard via `clipboard.db` + helper scripts |
 | **Media** | `MprisController.qml` | MPRIS D-Bus player control |

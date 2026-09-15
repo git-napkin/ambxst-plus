@@ -26,6 +26,7 @@ with pkgs; [
   wlsunset
   wtype
   ydotool
+  at-spi2-core
   xdg-utils
   zbar
   zenity

@@ -2,6 +2,10 @@
 
 from __future__ import annotations
 
+import os
+import re
+import shutil
+import subprocess
 import time
 
 MAX_NODES = 1000
@@ -14,6 +18,14 @@ MAX_DISCOVERY_ROOTS = 256
 MODEL_MAX_NODES = 150
 MODEL_MAX_TEXT = 200
 A11Y_HINT = "export GTK_A11Y=atspi and QT_LINUX_ACCESSIBILITY_ALWAYS_ON=1"
+REGISTRY = "org.a11y.atspi.Registry"
+SHELL_APP_RE = re.compile(r"ambxst|quickshell|(?:^|\s)qs(?:$|\s)", re.I)
+LAUNCHER_CANDIDATES = (
+    "at-spi-bus-launcher",
+    "/usr/libexec/at-spi-bus-launcher",
+    "/usr/lib/at-spi-bus-launcher",
+    "/usr/lib/at-spi2-core/at-spi-bus-launcher",
+)
 
 CLICK_ACTIONS = ("click", "press", "toggle")
 
@@ -103,9 +115,90 @@ def _session_bus():
     return dbus.SessionBus()
 
 
-def connect_a11y():
+def _ref_parts(item, default_dest=REGISTRY):
+    default_dest = default_dest or REGISTRY
+    if isinstance(item, (list, tuple)):
+        if len(item) >= 2:
+            return str(item[0] or default_dest), str(item[1])
+        if len(item) == 1:
+            return default_dest, str(item[0])
+    return default_dest, str(item)
+
+
+def is_shell_app(app):
+    blob = " ".join([str((app or {}).get("name") or ""), str((app or {}).get("role") or "")])
+    return bool(SHELL_APP_RE.search(blob))
+
+
+def _enable_a11y_status():
     import dbus
 
+    try:
+        session = _session_bus()
+        bus_obj = session.get_object("org.a11y.Bus", "/org/a11y/bus")
+        props = dbus.Interface(bus_obj, "org.freedesktop.DBus.Properties")
+        enabled = dbus.Boolean(True, variant_level=1)
+        try:
+            props.Set("org.a11y.Status", "IsEnabled", enabled)
+        except Exception:
+            pass
+        try:
+            props.Set("org.a11y.Status", "ScreenReaderEnabled", enabled)
+        except Exception:
+            pass
+    except Exception:
+        return
+
+
+def _find_launcher():
+    for path in LAUNCHER_CANDIDATES:
+        if os.path.sep in path:
+            if os.path.isfile(path) and os.access(path, os.X_OK):
+                return path
+            continue
+        found = shutil.which(path)
+        if found:
+            return found
+    return ""
+
+
+def _bus_up():
+    try:
+        connect_a11y(ensure=False)
+        return True
+    except Exception:
+        return False
+
+
+def ensure_a11y_bus():
+    if _bus_up():
+        _enable_a11y_status()
+        return True
+    launcher = _find_launcher()
+    if not launcher:
+        return False
+    try:
+        subprocess.Popen(
+            [launcher, "--launch-immediately"],
+            start_new_session=True,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+    except OSError:
+        return False
+    for _ in range(25):
+        time.sleep(0.12)
+        if _bus_up():
+            _enable_a11y_status()
+            return True
+    return False
+
+
+def connect_a11y(ensure=True):
+    import dbus
+
+    if ensure:
+        ensure_a11y_bus()
     session = _session_bus()
     try:
         bus_obj = session.get_object("org.a11y.Bus", "/org/a11y/bus")
@@ -119,8 +212,9 @@ def connect_a11y():
 
 def probe():
     try:
-        bus = connect_a11y()
-        bus.get_object("org.a11y.atspi.Registry", "/org/a11y/atspi/accessible/root")
+        ensure_a11y_bus()
+        bus = connect_a11y(ensure=False)
+        bus.get_object(REGISTRY, "/org/a11y/atspi/accessible/root")
         return True
     except Exception:
         return False
@@ -132,10 +226,9 @@ def _iface(obj, name):
     return dbus.Interface(obj, name)
 
 
-def _node_from_proxy(bus, path, index, parent_index, depth):
-    import dbus
-
-    obj = bus.get_object("org.a11y.atspi.Registry", path)
+def _node_from_proxy(bus, path, index, parent_index, depth, dest=None):
+    dest = dest or REGISTRY
+    obj = bus.get_object(dest, path)
     acc = _iface(obj, "org.a11y.atspi.Accessible")
     role = ""
     name = ""
@@ -218,10 +311,7 @@ def _node_from_proxy(bus, path, index, parent_index, depth):
     try:
         kids = acc.GetChildren()
         for kid in list(kids)[:64]:
-            if isinstance(kid, (list, tuple)) and len(kid) >= 1:
-                children.append(str(kid[1] if len(kid) > 1 else kid[0]))
-            else:
-                children.append(str(kid))
+            children.append(_ref_parts(kid, dest))
     except Exception:
         children = []
     return {
@@ -229,6 +319,7 @@ def _node_from_proxy(bus, path, index, parent_index, depth):
         "parent_index": parent_index,
         "depth": depth,
         "object_ref": str(path),
+        "bus_name": dest,
         "role": role,
         "name": name,
         "description": desc,
@@ -244,21 +335,23 @@ def _node_from_proxy(bus, path, index, parent_index, depth):
     }
 
 
-def _process_id(bus, path):
+def _process_id(bus, path, dest=None):
     try:
-        obj = bus.get_object("org.a11y.atspi.Registry", path)
+        obj = bus.get_object(dest or REGISTRY, path)
         acc = _iface(obj, "org.a11y.atspi.Accessible")
         return int(acc.GetProcessId())
     except Exception:
         return 0
 
 
-def _app_meta(bus, path):
-    node = _node_from_proxy(bus, path, 0, None, 0)
-    pid = _process_id(bus, path)
+def _app_meta(bus, path, dest=None):
+    dest = dest or REGISTRY
+    node = _node_from_proxy(bus, path, 0, None, 0, dest=dest)
+    pid = _process_id(bus, path, dest=dest)
     node["pid"] = pid
     return {
         "path": path,
+        "dest": dest,
         "pid": pid,
         "name": node.get("name") or "",
         "role": node.get("role") or "",
@@ -266,7 +359,7 @@ def _app_meta(bus, path):
 
 
 def select_app_roots(apps, want_pid=None, want_name=""):
-    apps = list(apps or [])
+    apps = [a for a in list(apps or []) if not is_shell_app(a)]
     want_name = _norm(want_name or "")
     if want_pid not in (None, ""):
         try:
@@ -285,6 +378,8 @@ def select_app_roots(apps, want_pid=None, want_name=""):
                 hits.append(app.get("path"))
         if hits:
             return hits[:1]
+    if want_pid or want_name:
+        return []
     return [a.get("path") for a in apps[:8] if a.get("path")]
 
 
@@ -333,7 +428,7 @@ def snapshot_tree(pid=None, app_name=None, max_nodes=None, max_depth=None):
     cap_nodes = _clamp(max_nodes, MAX_NODES, HARD_MAX_NODES)
     cap_depth = _clamp(max_depth, MAX_DEPTH, HARD_MAX_DEPTH)
     bus = connect_a11y()
-    root = bus.get_object("org.a11y.atspi.Registry", "/org/a11y/atspi/accessible/root")
+    root = bus.get_object(REGISTRY, "/org/a11y/atspi/accessible/root")
     acc = _iface(root, "org.a11y.atspi.Accessible")
     apps = []
     try:
@@ -342,25 +437,27 @@ def snapshot_tree(pid=None, app_name=None, max_nodes=None, max_depth=None):
         raise RuntimeError("AT-SPI registry has no children: %s" % exc) from exc
     metas = []
     for app in apps:
-        path = str(app[1] if isinstance(app, (list, tuple)) and len(app) > 1 else app)
+        dest, path = _ref_parts(app)
         try:
-            metas.append(_app_meta(bus, path))
+            metas.append(_app_meta(bus, path, dest=dest))
         except Exception:
             continue
+    dest_by_path = {m["path"]: m.get("dest") or REGISTRY for m in metas if m.get("path")}
     roots = select_app_roots(metas, want_pid=pid, want_name=app_name)
     if not roots:
         roots = [m["path"] for m in metas[:8] if m.get("path")]
     pid_by_path = {m["path"]: m.get("pid") or 0 for m in metas}
     nodes = []
-    queue = [(path, None, 0) for path in roots]
+    queue = [(dest_by_path.get(path, REGISTRY), path, None, 0) for path in roots]
     seen = set()
     while queue and len(nodes) < cap_nodes and time.time() < deadline:
-        path, parent, depth = queue.pop(0)
-        if path in seen or depth > cap_depth:
+        dest, path, parent, depth = queue.pop(0)
+        mark = dest + ":" + path
+        if mark in seen or depth > cap_depth:
             continue
-        seen.add(path)
+        seen.add(mark)
         try:
-            node = _node_from_proxy(bus, path, len(nodes), parent, depth)
+            node = _node_from_proxy(bus, path, len(nodes), parent, depth, dest=dest)
         except Exception:
             continue
         node["pid"] = pid_by_path.get(path) or (pid if depth == 0 else 0) or 0
@@ -368,8 +465,10 @@ def snapshot_tree(pid=None, app_name=None, max_nodes=None, max_depth=None):
         nodes.append(node)
         if depth < cap_depth:
             for child in children:
-                if child and child not in seen:
-                    queue.append((child, node["index"], depth + 1))
+                cdest, cpath = _ref_parts(child, dest)
+                child_mark = cdest + ":" + cpath
+                if cpath and child_mark not in seen:
+                    queue.append((cdest, cpath, node["index"], depth + 1))
     return compact_tree(nodes)
 
 
@@ -460,11 +559,15 @@ def click_equivalent(node):
     return None
 
 
-def perform_action(node, action=None):
-    import dbus
+def _object_for_node(bus, node):
+    dest = (node or {}).get("bus_name") or REGISTRY
+    path = (node or {}).get("object_ref") or ""
+    return bus.get_object(dest, path)
 
+
+def perform_action(node, action=None):
     bus = connect_a11y()
-    obj = bus.get_object("org.a11y.atspi.Registry", node["object_ref"])
+    obj = _object_for_node(bus, node)
     act = _iface(obj, "org.a11y.atspi.Action")
     index = 0
     if action in (None, ""):
@@ -487,10 +590,8 @@ def perform_action(node, action=None):
 
 
 def set_value(node, value):
-    import dbus
-
     bus = connect_a11y()
-    obj = bus.get_object("org.a11y.atspi.Registry", node["object_ref"])
+    obj = _object_for_node(bus, node)
     text = str(value)
     try:
         number = float(text)

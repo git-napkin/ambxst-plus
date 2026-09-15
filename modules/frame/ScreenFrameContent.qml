@@ -165,8 +165,7 @@ Item {
         variant: "bg"
         radius: 0
         enableBorder: false
-        visible: root.userFrameEnabled
-        opacity: root.computerUseActive ? 0 : 1
+        visible: root.frameEnabled
         layer.enabled: true
         layer.effect: MultiEffect {
             maskEnabled: true
@@ -175,20 +174,13 @@ Item {
             maskThresholdMin: 0.5
             maskSpreadAtMin: 1.0
         }
-        Behavior on opacity {
-            enabled: Config.animDuration > 0
-            NumberAnimation {
-                duration: Config.animDuration
-                easing.type: Styling.animEasing
-            }
-        }
     }
 
     Item {
         id: cuFrameFill
         anchors.fill: parent
         visible: root.cuOpacity > 0.01
-        opacity: root.cuOpacity
+        opacity: root.cuOpacity * (0.34 + 0.26 * root.cuGlow)
         layer.enabled: true
         layer.effect: MultiEffect {
             maskEnabled: true
@@ -200,7 +192,6 @@ Item {
 
         Shape {
             anchors.fill: parent
-            opacity: 0.72 + 0.28 * root.cuGlow
             preferredRendererType: Shape.CurveRenderer
 
             ShapePath {
