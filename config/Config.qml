@@ -1370,16 +1370,21 @@ Singleton {
     }
 
 
-    // Timer to create binds.json if missing after initial load
+    // Timer to create binds.json if missing after initial load.
+    // Only write defaults when the file is still absent — never overwrite
+    // an existing binds.json with adapter defaults (that resets Super+A etc.).
     Timer {
         id: createKeybindsTimer
         interval: 1000
         repeat: false
         onTriggered: {
+            if (root.keybindsInitialLoadComplete)
+                return;
             const raw = keybindsLoader.text();
             if (!raw || raw.trim().length === 0) {
                 console.log("binds.json still missing after delay, creating...");
                 keybindsLoader.writeAdapter();
+                root.keybindsInitialLoadComplete = true;
                 repairKeybindsTimer.start();
             }
         }
@@ -1516,6 +1521,13 @@ Singleton {
                 }
             }
 
+            // defaultAmbxstPlusBinds used to live on the JsonAdapter and got
+            // serialized into binds.json; strip it so it can't confuse loads.
+            if (current.defaultAmbxstPlusBinds !== undefined) {
+                delete current.defaultAmbxstPlusBinds;
+                needsUpdate = true;
+            }
+
             if (needsUpdate) {
                 console.log("Auto-repairing binds.json: adding missing binds");
                 keybindsLoader.setText(JSON.stringify(current, null, 2));
@@ -1531,10 +1543,6 @@ Singleton {
         path: keybindsPath
         atomicWrites: true
         watchChanges: true
-        Component.onCompleted: {
-            // Ensure binds.json is created even if onLoaded never fires
-            createKeybindsTimer.start();
-        }
         onLoaded: {
             _reloading = false;
             if (!root.keybindsInitialLoadComplete) {
@@ -1548,17 +1556,25 @@ Singleton {
                     repairKeybindsTimer.start();
                 }
                 root.keybindsInitialLoadComplete = true;
+                createKeybindsTimer.stop();
+            } else {
+                normalizeCustomBindsFromDisk();
+            }
+        }
+        onLoadFailed: {
+            if (!root.keybindsInitialLoadComplete) {
+                // Missing file — create defaults after a short grace period
                 createKeybindsTimer.start();
             }
         }
         onFileChanged: {
             _reloading = true;
             reload();
-            normalizeCustomBinds();
+            // Normalize after reload completes (onLoaded); doing it here races
+            // the async reload and can rewrite binds from a half-loaded adapter.
         }
         onPathChanged: {
             reload();
-            normalizeCustomBinds();
         }
         onAdapterUpdated: {
             if (root.keybindsInitialLoadComplete && !keybindsLoader._reloading) {
@@ -1566,15 +1582,33 @@ Singleton {
             }
         }
 
-        // Normalize custom binds
-        function normalizeCustomBinds() {
-            if (!adapter || !adapter.custom)
-                return;
-
-            const normalized = KeybindActions.normalizeCustomBinds(adapter.custom);
-            if (normalized.changed) {
-                console.log("Normalizing custom binds: migrating to action format");
-                adapter.custom = normalized.binds;
+        // Normalize custom binds from on-disk JSON (not adapter.custom).
+        // JsonAdapter list<var> often exposes entries where .keys/.actions look
+        // undefined even when the file is fine — reading the adapter made every
+        // load look like a legacy migration and rewrite binds.json.
+        function normalizeCustomBindsFromDisk() {
+            try {
+                const raw = text();
+                if (!raw || raw.trim().length === 0)
+                    return;
+                const current = JSON.parse(raw);
+                let needsWrite = false;
+                if (current.custom && current.custom.length > 0) {
+                    const normalized = KeybindActions.normalizeCustomBinds(current.custom);
+                    if (normalized.changed) {
+                        console.log("Normalizing custom binds: migrating to action format");
+                        current.custom = normalized.binds;
+                        needsWrite = true;
+                    }
+                }
+                if (current.defaultAmbxstPlusBinds !== undefined) {
+                    delete current.defaultAmbxstPlusBinds;
+                    needsWrite = true;
+                }
+                if (needsWrite)
+                    setText(JSON.stringify(current, null, 2));
+            } catch (e) {
+                console.warn("Failed to normalize binds.json:", e);
             }
         }
 
@@ -1583,8 +1617,8 @@ Singleton {
                 property JsonObject launcher: JsonObject {
                     property list<string> modifiers: ["SUPER"]
                     property string key: "Super_L"
-                property var action: ({ "id": "ambxst+.launcher", "args": {} })
-            }
+                    property var action: ({ "id": "ambxst+.launcher", "args": {} })
+                }
             property JsonObject dashboard: JsonObject {
                 property list<string> modifiers: ["SUPER"]
                 property string key: "D"
@@ -1673,43 +1707,8 @@ Singleton {
                 }
             }
             }
-            // Default getters
-            readonly property var defaultAmbxstPlusBinds: {
-                "ambxstPlus": {
-                    "launcher": { "modifiers": ["SUPER"], "key": "Super_L", "action": { "id": "ambxst+.launcher", "args": {} } },
-                    "dashboard": { "modifiers": ["SUPER"], "key": "D", "action": { "id": "ambxst+.dashboard", "args": {} } },
-                    "assistant": { "modifiers": ["SUPER"], "key": "A", "action": { "id": "ambxst+.assistant", "args": {} } },
-                    "clipboard": { "modifiers": ["SUPER"], "key": "V", "action": { "id": "ambxst+.clipboard", "args": {} } },
-                    "emoji": { "modifiers": ["SUPER"], "key": "PERIOD", "action": { "id": "ambxst+.emoji", "args": {} } },
-                    "notes": { "modifiers": ["SUPER"], "key": "N", "action": { "id": "ambxst+.notes", "args": {} } },
-                    "tmux": { "modifiers": ["SUPER"], "key": "T", "action": { "id": "ambxst+.tmux", "args": {} } },
-                    "wallpapers": { "modifiers": ["SUPER"], "key": "COMMA", "action": { "id": "ambxst+.wallpapers", "args": {} } }
-                },
-                "system": {
-                    "config": { "modifiers": ["SUPER", "SHIFT"], "key": "C", "action": { "id": "ambxst+.config", "args": {} } },
-                    "lockscreen": { "modifiers": ["SUPER"], "key": "L", "action": { "id": "system.lock", "args": {} } },
-                    "overview": { "modifiers": ["SUPER"], "key": "TAB", "action": { "id": "ambxst+.overview", "args": {} } },
-                    "powermenu": { "modifiers": ["SUPER"], "key": "ESCAPE", "action": { "id": "ambxst+.powermenu", "args": {} } },
-                    "tools": { "modifiers": ["SUPER"], "key": "S", "action": { "id": "ambxst+.tools", "args": {} } },
-                    "screenshot": { "modifiers": ["SUPER", "SHIFT"], "key": "S", "action": { "id": "ambxst+.screenshot", "args": {} } },
-                    "screenrecord": { "modifiers": ["SUPER", "SHIFT"], "key": "R", "action": { "id": "ambxst+.screenrecord", "args": {} } },
-                    "lens": { "modifiers": ["SUPER", "SHIFT"], "key": "A", "action": { "id": "ambxst+.lens", "args": {} } },
-                    "reload": { "modifiers": ["SUPER", "ALT"], "key": "B", "action": { "id": "ambxst+.reload", "args": {} } },
-                    "quit": { "modifiers": ["SUPER", "CTRL", "ALT"], "key": "B", "action": { "id": "ambxst+.quit", "args": {} } }
-                }
-            }
-
-            function getAmbxstPlusDefault(section, key) {
-                if (defaultAmbxstPlusBinds[section] && defaultAmbxstPlusBinds[section][key]) {
-                    const bind = defaultAmbxstPlusBinds[section][key];
-                    return {
-                        "modifiers": bind.modifiers || [],
-                        "key": bind.key || "",
-                        "action": KeybindActions.ensureAction(bind.action)
-                    };
-                }
-                return null;
-            }
+            // Defaults live on Config (getAmbxstPlusDefault) — keep them off this
+            // adapter so writeAdapter cannot serialize them into binds.json.
 
             property list<var> custom: [
                 {
@@ -3922,6 +3921,108 @@ Singleton {
     }
     function savePinnedApps() {
         pinnedAppsLoader.writeAdapter();
+    }
+
+    function saveKeybinds() {
+        keybindsLoader.writeAdapter();
+    }
+
+    // Built-in Ambxst[+] bind defaults (kept off JsonAdapter so they are not
+    // written into ~/.config/ambxst+/binds.json).
+    readonly property var defaultAmbxstPlusBinds: {
+        "ambxstPlus": {
+            "launcher": { "modifiers": ["SUPER"], "key": "Super_L", "action": { "id": "ambxst+.launcher", "args": {} } },
+            "dashboard": { "modifiers": ["SUPER"], "key": "D", "action": { "id": "ambxst+.dashboard", "args": {} } },
+            "assistant": { "modifiers": ["SUPER"], "key": "A", "action": { "id": "ambxst+.assistant", "args": {} } },
+            "clipboard": { "modifiers": ["SUPER"], "key": "V", "action": { "id": "ambxst+.clipboard", "args": {} } },
+            "emoji": { "modifiers": ["SUPER"], "key": "PERIOD", "action": { "id": "ambxst+.emoji", "args": {} } },
+            "notes": { "modifiers": ["SUPER"], "key": "N", "action": { "id": "ambxst+.notes", "args": {} } },
+            "tmux": { "modifiers": ["SUPER"], "key": "T", "action": { "id": "ambxst+.tmux", "args": {} } },
+            "wallpapers": { "modifiers": ["SUPER"], "key": "COMMA", "action": { "id": "ambxst+.wallpapers", "args": {} } }
+        },
+        "system": {
+            "config": { "modifiers": ["SUPER", "SHIFT"], "key": "C", "action": { "id": "ambxst+.config", "args": {} } },
+            "lockscreen": { "modifiers": ["SUPER"], "key": "L", "action": { "id": "system.lock", "args": {} } },
+            "overview": { "modifiers": ["SUPER"], "key": "TAB", "action": { "id": "ambxst+.overview", "args": {} } },
+            "powermenu": { "modifiers": ["SUPER"], "key": "ESCAPE", "action": { "id": "ambxst+.powermenu", "args": {} } },
+            "tools": { "modifiers": ["SUPER"], "key": "S", "action": { "id": "ambxst+.tools", "args": {} } },
+            "screenshot": { "modifiers": ["SUPER", "SHIFT"], "key": "S", "action": { "id": "ambxst+.screenshot", "args": {} } },
+            "screenrecord": { "modifiers": ["SUPER", "SHIFT"], "key": "R", "action": { "id": "ambxst+.screenrecord", "args": {} } },
+            "lens": { "modifiers": ["SUPER", "SHIFT"], "key": "A", "action": { "id": "ambxst+.lens", "args": {} } },
+            "reload": { "modifiers": ["SUPER", "ALT"], "key": "B", "action": { "id": "ambxst+.reload", "args": {} } },
+            "quit": { "modifiers": ["SUPER", "CTRL", "ALT"], "key": "B", "action": { "id": "ambxst+.quit", "args": {} } }
+        }
+    }
+
+    function getAmbxstPlusDefault(section, key) {
+        if (root.defaultAmbxstPlusBinds[section] && root.defaultAmbxstPlusBinds[section][key]) {
+            const bind = root.defaultAmbxstPlusBinds[section][key];
+            return {
+                "modifiers": bind.modifiers || [],
+                "key": bind.key || "",
+                "action": KeybindActions.ensureAction(bind.action)
+            };
+        }
+        return null;
+    }
+
+    // Persist a built-in bind via raw JSON so nested JsonObject mutations cannot
+    // be dropped by writeAdapter on restart.
+    function persistAmbxstPlusBind(pathParts, modifiers, key, action) {
+        const adapter = keybindsLoader.adapter;
+        if (!adapter || !adapter.ambxstPlus)
+            return false;
+
+        let bindObj = null;
+        if (pathParts.length === 2)
+            bindObj = adapter.ambxstPlus[pathParts[1]];
+        else if (pathParts.length === 3 && adapter.ambxstPlus[pathParts[1]])
+            bindObj = adapter.ambxstPlus[pathParts[1]][pathParts[2]];
+        if (!bindObj)
+            return false;
+
+        const mods = modifiers || [];
+        const keyName = key || "";
+        const cleanAction = KeybindActions.ensureAction(action);
+
+        // Skip debounced writeAdapter while we patch the file directly — a
+        // deferred adapter dump can clobber the JSON with stale nested values.
+        keybindsLoader._reloading = true;
+        bindObj.modifiers = mods;
+        bindObj.key = keyName;
+        bindObj.action = cleanAction;
+        root._pendingSaves = root._pendingSaves.filter(loader => loader !== keybindsLoader);
+
+        try {
+            const raw = keybindsLoader.text();
+            const current = raw && raw.trim().length > 0 ? JSON.parse(raw) : {};
+            if (!current.ambxstPlus)
+                current.ambxstPlus = {};
+            const payload = {
+                "modifiers": mods.slice(),
+                "key": keyName,
+                "action": cleanAction
+            };
+            if (pathParts.length === 2) {
+                current.ambxstPlus[pathParts[1]] = payload;
+            } else {
+                if (!current.ambxstPlus[pathParts[1]] || typeof current.ambxstPlus[pathParts[1]] !== "object")
+                    current.ambxstPlus[pathParts[1]] = {};
+                current.ambxstPlus[pathParts[1]][pathParts[2]] = payload;
+            }
+            delete current.defaultAmbxstPlusBinds;
+            keybindsLoader.setText(JSON.stringify(current, null, 2));
+            // Let file-watch reload finish, then re-enable autosave.
+            Qt.callLater(() => {
+                keybindsLoader._reloading = false;
+            });
+            return true;
+        } catch (e) {
+            keybindsLoader._reloading = false;
+            console.warn("persistAmbxstPlusBind failed, falling back to writeAdapter:", e);
+            keybindsLoader.writeAdapter();
+            return true;
+        }
     }
 
     // Color helpers

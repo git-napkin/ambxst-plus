@@ -357,29 +357,12 @@ Item {
         if (root.isEditingAmbxstPlus) {
             // Save ambxst+ bind (still uses old format internally)
             const path = root.editingBind.path.split(".");
-            // path = ["ambxst+", "section"?, "bindName"]
-            
-            const adapter = Config.keybindsLoader.adapter;
-            if (adapter && adapter.ambxstPlus) {
-                let bindObj = null;
-                if (path.length === 2) {
-                    // Top level: ambxstPlus.bindName
-                    bindObj = adapter.ambxstPlus[path[1]];
-                } else if (path.length === 3) {
-                    // Nested: ambxstPlus.system.bindName
-                    bindObj = adapter.ambxstPlus[path[1]][path[2]];
-                }
-
-                if (bindObj) {
-                    const firstKey = root.editKeys.length > 0 ? root.editKeys[0] : {
-                        modifiers: [],
-                        key: ""
-                    };
-                    bindObj.modifiers = firstKey.modifiers || [];
-                    bindObj.key = firstKey.key || "";
-                    bindObj.action = root.editActions[0];
-                }
-            }
+            const firstKey = root.editKeys.length > 0 ? root.editKeys[0] : {
+                modifiers: [],
+                key: ""
+            };
+            // Persist via raw JSON — nested JsonObject writes alone were lost on restart.
+            Config.persistAmbxstPlusBind(path, firstKey.modifiers || [], firstKey.key || "", root.editActions[0]);
         } else if (root.isCreatingNew) {
             // Create new custom bind with new format
             const customBinds = Config.keybindsLoader.adapter.custom || [];
@@ -1006,24 +989,31 @@ Item {
                                 onClicked: {
                                     if (root.isEditingAmbxstPlus && root.editingBind) {
                                         const path = root.editingBind.path.split(".");
-                                        // path = ["ambxst+", "dashboard"|"system", "bindName"]
-                                        const section = path[1];
-                                        const bindName = path[2];
-                                        
-                                        // Use the new helper in Config.qml to get the default values
-                                        const defaultBind = Config.keybindsLoader.adapter.getAmbxstPlusDefault(section, bindName);
-                                        
+                                        // Core: ambxst+.assistant → section ambxstPlus, key assistant
+                                        // System: ambxst+.system.lockscreen → section system, key lockscreen
+                                        let section = "";
+                                        let bindName = "";
+                                        if (path.length === 2) {
+                                            section = "ambxstPlus";
+                                            bindName = path[1];
+                                        } else if (path.length === 3) {
+                                            section = path[1];
+                                            bindName = path[2];
+                                        }
+
+                                        const defaultBind = Config.getAmbxstPlusDefault(section, bindName);
+
                                         if (defaultBind) {
                                             root.editKeys = [{
                                                 "modifiers": defaultBind.modifiers || [],
                                                 "key": defaultBind.key || ""
                                             }];
                                             root.editActions = [{
-                                                "dispatcher": defaultBind.dispatcher || "",
-                                                "argument": defaultBind.argument || "",
-                                                "flags": defaultBind.flags || ""
+                                                "id": defaultBind.action ? defaultBind.action.id : "",
+                                                "args": defaultBind.action && defaultBind.action.args ? defaultBind.action.args : {},
+                                                "layouts": []
                                             }];
-                                            
+
                                             // Auto-save immediately
                                             root.saveEdit();
                                         }
