@@ -45,7 +45,8 @@ QtObject {
         { label: "Tint Icons", keywords: "color icons tint monochrome", section: 5, subSection: "general", subLabel: "Theme > General", icon: Icons.palette, isIcon: true },
         { label: "Enable Corners", keywords: "rounded corners radius screen", section: 5, subSection: "general", subLabel: "Theme > General", icon: Icons.cornersOut, isIcon: true },
         { label: "Animation Duration", keywords: "speed fast slow transition", section: 5, subSection: "general", subLabel: "Theme > General", icon: Icons.clock, isIcon: true },
-        { label: "UI Font", keywords: "typography text family size", section: 5, subSection: "general", subLabel: "Theme > General", icon: Icons.textT, isIcon: true },
+        { label: "UI Font", keywords: "typography text family size dropdown system", section: 5, subSection: "general", subLabel: "Theme > General", icon: Icons.textT, isIcon: true },
+        { label: "Mono Font", keywords: "monospace code nerd font family size dropdown", section: 5, subSection: "general", subLabel: "Theme > General", icon: Icons.textT, isIcon: true },
         { label: "Roundness", keywords: "radius border curve", section: 5, subSection: "general", subLabel: "Theme > General", icon: Icons.circle, isIcon: true },
         
         // Theme > Shadow
@@ -169,7 +170,7 @@ QtObject {
         { label: "Bar", keywords: "panel taskbar top bottom", section: 9, subSection: "bar",         subLabel: "Ambxst[+] > Bar", icon: Icons.layout, isIcon: true },
         { label: "Bar Position", keywords: "top bottom left right edge", section: 9, subSection: "bar",         subLabel: "Ambxst[+] > Bar", icon: Icons.layout, isIcon: true },
         { label: "Launcher Icon", keywords: "logo symbol path glyph nerd", section: 9, subSection: "bar",         subLabel: "Ambxst[+] > Bar", icon: Icons.layout, isIcon: true },
-        { label: "Launcher Icon Font", keywords: "nerd font family glyph icon", section: 9, subSection: "bar", subLabel: "Ambxst[+] > Bar", icon: Icons.layout, isIcon: true },
+        { label: "Launcher Icon Font", keywords: "nerd font family glyph icon dropdown system", section: 9, subSection: "bar", subLabel: "Ambxst[+] > Bar", icon: Icons.layout, isIcon: true },
         { label: "Launcher Icon Tint", keywords: "color theme", section: 9, subSection: "bar", subLabel: "Ambxst[+] > Bar", icon: Icons.palette, isIcon: true },
         { label: "Launcher Icon Full Tint", keywords: "monochrome color", section: 9, subSection: "bar", subLabel: "Ambxst[+] > Bar", icon: Icons.palette, isIcon: true },
         { label: "Launcher Icon Size", keywords: "width height pixels", section: 9, subSection: "bar",         subLabel: "Ambxst[+] > Bar", icon: Icons.layout, isIcon: true },

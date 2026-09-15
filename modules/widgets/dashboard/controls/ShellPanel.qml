@@ -715,14 +715,20 @@ Item {
                             }
                         }
 
-                        TextInputRow {
+                        SettingsRow {
                             label: "Launcher Icon Font"
-                            value: Config.bar.launcherIconFont ?? ""
-                            placeholder: "e.g. Symbols Nerd Font Mono"
-                            onValueEdited: newValue => {
-                                if (newValue !== Config.bar.launcherIconFont) {
-                                    GlobalStates.markShellChanged();
-                                    Config.bar.launcherIconFont = newValue.trim();
+                            description: "Font for glyph icons (e.g. Nerd Fonts). Default uses Phosphor-Bold."
+                            stacked: true
+
+                            FontFamilyCombo {
+                                value: Config.bar.launcherIconFont ?? ""
+                                emptyLabel: "Default (" + Icons.font + ")"
+                                emptyFamily: Icons.font
+                                onValueSelected: newValue => {
+                                    if (newValue !== Config.bar.launcherIconFont) {
+                                        GlobalStates.markShellChanged();
+                                        Config.bar.launcherIconFont = newValue;
+                                    }
                                 }
                             }
                         }

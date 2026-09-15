@@ -538,38 +538,17 @@ Item {
                                     Layout.preferredWidth: 80
                                 }
 
-                                StyledRect {
-                                    variant: "common"
+                                FontFamilyCombo {
                                     Layout.fillWidth: true
                                     Layout.preferredHeight: 32
-                                    radius: Styling.radius(-2)
-
-                                    TextInput {
-                                        id: fontInput
-                                        anchors.fill: parent
-                                        anchors.margins: 8
-                                        font.family: Config.theme.font
-                                        font.pixelSize: Styling.fontSize(0)
-                                        color: Colors.overBackground
-                                        selectByMouse: true
-                                        clip: true
-                                        verticalAlignment: TextInput.AlignVCenter
-
-                                        readonly property string configValue: Config.theme.font
-
-                                        onConfigValueChanged: {
-                                            if (text !== configValue) {
-                                                text = configValue;
-                                            }
-                                        }
-
-                                        Component.onCompleted: text = configValue
-
-                                        onEditingFinished: {
-                                            if (text !== Config.theme.font && text.trim() !== "") {
-                                                GlobalStates.markThemeChanged();
-                                                Config.theme.font = text.trim();
-                                            }
+                                    implicitHeight: 32
+                                    allowEmpty: false
+                                    emptyFamily: Config.theme.font
+                                    value: Config.theme.font
+                                    onValueSelected: newValue => {
+                                        if (newValue !== "" && newValue !== Config.theme.font) {
+                                            GlobalStates.markThemeChanged();
+                                            Config.theme.font = newValue;
                                         }
                                     }
                                 }
@@ -637,38 +616,17 @@ Item {
                                     Layout.preferredWidth: 80
                                 }
 
-                                StyledRect {
-                                    variant: "common"
+                                FontFamilyCombo {
                                     Layout.fillWidth: true
                                     Layout.preferredHeight: 32
-                                    radius: Styling.radius(-2)
-
-                                    TextInput {
-                                        id: monoFontInput
-                                        anchors.fill: parent
-                                        anchors.margins: 8
-                                        font.family: Config.theme.monoFont
-                                        font.pixelSize: Styling.monoFontSize(0)
-                                        color: Colors.overBackground
-                                        selectByMouse: true
-                                        clip: true
-                                        verticalAlignment: TextInput.AlignVCenter
-
-                                        readonly property string configValue: Config.theme.monoFont
-
-                                        onConfigValueChanged: {
-                                            if (text !== configValue) {
-                                                text = configValue;
-                                            }
-                                        }
-
-                                        Component.onCompleted: text = configValue
-
-                                        onEditingFinished: {
-                                            if (text !== Config.theme.monoFont && text.trim() !== "") {
-                                                GlobalStates.markThemeChanged();
-                                                Config.theme.monoFont = text.trim();
-                                            }
+                                    implicitHeight: 32
+                                    allowEmpty: false
+                                    emptyFamily: Config.theme.monoFont
+                                    value: Config.theme.monoFont
+                                    onValueSelected: newValue => {
+                                        if (newValue !== "" && newValue !== Config.theme.monoFont) {
+                                            GlobalStates.markThemeChanged();
+                                            Config.theme.monoFont = newValue;
                                         }
                                     }
                                 }
