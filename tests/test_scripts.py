@@ -345,7 +345,7 @@ class TestJustWorksContracts(unittest.TestCase):
         self.assertNotIn("Ai.stopComputerUse", shortcuts)
         self.assertIn("ComputerUse.stop", shortcuts)
         dash = self._read("modules/widgets/dashboard/Dashboard.qml")
-        self.assertNotIn("sourceComponent: unifiedLauncherComponent", dash)
+        self.assertIn("sourceComponent: unifiedLauncherComponent", dash)
 
     def test_axctl_restore_focus_reuses_process(self):
         src = self._read("modules/services/AxctlService.qml")
@@ -1792,13 +1792,16 @@ class TestPerformanceContracts(unittest.TestCase):
 
     def test_dashboard_tabs_use_string_source(self):
         dash = Path(__file__).parent.parent.joinpath("modules/widgets/dashboard/Dashboard.qml").read_text()
-        self.assertNotIn("import qs.modules.widgets.dashboard.wallpapers", dash)
-        self.assertNotIn("import qs.modules.widgets.dashboard.metrics", dash)
-        self.assertIn('Qt.resolvedUrl("wallpapers/WallpapersTab.qml")', dash)
-        self.assertIn('Qt.resolvedUrl("metrics/MetricsTab.qml")', dash)
+        # Tabs must use module imports + sourceComponent so same-directory
+        # types (SchemeSelector, ResourceItem) resolve; bare file Loader.source fails.
+        self.assertIn("import qs.modules.widgets.dashboard.wallpapers", dash)
+        self.assertIn("import qs.modules.widgets.dashboard.metrics", dash)
+        self.assertIn("sourceComponent: wallpapersComponent", dash)
+        self.assertIn("sourceComponent: metricsComponent", dash)
+        self.assertNotIn('source: Qt.resolvedUrl("wallpapers/WallpapersTab.qml")', dash)
         launcher = Path(__file__).parent.parent.joinpath("modules/widgets/launcher/LauncherView.qml").read_text()
-        self.assertNotIn('import "../dashboard/clipboard"', launcher)
-        self.assertIn('Qt.resolvedUrl("../dashboard/clipboard/ClipboardTab.qml")', launcher)
+        self.assertIn('import "../dashboard/clipboard"', launcher)
+        self.assertIn("sourceComponent: Component", launcher)
 
 
 if __name__ == "__main__":

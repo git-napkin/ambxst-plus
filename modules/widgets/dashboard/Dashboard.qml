@@ -7,6 +7,9 @@ import qs.modules.components
 import qs.modules.globals
 import qs.modules.services
 import qs.modules.notch
+import qs.modules.widgets.dashboard.widgets
+import qs.modules.widgets.dashboard.wallpapers
+import qs.modules.widgets.dashboard.metrics
 import qs.config
 
 NotchAnimationBehavior {
@@ -411,9 +414,6 @@ NotchAnimationBehavior {
 
                     // Forward focus
                     onLoaded: {
-                        if (item && item.leftPanelWidth !== undefined) {
-                            item.leftPanelWidth = Qt.binding(function () { return root.leftPanelWidth; });
-                        }
                         if (visible && item && item.focusSearchInput) {
                             focusUnifiedLauncherTimer.restart();
                         }
@@ -427,26 +427,26 @@ NotchAnimationBehavior {
                     }
                 }
 
-                // Tab 0: Unified Launcher
-                // Qt.resolvedUrl is required: bare relative Loader.source inside an
-                // inline `component` resolves against the wrong base and fails silently.
+                // Tab content must use sourceComponent + module imports so
+                // same-directory types (SchemeSelector, ResourceItem, …) resolve.
+                // String Loader.source loads the file alone and leaves those blank.
                 TabLoader {
                     property int index: 0
-                    source: Qt.resolvedUrl("widgets/WidgetsTab.qml")
+                    sourceComponent: unifiedLauncherComponent
                     z: visible ? 1 : 0
                 }
 
                 // Tab 1: Wallpapers
                 TabLoader {
                     property int index: 1
-                    source: Qt.resolvedUrl("wallpapers/WallpapersTab.qml")
+                    sourceComponent: wallpapersComponent
                     z: visible ? 1 : 0
                 }
 
                 // Tab 2: Metrics
                 TabLoader {
                     property int index: 2
-                    source: Qt.resolvedUrl("metrics/MetricsTab.qml")
+                    sourceComponent: metricsComponent
                     z: visible ? 1 : 0
                 }
                 
@@ -560,5 +560,22 @@ NotchAnimationBehavior {
             duration: Config.animDuration
             easing.type: Styling.animEasing
         }
+    }
+
+    Component {
+        id: unifiedLauncherComponent
+        WidgetsTab {
+            leftPanelWidth: root.leftPanelWidth
+        }
+    }
+
+    Component {
+        id: metricsComponent
+        MetricsTab {}
+    }
+
+    Component {
+        id: wallpapersComponent
+        WallpapersTab {}
     }
 }
