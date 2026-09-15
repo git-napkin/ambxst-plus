@@ -1617,10 +1617,10 @@ class TestComputerUse(unittest.TestCase):
         self.assertEqual(out["status"], "error")
         self.assertIn("steer", out["error"].lower())
 
-    def test_computer_use_iter_cap(self):
+    def test_computer_use_no_iter_cap(self):
         from io import StringIO
         from unittest.mock import patch
-        from ai.agent import MAX_COMPUTER_USE_ITERS, MAX_TOOL_ITERS, Agent
+        from ai.agent import MAX_TOOL_ITERS, Agent
 
         agent = Agent(stdin=StringIO(), stdout=StringIO())
         payload = {
@@ -1631,8 +1631,10 @@ class TestComputerUse(unittest.TestCase):
         }
         agent.apply_init(payload)
         agent.computer_use_approved = True
-        self.assertEqual(agent._max_tool_iters(), MAX_COMPUTER_USE_ITERS)
+        agent.ctx.computer_use_approved = True
+        self.assertIsNone(agent._max_tool_iters())
         agent.computer_use_approved = False
+        agent.ctx.computer_use_approved = False
         self.assertEqual(agent._max_tool_iters(), MAX_TOOL_ITERS)
 
         class Prov:
@@ -1647,6 +1649,7 @@ class TestComputerUse(unittest.TestCase):
                     yield {"type": "token", "text": "ok"}
 
         agent.computer_use_approved = True
+        agent.ctx.computer_use_approved = True
         agent.messages = [{"role": "user", "content": "hi"}]
         events = []
         agent.emit = lambda ev: events.append(ev)

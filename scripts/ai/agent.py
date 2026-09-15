@@ -31,7 +31,6 @@ DEFAULT_SYSTEM = (
 )
 
 MAX_TOOL_ITERS = 25
-MAX_COMPUTER_USE_ITERS = 500
 
 
 def flatten_ui_messages(messages):
@@ -346,7 +345,7 @@ class Agent:
 
     def _max_tool_iters(self):
         if self.computer_use_approved:
-            return MAX_COMPUTER_USE_ITERS
+            return None
         return MAX_TOOL_ITERS
 
     def _run_turn(self):
@@ -354,7 +353,13 @@ class Agent:
         tools = self._tool_schemas()
         api_key = self._api_key()
         endpoint = self.ctx.custom_endpoint or self.model.get("endpoint") or ""
-        for _ in range(self._max_tool_iters()):
+        iters = 0
+        while True:
+            cap = self._max_tool_iters()
+            if cap is not None and iters >= cap:
+                self.emit({"type": "error", "error": "tool iteration limit"})
+                return
+            iters += 1
             if self.cancel_event.is_set():
                 self._clear_computer_use()
                 self.emit({"type": "cancelled"})
@@ -454,7 +459,6 @@ class Agent:
                 }
             )
             self.messages.extend(tool_messages)
-        self.emit({"type": "error", "error": "tool iteration limit"})
 
     def _friendly_labels(self, name, args):
         tool = self.registry.get(name)
