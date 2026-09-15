@@ -3,6 +3,7 @@ import qs.modules.components
 import qs.modules.services
 import qs.modules.globals
 import qs.modules.notch
+import qs.modules.widgets.powermenu
 import qs.config
 
 NotchAnimationBehavior {
@@ -27,6 +28,8 @@ NotchAnimationBehavior {
         }
     }
 
+    // Same-directory types are invisible when this file is loaded via
+    // Loader.source URL; import the module so PowerMenu resolves.
     PowerMenu {
         id: powerMenu
         anchors.fill: parent

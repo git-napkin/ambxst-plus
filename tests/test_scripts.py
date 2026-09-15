@@ -1800,8 +1800,13 @@ class TestPerformanceContracts(unittest.TestCase):
         self.assertIn("sourceComponent: metricsComponent", dash)
         self.assertNotIn('source: Qt.resolvedUrl("wallpapers/WallpapersTab.qml")', dash)
         launcher = Path(__file__).parent.parent.joinpath("modules/widgets/launcher/LauncherView.qml").read_text()
-        self.assertIn('import "../dashboard/clipboard"', launcher)
+        self.assertIn("import qs.modules.widgets.dashboard.clipboard", launcher)
+        self.assertIn("import qs.modules.widgets.dashboard.tmux", launcher)
         self.assertIn("sourceComponent: Component", launcher)
+        tools = Path(__file__).parent.parent.joinpath("modules/widgets/tools/ToolsMenuView.qml").read_text()
+        self.assertIn("import qs.modules.widgets.tools", tools)
+        power = Path(__file__).parent.parent.joinpath("modules/widgets/powermenu/PowerMenuView.qml").read_text()
+        self.assertIn("import qs.modules.widgets.powermenu", power)
 
 
 if __name__ == "__main__":

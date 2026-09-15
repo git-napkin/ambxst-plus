@@ -10,10 +10,10 @@ import qs.modules.globals
 import qs.modules.services
 import qs.config
 import "../dashboard/list_utils.js" as ListUtils
-import "../dashboard/clipboard"
-import "../dashboard/emoji"
-import "../dashboard/tmux"
-import "../dashboard/notes"
+import qs.modules.widgets.dashboard.clipboard
+import qs.modules.widgets.dashboard.emoji
+import qs.modules.widgets.dashboard.tmux
+import qs.modules.widgets.dashboard.notes
 import qs.modules.notch
 
 NotchAnimationBehavior {
