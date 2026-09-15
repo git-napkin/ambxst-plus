@@ -509,7 +509,7 @@ Singleton {
             weatherProcess.running = false;
         }
 
-        if (!Config.weather)
+        if (!Config.weatherReady || !Config.weather)
             return;
 
         root.isLoading = true;
@@ -517,8 +517,11 @@ Singleton {
 
         var locationStr = Config.weather.location || "";
         var location = locationStr.trim();
+        var cacheTtl = Config.weather.cacheTtl;
+        if (typeof cacheTtl !== "number" || !isFinite(cacheTtl) || cacheTtl <= 0)
+            cacheTtl = 600;
 
-        weatherProcess.command = [scriptPath, location, String(Config.weather.cacheTtl)];
+        weatherProcess.command = [scriptPath, location, String(cacheTtl)];
         weatherProcess.running = true;
     }
 

@@ -18,9 +18,16 @@ Item {
     required property ShellScreen screen
     property bool unifiedEffectActive: false
 
-    // Get this screen's visibility state (per-screen UI always needs a
-    // non-null object, so use the state-creating variant)
-    readonly property var screenVisibilities: Visibilities.ensureForScreen(screen.name)
+    // Per-screen visibility state. Must NOT call ensureForScreen() inside a
+    // binding — assigning Visibilities.screens retriggers the binding and loops.
+    property var screenVisibilities: null
+
+    function refreshScreenVisibilities(): void {
+        screenVisibilities = Visibilities.ensureForScreen(screen.name);
+    }
+
+    Component.onCompleted: refreshScreenVisibilities()
+    onScreenChanged: refreshScreenVisibilities()
     readonly property bool isScreenFocused: AxctlService.focusedMonitor && AxctlService.focusedMonitor.name === screen.name
 
     // Monitor reference and refrence to toplevels on monitor

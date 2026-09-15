@@ -41,10 +41,15 @@ Button {
         }
         readonly property var focusedDesktopEntry: focusedWindow ? DesktopEntries.heuristicLookup(focusedWindow.class) : null
         property var mainAppIconSource: {
-            if (focusedDesktopEntry && focusedDesktopEntry.icon) {
-                return Quickshell.iconPath(focusedDesktopEntry.icon, "image-missing");
-            }
-            return Quickshell.iconPath(AppSearch.getCachedIcon(focusedWindow ? focusedWindow.class : undefined), "image-missing");
+            const iconName = (focusedDesktopEntry && focusedDesktopEntry.icon)
+                ? focusedDesktopEntry.icon
+                : AppSearch.getCachedIcon(focusedWindow ? focusedWindow.class : undefined);
+            // Avoid Quickshell.iconPath("image-missing", "image-missing") which
+            // resolves to the unusable "image-missing?fallback=image-missing" URL
+            // when no icon theme provides image-missing.
+            if (!iconName || iconName === "image-missing")
+                return "";
+            return Quickshell.iconPath(iconName, "image-missing");
         }
 
         Text {

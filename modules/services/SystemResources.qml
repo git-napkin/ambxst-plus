@@ -78,7 +78,8 @@ Singleton {
         }
 
         onExited: (exitCode, exitStatus) => {
-            if (exitCode !== 0 && exitStatus !== 0) {
+            // SIGTERM (15) = intentional stop when dashboard/tab closes — not a crash
+            if (exitCode !== 0 && exitCode !== 15 && exitStatus !== 0) {
                 console.warn("SystemResources: monitor crashed (code " + exitCode + "), restarting");
             }
             // Binding breaks after crash — explicitly restart if dashboard still wants it

@@ -49,6 +49,8 @@
             shellHook = ''
               export QML2_IMPORT_PATH="${ambxstPlus}/lib/qt-6/qml:$QML2_IMPORT_PATH"
               export QML_IMPORT_PATH="$QML2_IMPORT_PATH"
+              export XDG_DATA_DIRS="${ambxstPlus}/share''${XDG_DATA_DIRS:+:$XDG_DATA_DIRS}"
+              export QS_ICON_THEME="''${QS_ICON_THEME:-breeze}"
               echo "Ambxst[+] dev environment loaded."
             '';
           };

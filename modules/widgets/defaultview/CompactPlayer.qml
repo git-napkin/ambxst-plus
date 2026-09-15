@@ -312,7 +312,7 @@ Item {
                         anchors.fill: parent
                         variant: "internalbg"
                         opacity: ((compactPlayer.hasBackground) && compactPlayer.notchHovered) ? 0.5 : 0.0
-                        radius: parent.radius
+                        radius: parent.radius || 0
                         Behavior on opacity {
                             enabled: Config.animDuration > 0
                             NumberAnimation {

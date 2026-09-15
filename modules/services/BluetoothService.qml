@@ -58,7 +58,7 @@ Singleton {
         }
     }
 
-    function updateFriendlyList() {
+    function updateFriendlyList(): void {
         let count = 0;
         const devs = root.devices;
         for (let i = 0; i < devs.length; i++) {
@@ -78,7 +78,7 @@ Singleton {
         });
     }
 
-    function deviceByAddress(address: string) {
+    function deviceByAddress(address: string): var {
         const target = address.toUpperCase();
         const devs = root.devices;
         for (let i = 0; i < devs.length; i++) {
@@ -87,7 +87,7 @@ Singleton {
         return null;
     }
 
-    function ensureDevice(address: string, name: string) {
+    function ensureDevice(address: string, name: string): var {
         const existing = root.deviceByAddress(address);
         if (existing) {
             if (name && name !== "Unknown" && existing.name !== name) {
@@ -154,7 +154,7 @@ Singleton {
         }
 
         if (event === "NEW") {
-            root.ensureDevice(address, rest || "Unknown");
+            void root.ensureDevice(address, rest || "Unknown");
             return;
         }
 
@@ -165,7 +165,7 @@ Singleton {
             const prop = pm[1];
             const value = pm[2].trim();
             if (!dev) {
-                root.ensureDevice(address, prop === "Name" ? value : "Unknown");
+                void root.ensureDevice(address, prop === "Name" ? value : "Unknown");
                 return;
             }
             switch (prop) {
@@ -197,7 +197,7 @@ Singleton {
     }
 
     // Batch process info updates with delay between each
-    function queueInfoUpdate(device: BluetoothDevice) {
+    function queueInfoUpdate(device: BluetoothDevice): void {
         if (pendingInfoUpdates.indexOf(device) === -1) {
             pendingInfoUpdates.push(device);
         }
@@ -206,7 +206,7 @@ Singleton {
         }
     }
 
-    function processNextInfoUpdate() {
+    function processNextInfoUpdate(): void {
         if (pendingInfoUpdates.length === 0) {
             isProcessingInfoQueue = false;
             updateFriendlyList();
@@ -493,7 +493,9 @@ Singleton {
                         }
                         root.queueInfoUpdate(existing);
                     } else {
-                        root.ensureDevice(address, name);
+                        // Discard return — ensureDevice is annotated; void avoids
+                        // "should be coerced to void" under ComponentBehavior: Bound.
+                        void root.ensureDevice(address, name);
                     }
                 }
 

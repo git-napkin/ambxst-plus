@@ -29,7 +29,8 @@ PanelWindow {
 
     // Dynamic keyboard focus: Exclusive when a notch module is open (so text fields work),
     // None otherwise (so compositor receives normal input). Exclusive swallows
-    // Hyprland binds, so Keys below replay matching compositor keybinds.
+    // Hyprland binds, so Keys on visualContent replay matching compositor keybinds.
+    // Keys cannot attach to PanelWindow (not an Item) — they live on visualContent.
     WlrLayershell.keyboardFocus: {
         if (notchContent.screenNotchOpen) {
             return WlrKeyboardFocus.Exclusive;
@@ -37,12 +38,6 @@ PanelWindow {
         return WlrKeyboardFocus.None;
     }
 
-    Keys.enabled: notchContent.screenNotchOpen
-    Keys.priority: Keys.BeforeItem
-    Keys.onPressed: event => {
-        if (AxctlService.forwardBoundKey(event))
-            event.accepted = true;
-    }
     WlrLayershell.namespace: "ambxst+"
     WlrLayershell.layer: WlrLayer.Overlay
     exclusionMode: ExclusionMode.Ignore
@@ -204,6 +199,15 @@ PanelWindow {
     Item {
         id: visualContent
         anchors.fill: parent
+        focus: notchContent.screenNotchOpen
+
+        // PanelWindow is not an Item, so Keys must live here.
+        Keys.enabled: notchContent.screenNotchOpen
+        Keys.priority: Keys.BeforeItem
+        Keys.onPressed: event => {
+            if (AxctlService.forwardBoundKey(event))
+                event.accepted = true;
+        }
 
         layer.enabled: (Config.theme && Config.theme.shadowOpacity > 0) && (unifiedPanel.barReveal || unifiedPanel.notchReveal || unifiedPanel.dockReveal || unifiedPanel.needsFullScreenInput)
         layer.effect: Shadow {}

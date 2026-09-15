@@ -68,6 +68,12 @@ let
     export QML2_IMPORT_PATH="${envAmbxstPlus}/lib/qt-6/qml:$QML2_IMPORT_PATH"
     export QML_IMPORT_PATH="$QML2_IMPORT_PATH"
 
+    # Expose bundled icon themes (breeze-icons, hicolor) to Qt/Quickshell.
+    # Without this, XDG_DATA_DIRS never sees the buildEnv share/ tree and every
+    # symbolic/app icon resolves to image-missing.
+    export XDG_DATA_DIRS="${envAmbxstPlus}/share''${XDG_DATA_DIRS:+:$XDG_DATA_DIRS}"
+    export QS_ICON_THEME="''${QS_ICON_THEME:-breeze}"
+
     # Make bundled fonts available to fontconfig (without shadowing user config)
     export FONTCONFIG_FILE="${fontconfigConf}/etc/fonts/fonts.conf"
 

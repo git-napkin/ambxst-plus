@@ -45,7 +45,7 @@ QtObject {
         Process {
             command: ["dbus-monitor", "--session", "interface='net.reactivated.Fprint.Device'", "type=method_call"]
             stdout: SplitParser {
-                onRead: root.handleDbusLine(data)
+                onRead: data => root.handleDbusLine(data)
             }
             onExited: (exitCode, exitStatus) => {
                 if (root.monitoring)

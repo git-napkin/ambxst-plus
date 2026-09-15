@@ -140,18 +140,21 @@ Singleton {
         command: [
             "bash", "-c",
             "mkdir -p '" + root.configDir + "'\n" +
-            "cp -n '" + root.presetDir + "/theme.json' '" + root.configDir + "/theme.json' || echo 'ERROR: failed to seed theme.json (preset dir: " + root.presetDir + ")' 1>&2\n" +
-            "cp -n '" + root.presetDir + "/bar.json' '" + root.configDir + "/bar.json' || echo 'ERROR: failed to seed bar.json' 1>&2\n" +
-            "cp -n '" + root.presetDir + "/workspaces.json' '" + root.configDir + "/workspaces.json' || echo 'ERROR: failed to seed workspaces.json' 1>&2\n" +
-            "cp -n '" + root.presetDir + "/overview.json' '" + root.configDir + "/overview.json' || echo 'ERROR: failed to seed overview.json' 1>&2\n" +
-            "cp -n '" + root.presetDir + "/notch.json' '" + root.configDir + "/notch.json' || echo 'ERROR: failed to seed notch.json' 1>&2\n" +
-            "cp -n '" + root.presetDir + "/compositor.json' '" + root.configDir + "/compositor.json' || echo 'ERROR: failed to seed compositor.json' 1>&2\n" +
-            "cp -n '" + root.presetDir + "/performance.json' '" + root.configDir + "/performance.json' || echo 'ERROR: failed to seed performance.json' 1>&2\n" +
-            "cp -n '" + root.presetDir + "/desktop.json' '" + root.configDir + "/desktop.json' || echo 'ERROR: failed to seed desktop.json' 1>&2\n" +
-            "cp -n '" + root.presetDir + "/lockscreen.json' '" + root.configDir + "/lockscreen.json' || echo 'ERROR: failed to seed lockscreen.json' 1>&2\n" +
-            "cp -n '" + root.presetDir + "/dock.json' '" + root.configDir + "/dock.json' || echo 'ERROR: failed to seed dock.json' 1>&2\n" +
-            "cp -n '" + root.presetDir + "/ai.json' '" + root.configDir + "/ai.json' || echo 'ERROR: failed to seed ai.json' 1>&2\n" +
-            "cp -n '" + root.presetDir + "/system.json' '" + root.configDir + "/system.json' || echo 'ERROR: failed to seed system.json' 1>&2\n" +
+            "seed() { local f=\"$1\"; if [ -f '" + root.presetDir + "/'$f ]; then cp -n '" + root.presetDir + "/'$f '" + root.configDir + "/'$f || echo \"ERROR: failed to seed $f\" 1>&2; fi; }\n" +
+            "seed theme.json\n" +
+            "seed bar.json\n" +
+            "seed workspaces.json\n" +
+            "seed overview.json\n" +
+            "seed notch.json\n" +
+            "seed compositor.json\n" +
+            "seed performance.json\n" +
+            "seed desktop.json\n" +
+            "seed lockscreen.json\n" +
+            // ai.json / weather.json / prefix.json are intentionally absent from
+            // presets (see PresetsService.excludedFiles); FileView handleMissingConfig
+            // writes them from defaults/*.js when first needed.
+            "seed dock.json\n" +
+            "seed system.json\n" +
             "echo 'Preset files copied if missing'"
         ]
         stderr: StdioCollector {

@@ -7,7 +7,13 @@ set -euo pipefail
 # Output: JSON with weather data or error
 
 LOCATION="${1:-}"
+# Second arg is cache TTL in seconds; reject non-integers (e.g. "undefined" from
+# a race before Config.weather loads) so arithmetic under `set -u` can't abort
+# with an empty stdout that QML logs as "Empty response".
 CACHE_TTL="${2:-600}"
+if [[ ! "$CACHE_TTL" =~ ^[0-9]+$ ]]; then
+	CACHE_TTL=600
+fi
 MAX_RETRIES=2
 RETRY_DELAY=1
 CACHE_DIR="${XDG_CACHE_HOME:-$HOME/.cache}/ambxst+/weather"

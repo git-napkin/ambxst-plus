@@ -5,8 +5,11 @@ import qs.config
 QtObject {
     readonly property string defaultFont: Config.defaultFont
 
+    // Soften undefined Config.roundness during early load (before themeReady).
     function radius(offset) {
-        return Config.roundness > 0 ? Math.max(Config.roundness + offset, 0) : 0;
+        const base = Config.roundness;
+        const n = (typeof base === "number" && isFinite(base)) ? base : 0;
+        return n > 0 ? Math.max(n + offset, 0) : 0;
     }
 
     function fontSize(offset) {

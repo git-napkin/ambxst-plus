@@ -1587,6 +1587,8 @@ PanelWindow {
                     sourceSize.height: wallpaper.height
                     layer.enabled: parent.tint
                     layer.effect: ShaderEffect {
+                        // Declared so the layer can wire the item texture; palette.frag samples it.
+                        property var source
                         property var paletteTexture: paletteTextureSource
                         property real paletteSize: staticImageRoot.optimizedPalette.length
                         property real texWidth: rawImage.width

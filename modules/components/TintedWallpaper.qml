@@ -83,6 +83,8 @@ Item {
             // Tint layer
             layer.enabled: root.tintEnabled
             layer.effect: ShaderEffect {
+                // Declared so the layer can wire the item texture; palette.frag samples it.
+                property var source
                 property var paletteTexture: paletteTextureSource
                 property real paletteSize: root.optimizedPalette.length
                 property real texWidth: rawImage.width

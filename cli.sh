@@ -51,9 +51,12 @@ ensure_config_files() {
 		echo "Migrated wallpaper config from $old_wallpaper_config to $new_wallpaper_config"
 	fi
 
-	# Copy preset files if they don't exist (cp -n = no-clobber)
-	for file in theme bar workspaces overview notch compositor performance desktop lockscreen dock ai; do
-		cp -n "${preset_dir}/${file}.json" "${config_dir}/${file}.json" 2>/dev/null || true
+	# Copy preset files if they don't exist (cp -n = no-clobber).
+	# ai.json is not shipped in presets; Config.qml seeds it from defaults.
+	for file in theme bar workspaces overview notch compositor performance desktop lockscreen dock system; do
+		if [ -f "${preset_dir}/${file}.json" ]; then
+			cp -n "${preset_dir}/${file}.json" "${config_dir}/${file}.json" 2>/dev/null || true
+		fi
 	done
 }
 
@@ -834,6 +837,21 @@ help | --help | -h)
 		if QS_ICON_THEME=$(gsettings get org.gnome.desktop.interface icon-theme 2>/dev/null | tr -d "'"); then
 			export QS_ICON_THEME
 		fi
+	fi
+	# Prefer Breeze when the theme is unset/empty (common on Nix without GNOME)
+	if [ -z "${QS_ICON_THEME:-}" ]; then
+		export QS_ICON_THEME=breeze
+	fi
+
+	# Qt resolves timezones via zoneinfo; on NixOS /usr/share/zoneinfo is often
+	# absent even though /etc/localtime points into the nix store. Export TZ so
+	# QDateTime / locale formatting don't warn.
+	if [ -z "${TZ:-}" ] && [ -L /etc/localtime ]; then
+		_tz_target="$(readlink -f /etc/localtime 2>/dev/null || true)"
+		if [ -n "$_tz_target" ]; then
+			export TZ="${_tz_target##*/zoneinfo/}"
+		fi
+		unset _tz_target
 	fi
 
 	# Force Qt6CT
