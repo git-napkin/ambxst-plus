@@ -21,7 +21,6 @@ PanelWindow {
     color: "transparent"
     visible: ComputerUse.sessionActive
     exclusionMode: ExclusionMode.Ignore
-    focus: true
 
     WlrLayershell.layer: WlrLayer.Overlay
     WlrLayershell.namespace: "ambxst+:computer-use"
