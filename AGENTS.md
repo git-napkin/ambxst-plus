@@ -81,7 +81,7 @@ but the binary/command is lowercase `ambxst+` — use that in shell commands.
 - Singletons use `pragma Singleton` + `Singleton { id: root }`; services self-init via
   `Component.onCompleted: update()`.
 - Modify QML list/models inside `Process.onStdout` handlers only via `Qt.callLater()`.
-- This checkout is a fork: `origin` is upstream `Axenide/Ambxst`, `git-napkin` is the
-  fork's remote; work happens on the `dev` branch.
+- This checkout is a fork: `origin` is the fork (`git-napkin/ambxst-plus`), `upstream`
+  is `Axenide/Ambxst`; `main` is the only branch — work happens directly on `main`.
 - Submodule-specific guidance (services, scripts, theme, config, notch, …) is already
   captured in each directory's `AGENTS.md`; prefer those over duplicating here.
