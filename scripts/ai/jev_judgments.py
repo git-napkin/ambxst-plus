@@ -77,9 +77,41 @@ DESKTOP_CONTEXT_MARK = "\n\n[Desktop context]\n"
 _COUNTERS = defaultdict(int)
 _DIAGNOSTICS = []
 
-_LEVEL_RE = re.compile(r"(?i)(\d{1,3})\s*%")
-_BARE_LEVEL_RE = re.compile(r"(?i)\b(\d{1,3})\b")
+_PERCENT_RE = re.compile(r"(?i)(?<![0-9.])(\d{1,3}(?:\.\d+)?)\s*(?:%|percent|pct)\b")
+_BARE_INT_RE = re.compile(r"(?i)(?<![0-9.])(\d{1,3})(?![0-9.])")
+_DECIMAL_RE = re.compile(r"(?<![0-9])\d+\.\d+")
+_LEVEL_NEAR = r"(?:volume|brightness|audio|sound|backlight)"
 _FOCUSED_RE = re.compile(r"(?im)^Focused window:\s*(.+)$")
+_WINDOW_SKIP_TOKENS = frozenset(
+    {
+        "the",
+        "and",
+        "for",
+        "app",
+        "window",
+        "windows",
+        "please",
+        "focus",
+        "switch",
+        "open",
+        "show",
+        "bring",
+        "raise",
+        "activate",
+        "goto",
+        "into",
+        "that",
+        "this",
+        "with",
+        "from",
+        "onto",
+        "desktop",
+        "workspace",
+        "move",
+        "give",
+        "put",
+    }
+)
 
 
 @dataclass
@@ -416,30 +448,43 @@ def evaluate_intent(ctx, text=None):
     return judgment
 
 
+def _ratio_from_percent(number):
+    if 0 <= number <= 100:
+        return number / 100.0
+    return None
+
+
 def parse_level(text):
+    """Parse a volume/brightness level as a 0-1 ratio.
+
+    Bare integers are percentages (1 → 1%, not 100%). Decimals without `%`
+    and incidental words like `full`/`off` are rejected unless they sit next
+    to volume/brightness language.
+    """
     raw = text or ""
-    match = _LEVEL_RE.search(raw)
+    match = _PERCENT_RE.search(raw)
     if match:
-        number = int(match.group(1))
-        if 0 <= number <= 100:
-            return number / 100.0
-        return None
+        return _ratio_from_percent(float(match.group(1)))
     lowered = raw.lower()
-    if re.search(r"\b(max|maximum|full|loudest)\b", lowered):
+    if re.search(r"\b(max|maximum|loudest)\b", lowered):
         return 1.0
-    if re.search(r"\b(min|minimum|off|silent)\b", lowered):
-        return 0.0
     if re.search(r"\bhalf\b", lowered):
         return 0.5
-    match = _BARE_LEVEL_RE.search(raw)
-    if not match:
+    if re.search(r"\b(min|minimum)\b", lowered):
+        return 0.0
+    if re.search(rf"\b(?:{_LEVEL_NEAR}\s+(?:to\s+)?full|full\s+{_LEVEL_NEAR})\b", lowered):
+        return 1.0
+    if re.search(
+        rf"\b(?:{_LEVEL_NEAR}\s+(?:to\s+)?(?:off|silent|mute[d]?)|(?:off|silent|mute[d]?)\s+{_LEVEL_NEAR})\b",
+        lowered,
+    ):
+        return 0.0
+    if _DECIMAL_RE.search(raw):
         return None
-    number = int(match.group(1))
-    if number > 100:
+    matches = _BARE_INT_RE.findall(raw)
+    if len(matches) != 1:
         return None
-    if number > 1:
-        return number / 100.0
-    return float(number)
+    return _ratio_from_percent(int(matches[0]))
 
 
 def write_args_for(tool_name, text):
@@ -490,23 +535,26 @@ def window_fingerprint(windows):
     return tuple(sorted(row["address"] for row in windows or [] if row.get("address")))
 
 
+def _window_match_tokens(query):
+    tokens = [part for part in re.split(r"\s+", (query or "").strip().lower()) if len(part) >= 3]
+    return [token for token in tokens if token not in _WINDOW_SKIP_TOKENS]
+
+
 def substring_window_match(query, windows):
-    q = (query or "").strip().lower()
-    if not q:
+    tokens = _window_match_tokens(query)
+    if not tokens:
         return None
+    remainder = " ".join(tokens)
     hits = []
     for row in windows or []:
         title = (row.get("title") or "").lower()
         cls = (row.get("class") or "").lower()
-        tokens = [part for part in re.split(r"\s+", q) if len(part) >= 3]
         matched = False
-        if title and (title in q or q in title):
+        if title and (remainder in title or title in remainder):
             matched = True
-        elif cls and (cls in q or q in cls):
+        elif cls and (remainder in cls or cls in remainder):
             matched = True
-        elif tokens and title and any(token in title for token in tokens):
-            matched = True
-        elif tokens and cls and any(token in cls for token in tokens):
+        elif any(token in title or token in cls for token in tokens):
             matched = True
         if matched:
             hits.append(row)

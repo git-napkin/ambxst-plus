@@ -58,6 +58,28 @@ def flatten_ui_messages(messages):
     return out
 
 
+def _jev_native_outcome(result):
+    """Classify a native/tool dispatch result for Jev shortcuts."""
+    if not isinstance(result, dict):
+        return "error"
+    status = result.get("status")
+    inner = result.get("result")
+    if status == "Cancelled" or (
+        result.get("type") == "tool_result"
+        and (status == "Cancelled" or (isinstance(inner, dict) and inner.get("variant") == "Cancelled"))
+    ):
+        return "cancelled"
+    if status == "ok":
+        return "ok"
+    if status == "error" or result.get("error"):
+        return "error"
+    if isinstance(inner, dict) and inner.get("error"):
+        return "error"
+    if status in (None, "", "done"):
+        return "ok"
+    return "error"
+
+
 MAX_IMAGE_ATTACHMENTS = 2
 
 
@@ -404,21 +426,41 @@ class Agent:
             return self._jev_focus_window()
         return self._jev_dispatch_native(name, args)
 
+    def _jev_windows_readable(self):
+        tool = self.registry.get("get_windows")
+        if not tool:
+            return False
+        return tool.should_autoexecute(self.ctx, {}) is True
+
     def _jev_focus_window(self):
         from ai.jev_judgments import revalidate_window, select_focus_target, windows_from_native
         from ai.tools.native import native_request
 
+        if not self._jev_windows_readable():
+            return False
         listed = native_request(self.ctx, "get_windows", {})
+        if _jev_native_outcome(listed) == "cancelled":
+            self.emit({"type": "cancelled"})
+            return True
+        if _jev_native_outcome(listed) != "ok":
+            return False
         windows = windows_from_native(listed)
         selected, _reason = select_focus_target(self.ctx, windows)
         if selected is None:
             return False
         self.ctx.jev_revalidating_windows = True
         try:
-            fresh = windows_from_native(native_request(self.ctx, "get_windows", {}))
+            if not self._jev_windows_readable():
+                return False
+            fresh_raw = native_request(self.ctx, "get_windows", {})
         finally:
             self.ctx.jev_revalidating_windows = False
-        live, _stale = revalidate_window(selected, windows, fresh)
+        if _jev_native_outcome(fresh_raw) == "cancelled":
+            self.emit({"type": "cancelled"})
+            return True
+        if _jev_native_outcome(fresh_raw) != "ok":
+            return False
+        live, _stale = revalidate_window(selected, windows, windows_from_native(fresh_raw))
         if live is None:
             return False
         return self._jev_dispatch_native("focus_window", {"address": live.get("address")})
@@ -438,12 +480,15 @@ class Agent:
         emit_result = dict(result) if isinstance(result, dict) else result
         if isinstance(emit_result, dict):
             emit_result.pop("image_base64", None)
+        outcome = _jev_native_outcome(result)
+        chip = "done" if outcome == "ok" else outcome
         self.emit(
             {
                 "type": "tool_result",
                 "call_id": call_id,
                 "name": name,
                 "result": emit_result,
+                "status": chip,
             }
         )
         self.messages.append(
@@ -467,10 +512,14 @@ class Agent:
                 "content": json.dumps(emit_result, ensure_ascii=False),
             }
         )
-        if isinstance(result, dict) and (
-            result.get("status") == "Cancelled" or result.get("type") == "tool_result"
-        ):
+        if outcome == "cancelled":
             self.emit({"type": "cancelled"})
+            return True
+        if outcome != "ok":
+            err = ""
+            if isinstance(result, dict):
+                err = str(result.get("error") or "")
+            self.emit({"type": "error", "error": err or "Native action failed"})
             return True
         self.emit({"type": "done"})
         return True

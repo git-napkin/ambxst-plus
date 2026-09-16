@@ -2042,6 +2042,22 @@ class TestJev(unittest.TestCase):
         self.assertEqual(name, "set_volume")
         self.assertAlmostEqual(args["value"], 0.4)
 
+    def test_parse_level_percentages_and_rejects_ambiguous(self):
+        parse = self.jj.parse_level
+        self.assertAlmostEqual(parse("set volume to 40%"), 0.4)
+        self.assertAlmostEqual(parse("set volume to 40 percent"), 0.4)
+        self.assertAlmostEqual(parse("set volume to 1"), 0.01)
+        self.assertAlmostEqual(parse("set volume to 1%"), 0.01)
+        self.assertAlmostEqual(parse("set brightness to 50"), 0.5)
+        self.assertAlmostEqual(parse("set volume to max"), 1.0)
+        self.assertAlmostEqual(parse("set volume to full"), 1.0)
+        self.assertAlmostEqual(parse("turn the volume off"), 0.0)
+        self.assertIsNone(parse("set brightness to 0.5"))
+        self.assertIsNone(parse("set volume for the full screen app"))
+        self.assertIsNone(parse("turn it up a bit"))
+        self.assertAlmostEqual(self.jj.write_args_for("set_volume", "set volume to 1")["value"], 0.01)
+        self.assertIsNone(self.jj.write_args_for("set_brightness", "set brightness to 0.5"))
+
     def test_window_none_and_low_confidence_and_stale(self):
         windows = [
             {"address": "0xaaa", "title": "Firefox", "class": "firefox", "pid": 10, "focused": True},
@@ -2096,6 +2112,16 @@ class TestJev(unittest.TestCase):
         selected, reason = self.jj.select_focus_target(ctx, windows)
         self.assertEqual(selected["address"], "0x1")
         self.assertEqual(reason, "substring")
+
+    def test_substring_skips_command_verbs(self):
+        windows = [{"address": "0x1", "title": "Focus To-Do", "class": "focus", "pid": 1, "focused": False}]
+        self.assertIsNone(self.jj.substring_window_match("focus", windows))
+        ctx = self._ctx(mode="active", text="focus")
+        ctx.jev_window_judgment = self.jev.Judgment(status=self.jev.STATUS_TIMEOUT, error="deadline")
+        ctx.jev_window_fp = self.jj.window_fingerprint(self.jj.slim_windows(windows))
+        selected, reason = self.jj.select_focus_target(ctx, windows)
+        self.assertIsNone(selected)
+        self.assertEqual(reason, "timeout")
 
     def test_shadow_leaves_computer_use_approval_unchanged(self):
         from ai.tools.computer_use import UseComputerTool, action_is_critical
@@ -2295,6 +2321,88 @@ class TestJev(unittest.TestCase):
         agent._run_turn = lambda: ran.append("llm")
         agent._handle_send({"text": "focus firefox"})
         self.assertEqual(ran, ["llm"])
+        self.assertFalse(any(event.get("name") == "focus_window" for event in events))
+
+    def test_agent_native_error_is_not_done(self):
+        from io import StringIO
+        from ai.agent import Agent
+
+        self._factory(
+            self.jev.FakeClient(
+                response=self.jev.FakeResponse(
+                    choices={
+                        "intent": self._choice("native_write"),
+                        "read_tool": self._choice("none"),
+                        "write_tool": self._choice("set_volume"),
+                    }
+                )
+            )
+        )
+        agent = Agent(stdin=StringIO(), stdout=StringIO())
+        agent.apply_init(
+            {
+                "enabled_tools": ["native"],
+                "jev": {"mode": "active", "confidenceThreshold": 0.75},
+                "execution_profile": {},
+                "system_prompt": "hi",
+            }
+        )
+        events = []
+        ran = []
+        agent.emit = lambda event: events.append(event)
+        agent.ctx.emit = agent.emit
+        agent.ctx.api_keys["typesafe"] = "test-key"
+        agent._dispatch_tool = lambda name, args, call_id: {
+            "status": "error",
+            "error": "User rejected the tool call",
+        }
+        agent._run_turn = lambda: ran.append("llm")
+        agent._handle_send({"text": "set volume to 40%"})
+        self.assertEqual(ran, [])
+        self.assertTrue(any(event.get("type") == "error" for event in events))
+        self.assertFalse(any(event.get("type") == "done" for event in events))
+        results = [event for event in events if event.get("type") == "tool_result"]
+        self.assertEqual(results[0].get("status"), "error")
+
+    def test_agent_focus_respects_read_permission(self):
+        from io import StringIO
+        from ai.agent import Agent
+
+        def respond(state, questions):
+            if "window" in questions:
+                raise AssertionError("window titles must not be sent when reads require ask")
+            return self.jev.FakeResponse(
+                choices={
+                    "intent": self._choice("focus_window"),
+                    "read_tool": self._choice("none"),
+                    "write_tool": self._choice("none"),
+                }
+            )
+
+        self._factory(self.jev.FakeClient(response=respond))
+        agent = Agent(stdin=StringIO(), stdout=StringIO())
+        agent.apply_init(
+            {
+                "enabled_tools": ["native"],
+                "jev": {"mode": "active", "confidenceThreshold": 0.75},
+                "execution_profile": {"readFiles": "AlwaysAsk"},
+                "system_prompt": "hi",
+            }
+        )
+        events = []
+        ran = []
+        native_calls = []
+        agent.emit = lambda event: events.append(event)
+        agent.ctx.emit = agent.emit
+        agent.ctx.api_keys["typesafe"] = "test-key"
+        agent.ctx.wait_for_native = lambda call_id, timeout=None: native_calls.append(call_id) or {
+            "windows": [{"address": "0x1", "title": "Firefox", "class": "firefox", "pid": 1, "focused": False}]
+        }
+        agent._run_turn = lambda: ran.append("llm")
+        agent._handle_send({"text": "focus firefox"})
+        self.assertEqual(ran, ["llm"])
+        self.assertEqual(native_calls, [])
+        self.assertFalse(any(event.get("name") == "get_windows" for event in events))
         self.assertFalse(any(event.get("name") == "focus_window" for event in events))
 
 
