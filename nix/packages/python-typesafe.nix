@@ -1,8 +1,11 @@
 # Optional TypeSafe Python SDK (Jev). Missing at runtime is a clean non-Jev fallback.
-# Pinned from PyPI wheels so the build does not need uv_build / hatch VCS hooks.
+# SDK/httpx2/httpcore2/idna are pinned from PyPI wheels so the build does not
+# need uv_build / hatch VCS hooks. msgspec is compiled from the PyPI sdist
+# (C extension; no portable py3-none-any wheel).
 #
-# Applied as python3.packageOverrides so the interpreter has a single idna.
-# httpx2 2.13.0 requires idna>=3.18; nixpkgs currently ships 3.11.
+# Applied as python3.packageOverrides so the interpreter has a single idna and
+# msgspec. httpx2 2.13.0 requires idna>=3.18 (nixpkgs: 3.11);
+# typesafe-sdk 0.6.0 requires msgspec>=0.21.1 (nixpkgs: 0.20.0).
 { pkgs }:
 
 self: super:
@@ -36,6 +39,19 @@ in rec {
     imports = [ "idna" ];
   };
 
+  msgspec = super.msgspec.overridePythonAttrs (old: rec {
+    version = "0.21.1";
+    src = pkgs.fetchPypi {
+      pname = "msgspec";
+      inherit version;
+      hash = "sha256-IxNQjjlLDSCPj1aJLKmyeZ4lYTKd6XY7GWGVlabA9yw=";
+    };
+    doCheck = false;
+    env = (old.env or { }) // {
+      SETUPTOOLS_SCM_PRETEND_VERSION = version;
+    };
+  });
+
   httpcore2 = buildWheel {
     pname = "httpcore2";
     version = "2.13.0";
@@ -66,7 +82,7 @@ in rec {
     hash = "sha256-IVWdVVjpWn7gCNCgRKYLtbstOx7EJv4Vin83rzW6MjI=";
     dependencies = [
       httpx2
-      py.msgspec
+      msgspec
       py.tenacity
     ] ++ lib.optionals (py ? typing-extensions) [ py.typing-extensions ];
     imports = [ "typesafe_sdk" ];
