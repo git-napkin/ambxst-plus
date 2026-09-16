@@ -325,7 +325,13 @@ Singleton {
             ignore_catalog: Config.readIgnoreCatalog(),
             manual_models: Config.readManualModelsMap(),
             model: modelPayload(currentModel),
-            context: { autoexecute_any_action: autoApprove }
+            context: { autoexecute_any_action: autoApprove },
+            jev: {
+                mode: (Config.ai.jev && Config.ai.jev.mode) ? Config.ai.jev.mode : "off",
+                timeoutMs: (Config.ai.jev && Config.ai.jev.timeoutMs) ? Config.ai.jev.timeoutMs : 1500,
+                confidenceThreshold: (Config.ai.jev && Config.ai.jev.confidenceThreshold != null) ? Config.ai.jev.confidenceThreshold : 0.75,
+                maxRetries: (Config.ai.jev && Config.ai.jev.maxRetries != null) ? Config.ai.jev.maxRetries : 1
+            }
         });
     }
 

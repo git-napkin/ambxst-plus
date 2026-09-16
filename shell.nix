@@ -1,12 +1,23 @@
 { pkgs ? import <nixpkgs> { } }:
 
+let
+  pythonEnv = pkgs.python3.withPackages (ps:
+    let
+      jevPkgs = import ./nix/packages/python-typesafe.nix {
+        inherit pkgs;
+        pythonPackages = ps;
+      };
+    in [
+      ps.cryptography
+      ps.dbus-python
+      jevPkgs.typesafe-sdk
+    ]
+  );
+in
 pkgs.mkShell {
   packages = with pkgs; [
     quickshell
-    python3.withPackages (ps: [
-      ps.cryptography
-      ps.dbus-python
-    ])
+    pythonEnv
     brightnessctl
     ddcutil
     grim

@@ -472,7 +472,10 @@ class UseComputerTool(Tool):
     def should_autoexecute(self, ctx, args):
         if ctx.profile.computer_use == NEVER:
             return "deny"
-        if action_is_critical(ctx, args):
+        from ..jev_judgments import require_critical_review
+
+        regex_critical = action_is_critical(ctx, args)
+        if require_critical_review(ctx, args, regex_critical):
             return "ask"
         if ctx.computer_use_approved or ctx.profile.computer_use == ALWAYS_ALLOW or ctx.autoexecute_any_action:
             return True

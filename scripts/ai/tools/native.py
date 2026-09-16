@@ -96,7 +96,16 @@ class NativeTool(Tool):
         payload = args or {}
         if "args" in payload and isinstance(payload["args"], dict) and set(payload.keys()) == {"args"}:
             payload = payload["args"]
-        return native_request(ctx, self.name, payload)
+        result = native_request(ctx, self.name, payload)
+        if self.name == "get_windows":
+            from ..jev_judgments import shadow_windows_from_native
+
+            shadow_windows_from_native(ctx, result)
+        elif self.name == "focus_window":
+            from ..jev_judgments import note_focus_window_dispatch
+
+            note_focus_window_dispatch(ctx, payload)
+        return result
 
     def user_friendly_name_for(self, args):
         if self._friendly:

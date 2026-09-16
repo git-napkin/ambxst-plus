@@ -1,6 +1,20 @@
 # System tools and utilities
 { pkgs }:
 
+let
+  pythonEnv = pkgs.python3.withPackages (ps:
+    let
+      jevPkgs = import ./python-typesafe.nix {
+        inherit pkgs;
+        pythonPackages = ps;
+      };
+    in [
+      ps.cryptography
+      ps.dbus-python
+      jevPkgs.typesafe-sdk
+    ]
+  );
+in
 with pkgs; [
   brightnessctl
   curl
@@ -13,10 +27,7 @@ with pkgs; [
 
   libnotify
   matugen
-  (python3.withPackages (ps: [
-    ps.cryptography
-    ps.dbus-python
-  ]))
+  pythonEnv
   power-profiles-daemon
   slurp
   sqlite
