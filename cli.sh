@@ -265,8 +265,7 @@ write_ipc_pipe() {
 	else
 		printf '%s\n' "$payload" >"$pipe" &
 		local wpid=$!
-		local i
-		for i in 1 2 3 4; do
+		for _ in 1 2 3 4; do
 			if ! kill -0 "$wpid" 2>/dev/null; then
 				wait "$wpid" 2>/dev/null
 				return $?
