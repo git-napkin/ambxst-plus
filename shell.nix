@@ -1,18 +1,14 @@
 { pkgs ? import <nixpkgs> { } }:
 
 let
-  pythonEnv = pkgs.python3.withPackages (ps:
-    let
-      jevPkgs = import ./nix/packages/python-typesafe.nix {
-        inherit pkgs;
-        pythonPackages = ps;
-      };
-    in [
-      ps.cryptography
-      ps.dbus-python
-      jevPkgs.typesafe-sdk
-    ]
-  );
+  python = pkgs.python3.override {
+    packageOverrides = import ./nix/packages/python-typesafe.nix { inherit pkgs; };
+  };
+  pythonEnv = python.withPackages (ps: [
+    ps.cryptography
+    ps.dbus-python
+    ps.typesafe-sdk
+  ]);
 in
 pkgs.mkShell {
   packages = with pkgs; [
