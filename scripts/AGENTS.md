@@ -27,6 +27,7 @@ Python and Bash backend utilities invoked by QML services via `Quickshell.Io.Pro
 | `daemon_priority.sh` | Bash | Shell init | Process priority adjustment |
 | `camera_monitor.py` | Python | `CameraService.qml` | Long-running camera enumeration + in-use detection via /proc fd scan |
 | `ai/agent.py` | Python | `Ai.qml` | NDJSON agent loop, providers, Warp-shaped tools |
+| `ai/jev.py` | Python | `ai/agent.py` | Optional lazy TypeSafe Jev adapter (off by default) |
 | `ai/computer_use/` | Python | `use_computer` | Coords, screenshot downscale, input, AT-SPI, window targeting, doctor |
 
 ## CONVENTIONS

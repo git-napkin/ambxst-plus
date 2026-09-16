@@ -26,10 +26,11 @@ QtObject {
         { label: "Audio Mixer", keywords: "sound volume output input mic speaker", section: 2, subSection: "", subLabel: "", icon: Icons.faders, isIcon: true },
 
         // --- AI ---
-        { label: "AI", keywords: "assistant spotlight openai gemini claude openrouter ollama key api", section: 3, subSection: "", subLabel: "AI", icon: Icons.sparkle, isIcon: true },
+        { label: "AI", keywords: "assistant spotlight openai gemini claude openrouter ollama key api typesafe jev", section: 3, subSection: "", subLabel: "AI", icon: Icons.sparkle, isIcon: true },
         { label: "Workspace", keywords: "folder project files grep", section: 3, subSection: "", subLabel: "AI", icon: Icons.folder, isIcon: true },
         { label: "Execution Profile", keywords: "approve allow deny commands diffs agent", section: 3, subSection: "", subLabel: "AI", icon: Icons.sparkle, isIcon: true },
         { label: "Exa Search", keywords: "web search exa key misc", section: 3, subSection: "", subLabel: "AI", icon: Icons.globe, isIcon: true },
+        { label: "Jev", keywords: "jev typesafe shadow routing window judgment key", section: 3, subSection: "", subLabel: "AI", icon: Icons.sparkle, isIcon: true },
         { label: "OpenRouter", keywords: "openrouter models router key api", section: 3, subSection: "", subLabel: "AI", icon: Icons.sparkle, isIcon: true },
         { label: "Custom Provider", keywords: "endpoint curl custom openai compatible", section: 3, subSection: "", subLabel: "AI", icon: Icons.sparkle, isIcon: true },
         { label: "Overlay Size", keywords: "spotlight width position scrim assistant top center bottom offset", section: 3, subSection: "", subLabel: "AI", icon: Icons.sparkle, isIcon: true },

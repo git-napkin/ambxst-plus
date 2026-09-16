@@ -58,6 +58,28 @@ def flatten_ui_messages(messages):
     return out
 
 
+def _jev_native_outcome(result):
+    """Classify a native/tool dispatch result for Jev shortcuts."""
+    if not isinstance(result, dict):
+        return "error"
+    status = result.get("status")
+    inner = result.get("result")
+    if status == "Cancelled" or (
+        result.get("type") == "tool_result"
+        and (status == "Cancelled" or (isinstance(inner, dict) and inner.get("variant") == "Cancelled"))
+    ):
+        return "cancelled"
+    if status == "ok":
+        return "ok"
+    if status == "error" or result.get("error"):
+        return "error"
+    if isinstance(inner, dict) and inner.get("error"):
+        return "error"
+    if status in (None, "", "done"):
+        return "ok"
+    return "error"
+
+
 MAX_IMAGE_ATTACHMENTS = 2
 
 
@@ -151,6 +173,8 @@ class Agent:
         profile = ExecutionProfile(payload.get("execution_profile") or payload.get("executionProfile") or {})
         skill_dirs = payload.get("skill_dirs") or payload.get("skillDirs") or []
         enabled = payload.get("enabled_tools") or payload.get("enabledTools")
+        from ai.jev_judgments import parse_config
+
         self.ctx = ToolContext(
             workspace=workspace,
             profile=profile,
@@ -163,6 +187,7 @@ class Agent:
             ignore_catalog=payload.get("ignore_catalog") or payload.get("ignoreModelCatalog") or {},
             manual_models=payload.get("manual_models") or payload.get("manualModels") or {},
         )
+        self.ctx.jev_config = parse_config(payload.get("jev") or {})
         context = payload.get("context") or {}
         self.ctx.autoexecute_any_action = bool(context.get("autoexecute_any_action"))
         self.ctx.cancel_event = self.cancel_event
@@ -377,6 +402,128 @@ class Agent:
             return
         self.messages.insert(0, {"role": "system", "content": self.system_prompt})
 
+    def _jev_try_handle(self):
+        from ai.jev_judgments import (
+            INTENT_FOCUS_WINDOW,
+            MODE_SHADOW,
+            config_from_ctx,
+            evaluate_intent,
+            native_shortcut,
+        )
+
+        cfg = config_from_ctx(self.ctx)
+        if not cfg.enabled:
+            return False
+        if self.computer_use_approved:
+            return False
+        judgment = evaluate_intent(self.ctx)
+        if cfg.mode == MODE_SHADOW or not cfg.active:
+            return False
+        name, args = native_shortcut(self.ctx, judgment)
+        if name is None:
+            return False
+        if name == INTENT_FOCUS_WINDOW:
+            return self._jev_focus_window()
+        return self._jev_dispatch_native(name, args)
+
+    def _jev_windows_readable(self):
+        tool = self.registry.get("get_windows")
+        if not tool:
+            return False
+        return tool.should_autoexecute(self.ctx, {}) is True
+
+    def _jev_focus_window(self):
+        from ai.jev_judgments import revalidate_window, select_focus_target, windows_from_native
+        from ai.tools.native import native_request
+
+        if not self._jev_windows_readable():
+            return False
+        listed = native_request(self.ctx, "get_windows", {})
+        if _jev_native_outcome(listed) == "cancelled":
+            self.emit({"type": "cancelled"})
+            return True
+        if _jev_native_outcome(listed) != "ok":
+            return False
+        windows = windows_from_native(listed)
+        selected, _reason = select_focus_target(self.ctx, windows)
+        if selected is None:
+            return False
+        self.ctx.jev_revalidating_windows = True
+        try:
+            if not self._jev_windows_readable():
+                return False
+            fresh_raw = native_request(self.ctx, "get_windows", {})
+        finally:
+            self.ctx.jev_revalidating_windows = False
+        if _jev_native_outcome(fresh_raw) == "cancelled":
+            self.emit({"type": "cancelled"})
+            return True
+        if _jev_native_outcome(fresh_raw) != "ok":
+            return False
+        live, _stale = revalidate_window(selected, windows, windows_from_native(fresh_raw))
+        if live is None:
+            return False
+        return self._jev_dispatch_native("focus_window", {"address": live.get("address")})
+
+    def _jev_dispatch_native(self, name, args):
+        call_id = "jev_%s" % uuid.uuid4().hex[:12]
+        self.emit(
+            {
+                "type": "tool_call",
+                "call_id": call_id,
+                "name": name,
+                "args": args,
+                **self._friendly_event_fields(name, args),
+            }
+        )
+        result = self._dispatch_tool(name, args, call_id)
+        emit_result = dict(result) if isinstance(result, dict) else result
+        if isinstance(emit_result, dict):
+            emit_result.pop("image_base64", None)
+        outcome = _jev_native_outcome(result)
+        chip = "done" if outcome == "ok" else outcome
+        self.emit(
+            {
+                "type": "tool_result",
+                "call_id": call_id,
+                "name": name,
+                "result": emit_result,
+                "status": chip,
+            }
+        )
+        self.messages.append(
+            {
+                "role": "assistant",
+                "content": "",
+                "tool_calls": [
+                    {
+                        "id": call_id,
+                        "type": "function",
+                        "function": {"name": name, "arguments": json.dumps(args)},
+                    }
+                ],
+            }
+        )
+        self.messages.append(
+            {
+                "role": "tool",
+                "tool_call_id": call_id,
+                "name": name,
+                "content": json.dumps(emit_result, ensure_ascii=False),
+            }
+        )
+        if outcome == "cancelled":
+            self.emit({"type": "cancelled"})
+            return True
+        if outcome != "ok":
+            err = ""
+            if isinstance(result, dict):
+                err = str(result.get("error") or "")
+            self.emit({"type": "error", "error": err or "Native action failed"})
+            return True
+        self.emit({"type": "done"})
+        return True
+
     def _handle_send(self, payload):
         self.cancel_event.clear()
         text = payload.get("text") or ""
@@ -389,6 +536,11 @@ class Agent:
             user_msg["attachments"] = attachments
         self.messages.append(user_msg)
         try:
+            from ai.jev_judgments import begin_turn
+
+            begin_turn(self.ctx, text)
+            if self._jev_try_handle():
+                return
             self._run_turn()
         except Exception as exc:
             if self.computer_use_approved:

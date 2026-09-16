@@ -4,25 +4,25 @@ overview: Integrate Jev as a bounded, optional judgment layer in Ambxst[+] witho
 todos:
   - id: jev-client
     content: Add a lazy official-SDK Jev adapter with typed response normalization, timeout/retry handling, and KeyStore-based credentials.
-    status: pending
+    status: completed
   - id: package-jev
     content: Package the official TypeSafe Python SDK in the Nix dev and runtime environments with an offline-safe optional dependency path.
-    status: pending
+    status: completed
   - id: jev-config
     content: Add off/shadow/active configuration and a typesafe KeyStore entry without enabling remote judgments by default.
-    status: pending
+    status: completed
   - id: shadow-evaluation
     content: Implement privacy-minimized shadow judgments for intent, window selection, and critical computer-use actions.
-    status: pending
+    status: completed
   - id: promote-safe-routing
     content: Promote only measured, high-confidence native routing and fresh window selection with deterministic fallbacks.
-    status: pending
+    status: completed
   - id: promote-safety-verification
     content: Layer Jev safety verification onto existing permission gates without allowing it to weaken policy.
-    status: pending
+    status: completed
   - id: test-and-gate
     content: Add fake-client tests for parsing, fallbacks, stale state, confidence thresholds, and unchanged off-mode behavior; run repository validation.
-    status: pending
+    status: completed
 isProject: false
 ---
 

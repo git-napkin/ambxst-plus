@@ -1837,5 +1837,574 @@ class TestPerformanceContracts(unittest.TestCase):
         self.assertNotIn('source: Qt.resolvedUrl("../widgets/launcher/LauncherView.qml")', notch)
 
 
+class TestJev(unittest.TestCase):
+    def setUp(self):
+        from ai import jev, jev_judgments
+
+        jev.reset_client_factory()
+        jev_judgments.reset_diagnostics()
+        self.jev = jev
+        self.jj = jev_judgments
+
+    def tearDown(self):
+        self.jev.reset_client_factory()
+        self.jj.reset_diagnostics()
+
+    def _config(self, mode="active", threshold=0.75):
+        return self.jj.parse_config(
+            {
+                "mode": mode,
+                "timeoutMs": 1500,
+                "confidenceThreshold": threshold,
+                "maxRetries": 1,
+            }
+        )
+
+    def _ctx(self, mode="active", text="what's the volume", **kwargs):
+        ctx = _ctx(".", enabled_tools=kwargs.pop("enabled_tools", ["native"]), **kwargs)
+        ctx.jev_config = self._config(mode)
+        ctx.api_keys["typesafe"] = "test-key"
+        self.jj.begin_turn(ctx, text)
+        return ctx
+
+    def _factory(self, client):
+        self.jev.set_client_factory(lambda api_key, timeout_s, max_retries: client)
+        return client
+
+    def _choice(self, label, confidence=0.92, extra=None):
+        probs = {label: confidence}
+        if extra:
+            probs.update(extra)
+        return self.jev.FakeChoice(label, confidence, probs)
+
+    def test_default_config_is_off(self):
+        cfg = self.jj.parse_config({})
+        self.assertEqual(cfg.mode, self.jj.MODE_OFF)
+        self.assertFalse(cfg.enabled)
+        self.assertFalse(cfg.active)
+        defaults = (Path(__file__).parent.parent / "config/defaults/ai.js").read_text()
+        self.assertIn('"mode": "off"', defaults)
+        self.assertIn('"jev"', defaults)
+
+    def test_invalid_mode_falls_back_to_off(self):
+        self.assertEqual(self.jj.parse_config({"mode": "full-agent"}).mode, self.jj.MODE_OFF)
+
+    def test_normalize_choice_noul_score(self):
+        choice = self.jev.normalize_choice(
+            self.jev.FakeChoice("native_read", 0.88, {"native_read": 0.88, "conversation": 0.12})
+        )
+        self.assertEqual(choice.choice, "native_read")
+        self.assertAlmostEqual(choice.confidence, 0.88)
+        noul = self.jev.normalize_noul(self.jev.FakeNoul(0.73))
+        self.assertAlmostEqual(noul.noul, 0.73)
+        score = self.jev.normalize_score(self.jev.FakeScore(1.5, 0.8, {0: 0.1, 1: 0.4, 2: 0.5}))
+        self.assertAlmostEqual(score.score, 1.5)
+        self.assertIsNone(self.jev.normalize_choice(self.jev.FakeChoice("", 0.99)))
+        self.assertIsNone(self.jev.normalize_response(self.jev.FakeResponse()))
+
+    def test_missing_key_does_not_open_client(self):
+        ctx = _ctx(".")
+        ctx.jev_config = self._config("active")
+        result = self.jev.ask(ctx, {"request": {"text": "hi"}}, {"intent": {"type": "choice", "criteria": {"a": None}}})
+        self.assertEqual(result.status, self.jev.STATUS_MISSING_KEY)
+        self.assertFalse(result.ok)
+
+    def test_missing_sdk_when_key_present(self):
+        ctx = _ctx(".")
+        ctx.api_keys["typesafe"] = "sk-test"
+        if self.jev.sdk_available() and self.jev._CLIENT_FACTORY is None:
+            # Real SDK is optional; the missing-sdk path is the no-factory import miss.
+            pass
+        self.jev.reset_client_factory()
+        with patch("ai.jev._import_sdk", return_value=None):
+            result = self.jev.ask(ctx, {"request": {"text": "hi"}}, {"intent": {"type": "choice", "criteria": {"a": None}}})
+        self.assertEqual(result.status, self.jev.STATUS_MISSING_SDK)
+
+    def test_timeout_and_malformed_and_cancel(self):
+        ctx = self._ctx()
+        client = self._factory(self.jev.FakeClient(error=TimeoutError("deadline")))
+        timed = self.jev.ask(ctx, {"request": {"text": "hi"}}, {"intent": {"type": "choice", "criteria": {"a": None}}})
+        self.assertEqual(timed.status, self.jev.STATUS_TIMEOUT)
+        self.assertEqual(len(client.calls), 1)
+
+        ctx._jev_sdk_client = None
+        self._factory(self.jev.FakeClient(response=self.jev.FakeResponse(choices={"intent": self._choice("")})))
+        malformed = self.jev.ask(ctx, {"request": {"text": "hi"}}, {"intent": {"type": "choice", "criteria": {"a": None}}})
+        self.assertEqual(malformed.status, self.jev.STATUS_MALFORMED)
+
+        ctx.cancel_event = threading.Event()
+        ctx.cancel_event.set()
+        cancelled = self.jev.ask(ctx, {"request": {"text": "hi"}}, {"intent": {"type": "choice", "criteria": {"a": None}}})
+        self.assertEqual(cancelled.status, self.jev.STATUS_CANCELLED)
+
+    def test_off_mode_makes_zero_jev_requests(self):
+        calls = []
+        self.jev.set_client_factory(lambda *a, **k: calls.append("asked") or self.jev.FakeClient())
+        ctx = self._ctx(mode="off", text="what's the volume")
+        self.assertIsNone(self.jj.evaluate_intent(ctx))
+        self.assertFalse(self.jj.require_critical_review(ctx, {"action": "click", "name": "Save"}, False))
+        self.assertIsNone(self.jj.evaluate_windows(ctx, [{"address": "0x1", "title": "Firefox", "class": "firefox"}]))
+        self.assertEqual(calls, [])
+
+    def test_shadow_intent_does_not_dispatch(self):
+        client = self._factory(
+            self.jev.FakeClient(
+                response=self.jev.FakeResponse(
+                    choices={
+                        "intent": self._choice("native_read"),
+                        "read_tool": self._choice("get_volume"),
+                        "write_tool": self._choice("none"),
+                    }
+                )
+            )
+        )
+        ctx = self._ctx(mode="shadow", text="what's the volume")
+        judgment = self.jj.evaluate_intent(ctx)
+        self.assertTrue(judgment.ok)
+        name, reason = self.jj.native_shortcut(ctx, judgment)
+        self.assertIsNone(name)
+        self.assertEqual(reason, "shadow")
+        self.assertEqual(len(client.calls), 1)
+        state = client.calls[0]["state"]
+        self.assertIn("request", state)
+        self.assertNotIn("clipboard", state)
+        self.assertNotIn("notifications", json.dumps(state))
+
+    def test_active_high_confidence_native_read(self):
+        self._factory(
+            self.jev.FakeClient(
+                response=self.jev.FakeResponse(
+                    choices={
+                        "intent": self._choice("native_read"),
+                        "read_tool": self._choice("get_volume"),
+                        "write_tool": self._choice("none"),
+                    }
+                )
+            )
+        )
+        ctx = self._ctx(mode="active", text="what's the volume")
+        judgment = self.jj.evaluate_intent(ctx)
+        name, args = self.jj.native_shortcut(ctx, judgment)
+        self.assertEqual(name, "get_volume")
+        self.assertEqual(args, {})
+
+    def test_low_confidence_falls_back(self):
+        self._factory(
+            self.jev.FakeClient(
+                response=self.jev.FakeResponse(
+                    choices={
+                        "intent": self._choice("native_read", 0.4),
+                        "read_tool": self._choice("get_volume", 0.4),
+                        "write_tool": self._choice("none", 0.4),
+                    }
+                )
+            )
+        )
+        ctx = self._ctx(mode="active", text="do the thing")
+        judgment = self.jj.evaluate_intent(ctx)
+        name, reason = self.jj.native_shortcut(ctx, judgment)
+        self.assertIsNone(name)
+        self.assertEqual(reason, "low_confidence")
+
+    def test_unvalidated_write_args_fall_back(self):
+        self._factory(
+            self.jev.FakeClient(
+                response=self.jev.FakeResponse(
+                    choices={
+                        "intent": self._choice("native_write"),
+                        "read_tool": self._choice("none"),
+                        "write_tool": self._choice("set_volume"),
+                    }
+                )
+            )
+        )
+        ctx = self._ctx(mode="active", text="turn it up a bit")
+        judgment = self.jj.evaluate_intent(ctx)
+        name, reason = self.jj.native_shortcut(ctx, judgment)
+        self.assertIsNone(name)
+        self.assertEqual(reason, "unvalidated_args")
+
+    def test_validated_volume_write(self):
+        self._factory(
+            self.jev.FakeClient(
+                response=self.jev.FakeResponse(
+                    choices={
+                        "intent": self._choice("native_write"),
+                        "read_tool": self._choice("none"),
+                        "write_tool": self._choice("set_volume"),
+                    }
+                )
+            )
+        )
+        ctx = self._ctx(mode="active", text="set volume to 40%")
+        judgment = self.jj.evaluate_intent(ctx)
+        name, args = self.jj.native_shortcut(ctx, judgment)
+        self.assertEqual(name, "set_volume")
+        self.assertAlmostEqual(args["value"], 0.4)
+
+    def test_parse_level_percentages_and_rejects_ambiguous(self):
+        parse = self.jj.parse_level
+        self.assertAlmostEqual(parse("set volume to 40%"), 0.4)
+        self.assertAlmostEqual(parse("set volume to 40 percent"), 0.4)
+        self.assertAlmostEqual(parse("set volume to 1"), 0.01)
+        self.assertAlmostEqual(parse("set volume to 1%"), 0.01)
+        self.assertAlmostEqual(parse("set brightness to 50"), 0.5)
+        self.assertAlmostEqual(parse("set volume to max"), 1.0)
+        self.assertAlmostEqual(parse("set volume to full"), 1.0)
+        self.assertAlmostEqual(parse("turn the volume off"), 0.0)
+        self.assertIsNone(parse("set brightness to 0.5"))
+        self.assertIsNone(parse("set volume for the full screen app"))
+        self.assertIsNone(parse("turn it up a bit"))
+        self.assertAlmostEqual(self.jj.write_args_for("set_volume", "set volume to 1")["value"], 0.01)
+        self.assertIsNone(self.jj.write_args_for("set_brightness", "set brightness to 0.5"))
+
+    def test_window_none_and_low_confidence_and_stale(self):
+        windows = [
+            {"address": "0xaaa", "title": "Firefox", "class": "firefox", "pid": 10, "focused": True},
+            {"address": "0xbbb", "title": "Kitty", "class": "kitty", "pid": 11, "focused": False},
+        ]
+        ctx = self._ctx(mode="active", text="focus firefox")
+        self._factory(
+            self.jev.FakeClient(response=self.jev.FakeResponse(choices={"window": self._choice("none", 0.96)}))
+        )
+        judgment = self.jj.evaluate_windows(ctx, windows)
+        selected, reason = self.jj.resolve_window_choice(judgment, windows, 0.75)
+        self.assertIsNone(selected)
+        self.assertEqual(reason, "none")
+
+        ctx.jev_window_judgment = None
+        ctx.jev_window_fp = None
+        ctx._jev_sdk_client = None
+        self._factory(
+            self.jev.FakeClient(response=self.jev.FakeResponse(choices={"window": self._choice("w0", 0.2)}))
+        )
+        judgment = self.jj.evaluate_windows(ctx, windows)
+        selected, reason = self.jj.resolve_window_choice(judgment, windows, 0.75)
+        self.assertIsNone(selected)
+        self.assertEqual(reason, "low_confidence")
+
+        live, stale = self.jj.revalidate_window(
+            windows[0],
+            windows,
+            [{"address": "0xccc", "title": "Other", "class": "other", "pid": 12, "focused": True}],
+        )
+        self.assertIsNone(live)
+        self.assertEqual(stale, "stale")
+
+        kept, ok = self.jj.revalidate_window(windows[0], windows, windows)
+        self.assertEqual(kept["address"], "0xaaa")
+        self.assertEqual(ok, "")
+
+    def test_window_state_omits_addresses(self):
+        windows = self.jj.slim_windows(
+            [{"address": "0xsecret", "title": "Mail", "class": "thunderbird", "pid": 9, "focused": False}]
+        )
+        state = self.jj.window_state(self._ctx(text="focus mail"), windows)
+        blob = json.dumps(state)
+        self.assertNotIn("0xsecret", blob)
+        self.assertEqual(state["candidates"][0]["id"], "w0")
+
+    def test_substring_fallback_only_when_jev_unavailable(self):
+        windows = [{"address": "0x1", "title": "Firefox Developer Edition", "class": "firefox", "pid": 1, "focused": False}]
+        ctx = self._ctx(mode="active", text="focus firefox")
+        ctx.jev_window_judgment = self.jev.Judgment(status=self.jev.STATUS_TIMEOUT, error="deadline")
+        ctx.jev_window_fp = self.jj.window_fingerprint(self.jj.slim_windows(windows))
+        selected, reason = self.jj.select_focus_target(ctx, windows)
+        self.assertEqual(selected["address"], "0x1")
+        self.assertEqual(reason, "substring")
+
+    def test_substring_skips_command_verbs(self):
+        windows = [{"address": "0x1", "title": "Focus To-Do", "class": "focus", "pid": 1, "focused": False}]
+        self.assertIsNone(self.jj.substring_window_match("focus", windows))
+        ctx = self._ctx(mode="active", text="focus")
+        ctx.jev_window_judgment = self.jev.Judgment(status=self.jev.STATUS_TIMEOUT, error="deadline")
+        ctx.jev_window_fp = self.jj.window_fingerprint(self.jj.slim_windows(windows))
+        selected, reason = self.jj.select_focus_target(ctx, windows)
+        self.assertIsNone(selected)
+        self.assertEqual(reason, "timeout")
+
+    def test_shadow_leaves_computer_use_approval_unchanged(self):
+        from ai.tools.computer_use import UseComputerTool, action_is_critical
+
+        self._factory(self.jev.FakeClient(response=self.jev.FakeResponse(nouls={"critical": self.jev.FakeNoul(0.95)})))
+        ctx = self._ctx(
+            mode="shadow",
+            text="click pay",
+            execution_profile={"computerUse": "AlwaysAllow"},
+        )
+        ctx.computer_use_approved = True
+        args = {"action": "click", "name": "Save"}
+        self.assertFalse(action_is_critical(ctx, args))
+        self.assertEqual(UseComputerTool().should_autoexecute(ctx, args), True)
+        self.assertTrue(self.jj.diagnostics())
+
+    def test_explicit_critical_flag_stays_hard_positive(self):
+        from ai.tools.computer_use import UseComputerTool, action_is_critical
+
+        self._factory(self.jev.FakeClient(response=self.jev.FakeResponse(nouls={"critical": self.jev.FakeNoul(0.01)})))
+        ctx = self._ctx(
+            mode="active",
+            text="click",
+            execution_profile={"computerUse": "AlwaysAllow"},
+        )
+        ctx.computer_use_approved = True
+        args = {"action": "click", "name": "Save", "critical": True}
+        self.assertTrue(action_is_critical(ctx, args))
+        self.assertEqual(UseComputerTool().should_autoexecute(ctx, args), "ask")
+
+    def test_jev_positive_or_uncertain_forces_review(self):
+        from ai.tools.computer_use import UseComputerTool, action_is_critical
+
+        ctx = self._ctx(
+            mode="active",
+            text="click",
+            execution_profile={"computerUse": "AlwaysAllow"},
+        )
+        ctx.computer_use_approved = True
+        args = {"action": "click", "name": "Complete order"}
+        self.assertFalse(action_is_critical(ctx, args))
+
+        ctx._jev_sdk_client = None
+        ctx.jev_safety_cache = {}
+        self._factory(self.jev.FakeClient(response=self.jev.FakeResponse(nouls={"critical": self.jev.FakeNoul(0.91)})))
+        self.assertEqual(UseComputerTool().should_autoexecute(ctx, args), "ask")
+
+        ctx._jev_sdk_client = None
+        ctx.jev_safety_cache = {}
+        self._factory(self.jev.FakeClient(response=self.jev.FakeResponse(nouls={"critical": self.jev.FakeNoul(0.5)})))
+        self.assertEqual(UseComputerTool().should_autoexecute(ctx, args), "ask")
+
+        ctx._jev_sdk_client = None
+        ctx.jev_safety_cache = {}
+        self._factory(self.jev.FakeClient(error=TimeoutError("nope")))
+        self.assertEqual(UseComputerTool().should_autoexecute(ctx, args), True)
+
+    def test_jev_never_overrides_never_policy(self):
+        from ai.tools.computer_use import UseComputerTool
+
+        self._factory(self.jev.FakeClient(response=self.jev.FakeResponse(nouls={"critical": self.jev.FakeNoul(0.01)})))
+        ctx = self._ctx(mode="active", execution_profile={"computerUse": "Never"})
+        self.assertEqual(UseComputerTool().should_autoexecute(ctx, {"action": "click", "name": "Pay now"}), "deny")
+
+    def test_routine_actions_skip_jev(self):
+        calls = []
+        self.jev.set_client_factory(lambda *a, **k: calls.append("asked") or self.jev.FakeClient())
+        ctx = self._ctx(mode="active", execution_profile={"computerUse": "AlwaysAllow"})
+        ctx.computer_use_approved = True
+        from ai.tools.computer_use import UseComputerTool
+
+        self.assertEqual(UseComputerTool().should_autoexecute(ctx, {"action": "snapshot"}), True)
+        self.assertEqual(UseComputerTool().should_autoexecute(ctx, {"action": "focus"}), True)
+        self.assertEqual(calls, [])
+
+    def test_agent_off_and_shadow_keep_llm_path(self):
+        from io import StringIO
+        from ai.agent import Agent
+
+        def install(mode):
+            agent = Agent(stdin=StringIO(), stdout=StringIO())
+            agent.apply_init(
+                {
+                    "enabled_tools": ["native"],
+                    "jev": {"mode": mode, "timeoutMs": 1500, "confidenceThreshold": 0.75},
+                    "execution_profile": {},
+                    "system_prompt": "hi",
+                }
+            )
+            events = []
+            ran = []
+            agent.emit = lambda event: events.append(event)
+            agent.ctx.emit = agent.emit
+            agent._run_turn = lambda: ran.append("llm")
+            return agent, events, ran
+
+        client = self._factory(
+            self.jev.FakeClient(
+                response=self.jev.FakeResponse(
+                    choices={
+                        "intent": self._choice("native_read"),
+                        "read_tool": self._choice("get_volume"),
+                        "write_tool": self._choice("none"),
+                    }
+                )
+            )
+        )
+        off, _events, ran = install("off")
+        off._handle_send({"text": "what's the volume"})
+        self.assertEqual(ran, ["llm"])
+        self.assertEqual(client.calls, [])
+
+        client.calls.clear()
+        shadow, events, ran = install("shadow")
+        shadow.ctx.api_keys["typesafe"] = "test-key"
+        shadow._handle_send({"text": "what's the volume"})
+        self.assertEqual(ran, ["llm"])
+        self.assertTrue(client.calls)
+        self.assertFalse(any(event.get("name") == "get_volume" for event in events))
+
+    def test_agent_active_routes_native_read(self):
+        from io import StringIO
+        from ai.agent import Agent
+
+        self._factory(
+            self.jev.FakeClient(
+                response=self.jev.FakeResponse(
+                    choices={
+                        "intent": self._choice("native_read"),
+                        "read_tool": self._choice("get_volume"),
+                        "write_tool": self._choice("none"),
+                    }
+                )
+            )
+        )
+        agent = Agent(stdin=StringIO(), stdout=StringIO())
+        agent.apply_init(
+            {
+                "enabled_tools": ["native"],
+                "jev": {"mode": "active", "confidenceThreshold": 0.75},
+                "execution_profile": {},
+                "system_prompt": "hi",
+            }
+        )
+        events = []
+        ran = []
+        agent.emit = lambda event: events.append(event)
+        agent.ctx.emit = agent.emit
+        agent.ctx.api_keys["typesafe"] = "test-key"
+        agent.ctx.wait_for_native = lambda call_id, timeout=None: {"volume": 0.4, "muted": False}
+        agent._run_turn = lambda: ran.append("llm")
+        agent._handle_send({"text": "what's the volume"})
+        self.assertEqual(ran, [])
+        names = [event.get("name") for event in events if event.get("type") == "tool_call"]
+        self.assertEqual(names, ["get_volume"])
+        self.assertTrue(any(event.get("type") == "done" for event in events))
+
+    def test_agent_stale_window_falls_back_to_llm(self):
+        from io import StringIO
+        from ai.agent import Agent
+
+        def respond(state, questions):
+            if "window" in questions:
+                return self.jev.FakeResponse(choices={"window": self._choice("w0")})
+            return self.jev.FakeResponse(
+                choices={
+                    "intent": self._choice("focus_window"),
+                    "read_tool": self._choice("none"),
+                    "write_tool": self._choice("none"),
+                }
+            )
+
+        self._factory(self.jev.FakeClient(response=respond))
+        agent = Agent(stdin=StringIO(), stdout=StringIO())
+        agent.apply_init(
+            {
+                "enabled_tools": ["native"],
+                "jev": {"mode": "active", "confidenceThreshold": 0.75},
+                "execution_profile": {},
+                "system_prompt": "hi",
+            }
+        )
+        events = []
+        ran = []
+        agent.emit = lambda event: events.append(event)
+        agent.ctx.emit = agent.emit
+        agent.ctx.api_keys["typesafe"] = "test-key"
+        results = [
+            {"windows": [{"address": "0x1", "title": "Firefox", "class": "firefox", "pid": 1, "focused": False}]},
+            {"windows": [{"address": "0x2", "title": "Kitty", "class": "kitty", "pid": 2, "focused": True}]},
+        ]
+
+        def wait_native(call_id, timeout=None):
+            return results.pop(0)
+
+        agent.ctx.wait_for_native = wait_native
+        agent._run_turn = lambda: ran.append("llm")
+        agent._handle_send({"text": "focus firefox"})
+        self.assertEqual(ran, ["llm"])
+        self.assertFalse(any(event.get("name") == "focus_window" for event in events))
+
+    def test_agent_native_error_is_not_done(self):
+        from io import StringIO
+        from ai.agent import Agent
+
+        self._factory(
+            self.jev.FakeClient(
+                response=self.jev.FakeResponse(
+                    choices={
+                        "intent": self._choice("native_write"),
+                        "read_tool": self._choice("none"),
+                        "write_tool": self._choice("set_volume"),
+                    }
+                )
+            )
+        )
+        agent = Agent(stdin=StringIO(), stdout=StringIO())
+        agent.apply_init(
+            {
+                "enabled_tools": ["native"],
+                "jev": {"mode": "active", "confidenceThreshold": 0.75},
+                "execution_profile": {},
+                "system_prompt": "hi",
+            }
+        )
+        events = []
+        ran = []
+        agent.emit = lambda event: events.append(event)
+        agent.ctx.emit = agent.emit
+        agent.ctx.api_keys["typesafe"] = "test-key"
+        agent._dispatch_tool = lambda name, args, call_id: {
+            "status": "error",
+            "error": "User rejected the tool call",
+        }
+        agent._run_turn = lambda: ran.append("llm")
+        agent._handle_send({"text": "set volume to 40%"})
+        self.assertEqual(ran, [])
+        self.assertTrue(any(event.get("type") == "error" for event in events))
+        self.assertFalse(any(event.get("type") == "done" for event in events))
+        results = [event for event in events if event.get("type") == "tool_result"]
+        self.assertEqual(results[0].get("status"), "error")
+
+    def test_agent_focus_respects_read_permission(self):
+        from io import StringIO
+        from ai.agent import Agent
+
+        def respond(state, questions):
+            if "window" in questions:
+                raise AssertionError("window titles must not be sent when reads require ask")
+            return self.jev.FakeResponse(
+                choices={
+                    "intent": self._choice("focus_window"),
+                    "read_tool": self._choice("none"),
+                    "write_tool": self._choice("none"),
+                }
+            )
+
+        self._factory(self.jev.FakeClient(response=respond))
+        agent = Agent(stdin=StringIO(), stdout=StringIO())
+        agent.apply_init(
+            {
+                "enabled_tools": ["native"],
+                "jev": {"mode": "active", "confidenceThreshold": 0.75},
+                "execution_profile": {"readFiles": "AlwaysAsk"},
+                "system_prompt": "hi",
+            }
+        )
+        events = []
+        ran = []
+        native_calls = []
+        agent.emit = lambda event: events.append(event)
+        agent.ctx.emit = agent.emit
+        agent.ctx.api_keys["typesafe"] = "test-key"
+        agent.ctx.wait_for_native = lambda call_id, timeout=None: native_calls.append(call_id) or {
+            "windows": [{"address": "0x1", "title": "Firefox", "class": "firefox", "pid": 1, "focused": False}]
+        }
+        agent._run_turn = lambda: ran.append("llm")
+        agent._handle_send({"text": "focus firefox"})
+        self.assertEqual(ran, ["llm"])
+        self.assertEqual(native_calls, [])
+        self.assertFalse(any(event.get("name") == "get_windows" for event in events))
+        self.assertFalse(any(event.get("name") == "focus_window" for event in events))
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

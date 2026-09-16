@@ -1337,6 +1337,12 @@ Singleton {
                 property list<var> directoryAllowlist: []
                 property bool webSearchEnabled: true
             }
+            property JsonObject jev: JsonObject {
+                property string mode: "off"
+                property int timeoutMs: 1500
+                property double confidenceThreshold: 0.75
+                property int maxRetries: 1
+            }
         }
     }
 

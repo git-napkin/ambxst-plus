@@ -100,5 +100,11 @@ var data = {
         ],
         "directoryAllowlist": [],
         "webSearchEnabled": true
+    },
+    "jev": {
+        "mode": "off",
+        "timeoutMs": 1500,
+        "confidenceThreshold": 0.75,
+        "maxRetries": 1
     }
 }

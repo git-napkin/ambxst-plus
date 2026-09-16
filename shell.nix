@@ -1,12 +1,19 @@
 { pkgs ? import <nixpkgs> { } }:
 
+let
+  python = pkgs.python3.override {
+    packageOverrides = import ./nix/packages/python-typesafe.nix { inherit pkgs; };
+  };
+  pythonEnv = python.withPackages (ps: [
+    ps.cryptography
+    ps.dbus-python
+    ps.typesafe-sdk
+  ]);
+in
 pkgs.mkShell {
   packages = with pkgs; [
     quickshell
-    python3.withPackages (ps: [
-      ps.cryptography
-      ps.dbus-python
-    ])
+    pythonEnv
     brightnessctl
     ddcutil
     grim

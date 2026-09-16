@@ -1,6 +1,16 @@
 # System tools and utilities
 { pkgs }:
 
+let
+  python = pkgs.python3.override {
+    packageOverrides = import ./python-typesafe.nix { inherit pkgs; };
+  };
+  pythonEnv = python.withPackages (ps: [
+    ps.cryptography
+    ps.dbus-python
+    ps.typesafe-sdk
+  ]);
+in
 with pkgs; [
   brightnessctl
   curl
@@ -13,10 +23,7 @@ with pkgs; [
 
   libnotify
   matugen
-  (python3.withPackages (ps: [
-    ps.cryptography
-    ps.dbus-python
-  ]))
+  pythonEnv
   power-profiles-daemon
   slurp
   sqlite

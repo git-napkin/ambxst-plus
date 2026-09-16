@@ -65,6 +65,18 @@ class ToolContext:
         self.api_keys = {}
         self._listed_keys = {}
         self.running_procs = []
+        self.jev_config = None
+        self.jev_turn_id = ""
+        self.jev_user_text = ""
+        self.jev_user_text_raw = ""
+        self.jev_focused_window = None
+        self.jev_diagnostics = []
+        self.jev_window_fp = None
+        self.jev_window_judgment = None
+        self.jev_window_candidates = []
+        self.jev_intent_judgment = None
+        self.jev_safety_cache = {}
+        self._jev_sdk_client = None
 
     def clear_key_cache(self):
         self.api_keys = {}

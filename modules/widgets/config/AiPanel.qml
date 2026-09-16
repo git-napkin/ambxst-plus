@@ -691,6 +691,30 @@ Item {
             }
 
             SettingsGroup {
+                title: "Jev"
+                description: "Optional TypeSafe judgments for routing, window focus, and extra computer-use review. Off sends nothing. Shadow scores privately. Active may take high-confidence native shortcuts; it never weakens permissions."
+
+                SettingsRow {
+                    label: "Mode"
+                    description: "Installing Ambxst[+] leaves this off"
+                    stacked: true
+                    SegmentedSwitch {
+                        currentValue: (Config.ai.jev && Config.ai.jev.mode) ? Config.ai.jev.mode : "off"
+                        model: [
+                            { value: "off", label: qsTr("Off") },
+                            { value: "shadow", label: qsTr("Shadow") },
+                            { value: "active", label: qsTr("Active") }
+                        ]
+                        onActivated: value => {
+                            if (Config.ai.jev)
+                                Config.ai.jev.mode = value;
+                            root.persistAi();
+                        }
+                    }
+                }
+            }
+
+            SettingsGroup {
                 title: "Enabled tools"
                 description: "Tools the agent can call during a session."
 
@@ -891,6 +915,15 @@ Item {
                     stacked: true
                     KeyEntry {
                         providerId: "exa"
+                    }
+                }
+
+                SettingsRow {
+                    label: "TypeSafe"
+                    description: "Jev API key for optional desktop judgments"
+                    stacked: true
+                    KeyEntry {
+                        providerId: "typesafe"
                     }
                 }
             }
