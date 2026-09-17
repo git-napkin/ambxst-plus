@@ -36,6 +36,10 @@ PanelWindow {
         item: ComputerUse.sessionState === "approvalWait" ? inputBlock : (hud.clickThrough ? grabPixel : hudAnchor)
     }
 
+    readonly property bool drivingKeys: ComputerUse.sessionActive && !ComputerUse.userHasControl && !ComputerUse.injectingInput
+    readonly property bool showWait: ComputerUse.waiting && !Ai.approvalPending
+    readonly property bool pointerChrome: ComputerUse.userHasControl
+
     Item {
         id: grabPixel
         width: 1
@@ -67,7 +71,7 @@ PanelWindow {
     readonly property int innerRadius: Math.max(0, Styling.popupRadius() - pad)
     property bool cardVisible: false
     readonly property bool showChip: ComputerUse.sessionActive && ComputerUse.userHasControl
-    readonly property bool clickThrough: !hud.cardVisible && !hud.showChip && !ComputerUse.steerOpen
+    readonly property bool clickThrough: !hud.cardVisible && !hud.showChip && !ComputerUse.steerOpen && ComputerUse.sessionState !== "approvalWait"
     readonly property string assistantText: {
         const chat = Ai.currentChat || [];
         for (let i = chat.length - 1; i >= 0; i--) {
@@ -91,19 +95,40 @@ PanelWindow {
         }
         return "";
     }
-    readonly property bool streaming: !!(Ai.isLoading && assistantText.length)
-
-    onAssistantTextChanged: hud.refreshPresence()
-    onStreamingChanged: hud.refreshPresence()
+    onAssistantTextChanged: {
+        hud.refreshPresence();
+        hud.revealOutput();
+    }
+    onShowWaitChanged: hud.refreshPresence()
 
     function claimKeys() {
-        if (!ComputerUse.sessionActive || ComputerUse.userHasControl || ComputerUse.injectingInput)
+        if (!hud.drivingKeys)
             return;
         if (hud.requestActivate)
             hud.requestActivate();
-        hudAnchor.forceActiveFocus();
-        if (ComputerUse.steerOpen)
-            Qt.callLater(() => steerInput.focusInput());
+        if (ComputerUse.steerOpen) {
+            if (!steerInput.inputActive)
+                steerInput.focusInput();
+            return;
+        }
+        if (!keySink.activeFocus)
+            keySink.forceActiveFocus();
+    }
+
+    function printableFromEvent(event) {
+        const raw = event.text || "";
+        if (raw.length && raw.charCodeAt(0) >= 32)
+            return raw;
+        const k = event.key;
+        if (k === Qt.Key_Space)
+            return " ";
+        if (k >= Qt.Key_A && k <= Qt.Key_Z) {
+            const c = String.fromCharCode(65 + (k - Qt.Key_A));
+            return (event.modifiers & Qt.ShiftModifier) ? c : c.toLowerCase();
+        }
+        if (k >= Qt.Key_0 && k <= Qt.Key_9)
+            return String.fromCharCode(48 + (k - Qt.Key_0));
+        return "";
     }
 
     function openSteer(ch) {
@@ -129,18 +154,31 @@ PanelWindow {
             return;
         if (event.modifiers & Qt.ControlModifier || event.modifiers & Qt.AltModifier || event.modifiers & Qt.MetaModifier)
             return;
-        if (event.key === Qt.Key_Escape || event.key === Qt.Key_Return || event.key === Qt.Key_Enter || event.key === Qt.Key_Tab)
+        const k = event.key;
+        if (k === Qt.Key_Escape || k === Qt.Key_Return || k === Qt.Key_Enter || k === Qt.Key_Tab)
             return;
-        if (event.key === Qt.Key_Backspace) {
+        if (k === Qt.Key_Shift || k === Qt.Key_Control || k === Qt.Key_Alt || k === Qt.Key_Meta || k === Qt.Key_AltGr)
+            return;
+        if (k === Qt.Key_CapsLock || k === Qt.Key_NumLock || k === Qt.Key_ScrollLock)
+            return;
+        if (k === Qt.Key_Left || k === Qt.Key_Right || k === Qt.Key_Up || k === Qt.Key_Down)
+            return;
+        if (k === Qt.Key_Home || k === Qt.Key_End || k === Qt.Key_PageUp || k === Qt.Key_PageDown)
+            return;
+        if (k === Qt.Key_Insert || k === Qt.Key_Delete || k === Qt.Key_Print || k === Qt.Key_Pause)
+            return;
+        if (k >= Qt.Key_F1 && k <= Qt.Key_F35)
+            return;
+        if (k === Qt.Key_Backspace) {
             hud.openSteer("");
             event.accepted = true;
             return;
         }
-        const ch = event.text || "";
-        if (ch.length && ch.charCodeAt(0) >= 32) {
-            hud.openSteer(ch);
-            event.accepted = true;
-        }
+        const ch = hud.printableFromEvent(event);
+        if (!ch.length)
+            return;
+        hud.openSteer(ch);
+        event.accepted = true;
     }
 
     function submitSteer() {
@@ -154,11 +192,20 @@ PanelWindow {
     }
 
     function refreshPresence() {
-        if (!ComputerUse.sessionActive || ComputerUse.hudHiddenForCapture) {
+        if (!ComputerUse.sessionActive) {
             hud.cardVisible = false;
+            hideTimer.stop();
             return;
         }
+        if (ComputerUse.hudHiddenForCapture)
+            return;
         if (Ai.approvalPending) {
+            ComputerUse.hudCollapsed = false;
+            hud.cardVisible = true;
+            hideTimer.stop();
+            return;
+        }
+        if (ComputerUse.waiting) {
             ComputerUse.hudCollapsed = false;
             hud.cardVisible = true;
             hideTimer.stop();
@@ -171,13 +218,23 @@ PanelWindow {
         }
         if (!hud.assistantText.length) {
             hud.cardVisible = false;
-            return;
-        }
-        hud.cardVisible = true;
-        if (hud.streaming) {
             hideTimer.stop();
             return;
         }
+        // Existing assistant text is not enough to show the card. Tool/model
+        // churn must not resurrect a hidden card; revealOutput() owns that.
+    }
+
+    function revealOutput() {
+        if (!ComputerUse.sessionActive || ComputerUse.hudHiddenForCapture)
+            return;
+        if (ComputerUse.userHasControl || ComputerUse.hudCollapsed)
+            return;
+        if (Ai.approvalPending || ComputerUse.waiting)
+            return;
+        if (!hud.assistantText.length)
+            return;
+        hud.cardVisible = true;
         hideTimer.restart();
     }
 
@@ -189,13 +246,28 @@ PanelWindow {
 
     Timer {
         id: hideTimer
-        interval: 3000
+        interval: 2500
         repeat: false
         onTriggered: {
-            if (Ai.approvalPending)
+            if (Ai.approvalPending || ComputerUse.waiting)
                 return;
             hud.cardVisible = false;
         }
+    }
+
+    Timer {
+        id: claimTimer
+        interval: 250
+        repeat: true
+        running: hud.drivingKeys
+        onTriggered: hud.claimKeys()
+    }
+
+    Shortcut {
+        sequences: ["Escape"]
+        enabled: hud.drivingKeys
+        context: Qt.ApplicationShortcut
+        onActivated: ComputerUse.handleEscape()
     }
 
     Connections {
@@ -203,16 +275,15 @@ PanelWindow {
         function onLastHudActivityAtChanged() {
             ComputerUse.hudCollapsed = false;
             hud.refreshPresence();
+            hud.revealOutput();
         }
         function onApprovalPendingChanged() {
             hud.refreshPresence();
+            hud.revealOutput();
             if (Ai.approvalPending)
                 hud.claimKeys();
         }
         function onChatModelChanged() {
-            hud.refreshPresence();
-        }
-        function onIsLoadingChanged() {
             hud.refreshPresence();
         }
     }
@@ -225,6 +296,8 @@ PanelWindow {
             else
                 hud.claimKeys();
             hud.refreshPresence();
+            if (ComputerUse.sessionActive)
+                hud.revealOutput();
         }
         function onUserHasControlChanged() {
             if (ComputerUse.userHasControl)
@@ -235,6 +308,10 @@ PanelWindow {
         }
         function onHudCollapsedChanged() {
             hud.refreshPresence();
+        }
+        function onWaitingChanged() {
+            hud.refreshPresence();
+            hud.revealOutput();
         }
         function onInjectingInputChanged() {
             if (!ComputerUse.injectingInput)
@@ -262,10 +339,13 @@ PanelWindow {
         hud.claimKeys()
 
     Item {
-        id: hudAnchor
-        focus: ComputerUse.sessionActive && !ComputerUse.userHasControl && !ComputerUse.injectingInput
-        // PanelWindow is not an Item — Keys must live on a child Item.
-        Keys.enabled: ComputerUse.sessionActive && !ComputerUse.userHasControl && !ComputerUse.injectingInput
+        id: keySink
+        // Fullscreen key sink so Exclusive keyboard still reaches Qt after the
+        // pointer mask shrinks to a 1px click-through hole (Quickshell Region mask).
+        anchors.fill: parent
+        z: 1
+        focus: hud.drivingKeys
+        Keys.enabled: hud.drivingKeys
         Keys.priority: Keys.BeforeItem
         Keys.onPressed: event => {
             if (ComputerUse.sessionState === "approvalWait") {
@@ -296,13 +376,15 @@ PanelWindow {
             }
             hud.handleUserKey(event);
         }
-        z: 1
-        anchors.right: parent.right
-        anchors.bottom: parent.bottom
-        anchors.rightMargin: ComputerUse.insetRight
-        anchors.bottomMargin: ComputerUse.insetBottom
-        width: hudRoot.width
-        height: hudRoot.height
+
+        Item {
+            id: hudAnchor
+            anchors.right: parent.right
+            anchors.bottom: parent.bottom
+            anchors.rightMargin: ComputerUse.insetRight
+            anchors.bottomMargin: ComputerUse.insetBottom
+            width: hudRoot.width
+            height: hudRoot.height
 
         Item {
             id: hudRoot
@@ -387,7 +469,16 @@ PanelWindow {
                 id: card
                 visible: hud.cardVisible
                 width: parent.width
-                height: visible ? (header.height + body.height + 8 + footer.height + hud.pad) : 0
+                height: {
+                    if (!visible)
+                        return 0;
+                    let h = header.height + body.height + hud.pad;
+                    if (footer.visible)
+                        h += 8 + footer.height;
+                    else
+                        h += hud.pad;
+                    return h;
+                }
 
                 StyledRect {
                     anchors.fill: parent
@@ -399,6 +490,8 @@ PanelWindow {
 
                 MouseArea {
                     id: resizeEdge
+                    visible: hud.pointerChrome
+                    enabled: hud.pointerChrome
                     anchors.left: parent.left
                     anchors.top: parent.top
                     anchors.bottom: parent.bottom
@@ -415,7 +508,7 @@ PanelWindow {
                     anchors.left: parent.left
                     anchors.right: parent.right
                     anchors.topMargin: 6
-                    height: hud.steerText.length && !Ai.approvalPending ? 28 : 0
+                    height: hud.steerText.length && !Ai.approvalPending && !hud.showWait ? 28 : 0
 
                     Rectangle {
                         visible: header.height > 0
@@ -453,6 +546,8 @@ PanelWindow {
                     height: {
                         if (Ai.approvalPending)
                             return Math.min(approvalLoader.implicitHeight, hud.bodyMax);
+                        if (hud.showWait)
+                            return Math.max(32, waitLabel.implicitHeight);
                         return Math.min(markdown.implicitHeight, hud.bodyMax);
                     }
                     clip: true
@@ -464,9 +559,21 @@ PanelWindow {
                         call: Ai.pendingApproval || ({})
                     }
 
+                    Text {
+                        id: waitLabel
+                        visible: hud.showWait
+                        width: parent.width
+                        text: qsTr("Waiting for %1s").arg(ComputerUse.waitSecondsLeft)
+                        font.family: Config.theme.font
+                        font.pixelSize: Styling.fontSize(-1)
+                        font.weight: Font.Medium
+                        color: Colors.overSurface
+                        wrapMode: Text.NoWrap
+                    }
+
                     AssistantMessage {
                         id: markdown
-                        visible: !Ai.approvalPending
+                        visible: !Ai.approvalPending && !hud.showWait
                         width: parent.width
                         message: ({
                                 role: "assistant",
@@ -475,7 +582,7 @@ PanelWindow {
                     }
 
                     Rectangle {
-                        visible: !Ai.approvalPending && markdown.implicitHeight > body.height
+                        visible: !Ai.approvalPending && !hud.showWait && markdown.implicitHeight > body.height
                         anchors.left: parent.left
                         anchors.right: parent.right
                         anchors.bottom: parent.bottom
@@ -495,22 +602,23 @@ PanelWindow {
 
                 Item {
                     id: footer
+                    visible: hud.pointerChrome
                     anchors.top: body.bottom
-                    anchors.topMargin: 8
+                    anchors.topMargin: visible ? 8 : 0
                     anchors.left: parent.left
                     anchors.right: parent.right
                     anchors.leftMargin: 4
                     anchors.rightMargin: 4
-                    height: 40
+                    height: visible ? 40 : 0
 
                     RowLayout {
                         anchors.fill: parent
                         spacing: 2
 
                         HudIconButton {
-                            icon: ComputerUse.userHasControl ? Icons.handGrab : Icons.hand
-                            tooltip: ComputerUse.userHasControl ? qsTr("Hand back") : qsTr("Take control")
-                            onClicked: ComputerUse.userHasControl ? ComputerUse.handBack() : ComputerUse.takeControl()
+                            icon: Icons.handGrab
+                            tooltip: qsTr("Hand back")
+                            onClicked: ComputerUse.handBack()
                         }
 
                         HudIconButton {
@@ -520,23 +628,6 @@ PanelWindow {
                         }
 
                         Item { Layout.fillWidth: true }
-
-                        Text {
-                            visible: hud.streaming
-                            text: qsTr("Waiting")
-                            font.family: Config.theme.font
-                            font.pixelSize: Styling.fontSize(-4)
-                            color: Colors.outline
-                        }
-
-                        HudIconButton {
-                            icon: Icons.minusCircle
-                            tooltip: qsTr("Hide")
-                            onClicked: {
-                                ComputerUse.hudCollapsed = true;
-                                hud.cardVisible = false;
-                            }
-                        }
                     }
                 }
             }
@@ -567,6 +658,7 @@ PanelWindow {
                 }
             }
         }
+    }
     }
     }
 
