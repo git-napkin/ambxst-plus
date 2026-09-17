@@ -97,7 +97,7 @@ PanelWindow {
     }
     onAssistantTextChanged: {
         hud.refreshPresence();
-        hud.bumpHideTimer();
+        hud.revealOutput();
     }
     onShowWaitChanged: hud.refreshPresence()
 
@@ -175,6 +175,8 @@ PanelWindow {
             return;
         }
         const ch = hud.printableFromEvent(event);
+        if (!ch.length)
+            return;
         hud.openSteer(ch);
         event.accepted = true;
     }
@@ -195,10 +197,8 @@ PanelWindow {
             hideTimer.stop();
             return;
         }
-        if (ComputerUse.hudHiddenForCapture) {
-            hud.cardVisible = false;
+        if (ComputerUse.hudHiddenForCapture)
             return;
-        }
         if (Ai.approvalPending) {
             ComputerUse.hudCollapsed = false;
             hud.cardVisible = true;
@@ -221,12 +221,20 @@ PanelWindow {
             hideTimer.stop();
             return;
         }
-        hud.cardVisible = true;
+        // Existing assistant text is not enough to show the card. Tool/model
+        // churn must not resurrect a hidden card; revealOutput() owns that.
     }
 
-    function bumpHideTimer() {
-        if (!hud.cardVisible || Ai.approvalPending || ComputerUse.waiting)
+    function revealOutput() {
+        if (!ComputerUse.sessionActive || ComputerUse.hudHiddenForCapture)
             return;
+        if (ComputerUse.userHasControl || ComputerUse.hudCollapsed)
+            return;
+        if (Ai.approvalPending || ComputerUse.waiting)
+            return;
+        if (!hud.assistantText.length)
+            return;
+        hud.cardVisible = true;
         hideTimer.restart();
     }
 
@@ -267,11 +275,11 @@ PanelWindow {
         function onLastHudActivityAtChanged() {
             ComputerUse.hudCollapsed = false;
             hud.refreshPresence();
-            hud.bumpHideTimer();
+            hud.revealOutput();
         }
         function onApprovalPendingChanged() {
             hud.refreshPresence();
-            hud.bumpHideTimer();
+            hud.revealOutput();
             if (Ai.approvalPending)
                 hud.claimKeys();
         }
@@ -288,6 +296,8 @@ PanelWindow {
             else
                 hud.claimKeys();
             hud.refreshPresence();
+            if (ComputerUse.sessionActive)
+                hud.revealOutput();
         }
         function onUserHasControlChanged() {
             if (ComputerUse.userHasControl)
@@ -301,7 +311,7 @@ PanelWindow {
         }
         function onWaitingChanged() {
             hud.refreshPresence();
-            hud.bumpHideTimer();
+            hud.revealOutput();
         }
         function onInjectingInputChanged() {
             if (!ComputerUse.injectingInput)

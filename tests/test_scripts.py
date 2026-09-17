@@ -1689,6 +1689,21 @@ class TestComputerUse(unittest.TestCase):
         self.assertIn('qsTr("Waiting for %1s")', hud)
         self.assertIn("id: keySink", hud)
         self.assertIn("function printableFromEvent", hud)
+        self.assertIn("function revealOutput", hud)
+        self.assertNotIn("bumpHideTimer", hud)
+        handle = hud[hud.index("function handleUserKey") : hud.index("function submitSteer")]
+        self.assertIn("if (!ch.length)", handle)
+        self.assertLess(handle.index("if (!ch.length)"), handle.rindex("hud.openSteer(ch)"))
+        reveal = hud[hud.index("function revealOutput") : hud.index("FocusGrab")]
+        self.assertIn("hideTimer.restart()", reveal)
+        presence = hud[hud.index("function refreshPresence") : hud.index("function revealOutput")]
+        tail = presence.rsplit("if (!hud.assistantText.length)", 1)[-1]
+        self.assertNotIn("hud.cardVisible = true;", tail)
+        chat = hud[hud.index("function onChatModelChanged") : hud.index("function onChatModelChanged") + 160]
+        self.assertIn("hud.refreshPresence();", chat)
+        self.assertNotIn("hud.revealOutput();", chat)
+        session = hud[hud.index("function onSessionActiveChanged") : hud.index("function onUserHasControlChanged")]
+        self.assertIn("hud.revealOutput();", session)
         self.assertIn("pointerChrome: ComputerUse.userHasControl", hud)
         self.assertIn("visible: hud.pointerChrome", hud)
         self.assertNotIn('qsTr("Take control")', hud)
