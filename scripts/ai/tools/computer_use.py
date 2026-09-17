@@ -670,7 +670,11 @@ class UseComputerTool(Tool):
             return _ok(native)
         if action == "wait":
             ms = max(0, min(WAIT_CAP_MS, int(args.get("ms") or 0)))
-            time.sleep(ms / 1000.0)
+            _native(ctx, "computer_use_session", {"op": "wait_begin", "ms": ms})
+            try:
+                time.sleep(ms / 1000.0)
+            finally:
+                _native(ctx, "computer_use_session", {"op": "wait_end"})
             return _ok({"waited_ms": ms})
         if action == "perform_action":
             node, err = atspi.resolve_node(ctx.computer_use_nodes, args)

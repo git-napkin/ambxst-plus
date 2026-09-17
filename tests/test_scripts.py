@@ -1654,6 +1654,48 @@ class TestComputerUse(unittest.TestCase):
         self.assertEqual(out["status"], "error")
         self.assertIn("steer", out["error"].lower())
 
+    def test_wait_notifies_qml_countdown(self):
+        from unittest.mock import patch
+        from ai.tools.computer_use import UseComputerTool
+
+        ctx = _ctx(".", execution_profile={"computerUse": "AlwaysAllow"})
+        ctx.computer_use_approved = True
+        calls = []
+
+        def native(_ctx, name, args):
+            calls.append((name, dict(args)))
+            return {"ok": True, "user_control": False, "steer_open": False, "locked": False}
+
+        with patch("ai.tools.computer_use._native", side_effect=native), patch(
+            "ai.tools.computer_use.time.sleep"
+        ) as slept:
+            out = UseComputerTool()._one(ctx, {"action": "wait", "ms": 5000})
+        self.assertEqual(out["status"], "ok")
+        self.assertEqual(out["waited_ms"], 5000)
+        slept.assert_called_once_with(5.0)
+        ops = [(name, args.get("op")) for name, args in calls]
+        self.assertIn(("computer_use_session", "gate"), ops)
+        self.assertIn(("computer_use_session", "wait_begin"), ops)
+        self.assertIn(("computer_use_session", "wait_end"), ops)
+        begin = next(args for name, args in calls if args.get("op") == "wait_begin")
+        self.assertEqual(begin["ms"], 5000)
+
+    def test_computer_use_hud_driving_contracts(self):
+        hud = Path(__file__).parent.parent.joinpath("modules/widgets/assistant/ComputerUseHud.qml").read_text()
+        service = Path(__file__).parent.parent.joinpath("modules/services/ComputerUse.qml").read_text()
+        self.assertIn("interval: 2500", hud)
+        self.assertNotIn("interval: 3000", hud)
+        self.assertNotIn('qsTr("Waiting")', hud)
+        self.assertIn('qsTr("Waiting for %1s")', hud)
+        self.assertIn("id: keySink", hud)
+        self.assertIn("function printableFromEvent", hud)
+        self.assertIn("pointerChrome: ComputerUse.userHasControl", hud)
+        self.assertIn("visible: hud.pointerChrome", hud)
+        self.assertNotIn('qsTr("Take control")', hud)
+        self.assertIn("wait_begin", service)
+        self.assertIn("wait_end", service)
+        self.assertIn("function startWait", service)
+
     def test_computer_use_no_iter_cap(self):
         from io import StringIO
         from unittest.mock import patch

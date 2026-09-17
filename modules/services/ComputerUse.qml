@@ -27,6 +27,7 @@ Singleton {
     property bool injectingInput: false
     property bool steerOpen: false
     property bool escArmed: false
+    property real lastEscAt: 0
     property var _disabledMice: []
     property string _devicesIntent: ""
     property bool ending: false
@@ -36,6 +37,18 @@ Singleton {
     property bool hudLinger: false
     property bool spotlightReady: false
     readonly property bool hudKeepAlive: sessionActive || hudLinger
+    property real waitUntil: 0
+    property int waitNonce: 0
+    readonly property int waitSecondsLeft: {
+        waitNonce;
+        if (waitUntil <= 0)
+            return 0;
+        const left = waitUntil - Date.now();
+        if (left <= 0)
+            return 0;
+        return Math.max(1, Math.ceil(left / 1000));
+    }
+    readonly property bool waiting: waitSecondsLeft > 0
 
     signal sessionFinished(var userIndex, var durationMs)
     signal stopRequested
@@ -234,6 +247,8 @@ Singleton {
         root.injectingInput = false;
         root.steerOpen = false;
         root.escArmed = false;
+        root.lastEscAt = 0;
+        root.clearWait();
         if (!root.sessionActive)
             root.lockPointer();
         root.sessionState = "agentDriving";
@@ -262,9 +277,11 @@ Singleton {
         root.injectingInput = false;
         root.steerOpen = false;
         root.escArmed = false;
+        root.clearWait();
         injectWatchdog.stop();
         captureWatchdog.stop();
         escArmTimer.stop();
+        waitTickTimer.stop();
         root.unlockPointer();
         root.sessionFinished(root._pendingUserIndex, root._pendingDurationMs);
         if (immediate)
@@ -292,6 +309,7 @@ Singleton {
         root.injectingInput = false;
         root.steerOpen = false;
         root.escArmed = false;
+        root.clearWait();
         root._pendingUserIndex = -1;
         root._pendingDurationMs = 0;
         root.hudLinger = true;
@@ -342,6 +360,28 @@ Singleton {
         root.lockPointer();
     }
 
+    function startWait(ms) {
+        const n = Math.max(0, Math.min(30000, Math.round(Number(ms) || 0)));
+        if (n <= 0) {
+            root.clearWait();
+            return;
+        }
+        const until = Date.now() + n;
+        if (root.waitUntil > Date.now() && Math.abs(until - root.waitUntil) < 500)
+            return;
+        root.waitUntil = until;
+        root.waitNonce++;
+        waitTickTimer.restart();
+    }
+
+    function clearWait() {
+        if (root.waitUntil === 0)
+            return;
+        root.waitUntil = 0;
+        root.waitNonce++;
+        waitTickTimer.stop();
+    }
+
     function armEscExit() {
         root.escArmed = true;
         escArmTimer.restart();
@@ -350,6 +390,10 @@ Singleton {
     function handleEscape() {
         if (!root.sessionActive || root.userHasControl)
             return;
+        const now = Date.now();
+        if (now - root.lastEscAt < 80)
+            return;
+        root.lastEscAt = now;
         if (root.sessionState === "approvalWait") {
             root.rejectRequested();
             return;
@@ -407,6 +451,14 @@ Singleton {
         if (op === "inject_end") {
             root.injectingInput = false;
             injectWatchdog.stop();
+            return { ok: true };
+        }
+        if (op === "wait_begin") {
+            root.startWait(args.ms || args.wait_ms || 0);
+            return { ok: true, wait_seconds: root.waitSecondsLeft };
+        }
+        if (op === "wait_end") {
+            root.clearWait();
             return { ok: true };
         }
         return { error: "unknown computer_use_session op" };
@@ -819,6 +871,17 @@ Singleton {
         interval: 15000
         repeat: false
         onTriggered: root.injectingInput = false
+    }
+
+    Timer {
+        id: waitTickTimer
+        interval: 200
+        repeat: true
+        onTriggered: {
+            root.waitNonce++;
+            if (root.waitUntil <= 0 || Date.now() >= root.waitUntil)
+                root.clearWait();
+        }
     }
 
     Timer {
