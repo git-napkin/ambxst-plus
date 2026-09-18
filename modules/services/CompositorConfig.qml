@@ -27,6 +27,63 @@ QtObject {
         return (typeof resolved === 'string') ? Qt.color(resolved) : resolved;
     }
 
+    function formatColorForCompositor(color) {
+        const r = Math.round(color.r * 255).toString(16).padStart(2, '0');
+        const g = Math.round(color.g * 255).toString(16).padStart(2, '0');
+        const b = Math.round(color.b * 255).toString(16).padStart(2, '0');
+        const a = Math.round(color.a * 255).toString(16).padStart(2, '0');
+
+        if (color.a === 1.0) {
+            return `rgb(${r}${g}${b})`;
+        }
+        return `rgba(${r}${g}${b}${a})`;
+    }
+
+    // Lua literal for a JS value. Used to build hl.config({...}) for
+    // `axctl config raw-batch "eval ..."`.
+    function luaLiteral(value) {
+        if (value === null || value === undefined)
+            return "nil";
+        const t = typeof value;
+        if (t === "string")
+            return JSON.stringify(value);
+        if (t === "number")
+            return isFinite(value) ? String(value) : "nil";
+        if (t === "boolean")
+            return value ? "true" : "false";
+        if (Array.isArray(value))
+            return "{" + value.map(luaLiteral).join(", ") + "}";
+        if (t === "object") {
+            const parts = [];
+            for (const key in value) {
+                if (!Object.prototype.hasOwnProperty.call(value, key))
+                    continue;
+                if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(key))
+                    continue;
+                parts.push(key + " = " + luaLiteral(value[key]));
+            }
+            return "{" + parts.join(", ") + "}";
+        }
+        return "nil";
+    }
+
+    function formatBorderColorValue(colorNames, angle, fallbackName) {
+        if (colorNames && colorNames.length > 1) {
+            return {
+                colors: colorNames.map(n => formatColorForCompositor(getColorValue(n))),
+                angle: angle
+            };
+        }
+        const singleName = (colorNames && colorNames.length === 1) ? colorNames[0] : fallbackName;
+        return formatColorForCompositor(getColorValue(singleName));
+    }
+
+    function dispatchHlConfig(hlConfig) {
+        const luaExpression = "hl.config(" + luaLiteral(hlConfig) + ")";
+        compositorProcess.command = ["axctl", "config", "raw-batch", "eval " + luaExpression];
+        compositorProcess.running = true;
+    }
+
     function applyCompositorConfig() {
         applyTimer.restart();
     }
@@ -42,7 +99,76 @@ QtObject {
             return;
         }
 
+        // Persist through TOML even while Game Mode holds the live compositor.
+        if (GameModeService.toggled) {
+            CompositorTomlWriter.refresh();
+            return;
+        }
+
+        const c = Config.compositor;
+        const borderColors = c.syncBorderColor ? null : c.activeBorderColor;
+        const shadowBase = getColorValue(Config.compositorShadowColor);
+        const shadowInactive = getColorValue(c.shadowColorInactive);
+        const shadowOpacity = c.shadowOpacity !== undefined ? c.shadowOpacity : Config.compositorShadowOpacity;
+
+        const hlGeneral = {
+            gaps_in: c.gapsIn,
+            gaps_out: c.gapsOut,
+            border_size: Config.compositorBorderSize,
+            col: {
+                active_border: formatBorderColorValue(borderColors, c.borderAngle, Config.compositorBorderColor),
+                inactive_border: formatBorderColorValue(c.inactiveBorderColor, c.inactiveBorderAngle, "surface")
+            }
+        };
+        if (GlobalStates.compositorLayout)
+            hlGeneral.layout = GlobalStates.compositorLayout;
+
+        dispatchHlConfig({
+            general: hlGeneral,
+            decoration: {
+                rounding: Config.compositorRounding,
+                active_opacity: c.activeOpacity !== undefined ? c.activeOpacity : 1.0,
+                inactive_opacity: c.inactiveOpacity !== undefined ? c.inactiveOpacity : 1.0,
+                shadow: {
+                    enabled: c.shadowEnabled,
+                    range: c.shadowRange,
+                    render_power: c.shadowRenderPower,
+                    sharp: c.shadowSharp,
+                    color: formatColorForCompositor(Qt.rgba(shadowBase.r, shadowBase.g, shadowBase.b, shadowBase.a * shadowOpacity)),
+                    color_inactive: formatColorForCompositor(Qt.rgba(shadowInactive.r, shadowInactive.g, shadowInactive.b, shadowInactive.a * shadowOpacity)),
+                    offset: c.shadowOffset || "0 0",
+                    scale: c.shadowScale !== undefined ? c.shadowScale : 1.0
+                },
+                blur: {
+                    enabled: c.blurEnabled,
+                    size: c.blurSize,
+                    passes: c.blurPasses,
+                    ignore_opacity: c.blurIgnoreOpacity,
+                    new_optimizations: c.blurNewOptimizations,
+                    xray: c.blurXray,
+                    noise: c.blurNoise,
+                    contrast: c.blurContrast,
+                    brightness: c.blurBrightness,
+                    vibrancy: c.blurVibrancy,
+                    vibrancy_darkness: c.blurVibrancyDarkness,
+                    special: c.blurSpecial,
+                    popups: c.blurPopups,
+                    popups_ignorealpha: c.blurPopupsIgnorealpha,
+                    input_methods: c.blurInputMethods,
+                    input_methods_ignorealpha: c.blurInputMethodsIgnorealpha
+                }
+            }
+        });
+
         CompositorTomlWriter.refresh();
+    }
+
+    property Connections gameModeConnections: Connections {
+        target: GameModeService
+        function onToggledChanged() {
+            if (!GameModeService.toggled)
+                applyCompositorConfig();
+        }
     }
 
     property Connections configConnections: Connections {
