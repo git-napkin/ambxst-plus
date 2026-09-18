@@ -141,7 +141,9 @@ QtObject {
     }
 
     function buildGsrCommand(outputFile, recordAudioOutput, recordAudioInput, mode, regionStr, mon) {
-        var cmd = "gpu-screen-recorder -f 60 -fallback-cpu-encoding yes";
+        // Desktop capture is full-range sRGB. GSR defaults to limited/TV
+        // (16-235), which makes recordings look washed out vs the live display.
+        var cmd = "gpu-screen-recorder -f 60 -fallback-cpu-encoding yes -cr full";
 
         if (mode === "screen") {
             cmd += mon ? (" -w " + mon) : " -w screen";
