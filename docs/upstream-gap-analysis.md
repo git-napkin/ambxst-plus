@@ -29,34 +29,37 @@ called out as equivalent, not missing.
 
 ## Ranked gaps (what Ambxst[+] does not have)
 
+Snapshot at comparison time. Items that do not fit this fork’s `cli.sh` +
+Python computer-use architecture are **out of scope** and will not be
+ported. The rest are done (see Porting progress).
+
 1. **Mods** — native modification manager (confirmed; 1.3.0). Depends on the Go
-   backend. **Hard.**
+   backend. **Out of scope.**
 2. **Go `ambxst` daemon** replacing `cli.sh` — supervisor + JSON-RPC for qs,
-   axctl, wl-paste, and most services. **Hard.** Prerequisite for (1), (4),
-   (5), (6).
+   axctl, wl-paste, and most services. **Out of scope.** Required for (1);
+   not required for (6)–(9) or (11)–(12).
 3. **Official presets** — nine bundled looks + Settings/overlay switcher +
-   `ambxst preset`. **Medium** for the QML/assets; **hard** if tied to the
-   daemon CLI.
+   `ambxst preset`. **Out of scope** (intentionally removed here).
 4. **Encrypted clipboard** — SQLCipher stores, 50-item cap, image blobs, optional
-   tmpfs for unpinned history. **Hard.**
+   tmpfs for unpinned history. **Out of scope** as an upstream Go backend port.
 5. **Native Wayland screenshot / color picker / OCR / QR** — DMS-style
-   screencopy engine, layer-shell loupe, Go barcodes. **Hard.**
+   screencopy engine, layer-shell loupe, Go barcodes. **Out of scope** as an
+   upstream Go backend port (tools menu already uses Python/Bash).
 6. **Niri + MangoWC `install`/`remove`** plus generated TOML `[target]` paths.
-   **Medium.**
-7. **Monocle layout** in the layout picker and keybind catalog. **Easy /
-   medium** (`axctl-plus` already special-cases monocle).
+   **Done.**
+7. **Monocle layout** in the layout picker and keybind catalog. **Done**
+   (`axctl-plus` already special-cases monocle).
 8. **Live compositor config eval** (`axctl config raw-batch` / `hl.config()`)
-   so theme/gaps apply without a full reload. **Medium.**
-9. **`axctl layout set` from the shell** — Ambxst[+] only writes
-   `StateService`; upstream actually switches the compositor layout. **Easy.**
+   so theme/gaps apply without a full reload. **Done** (via axctl, no Go daemon).
+9. **`axctl layout set` from the shell** — previously only wrote
+   `StateService`; now dispatches `axctl layout set`. **Done.**
 10. **Packaging** — `Makefile`, `nix/packages/backend.nix`, GitHub Actions
-    prebuilt `ambxst-linux-{amd64,arm64}` on version tags. **Medium** after
-    (2).
+    prebuilt `ambxst-linux-{amd64,arm64}` on version tags. **Out of scope**
+    (only exists to ship the Go daemon).
 11. **Small QML bugfixes** still applicable on this tree (pomodoro input
-    resync, lockscreen unlock timer when animations are off). **Easy /
-    medium.**
+    resync, lockscreen unlock timer when animations are off). **Done.**
 12. **Fedora installer COPR** switched to `lionheartp/Hyprland` (“fedora 44”).
-    **Easy**, independent of the daemon.
+    **Done.**
 
 ---
 

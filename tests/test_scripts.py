@@ -653,7 +653,9 @@ class TestUpstreamPhaseA(unittest.TestCase):
         self.assertIn("Official presets", src)
         self.assertIn("Porting progress", src)
         self.assertIn("Go `ambxst` daemon", src)
+        self.assertIn("What this fork will not port", src)
         self.assertNotIn("Planned (Phase B)", src)
+        self.assertNotIn("Phase B will keep", src)
 
 
 class TestKeystorePath(unittest.TestCase):
