@@ -10,6 +10,7 @@ from .friendly import labels
 from .native import native_request
 from ..execution_profile import ALWAYS_ALLOW, NEVER
 from ..computer_use import atspi, coords, doctor, input as cu_input, screenshot as cu_shot, windows as cu_windows
+from ..models import model_supports_vision, vision_unsupported_message
 
 ACTIONS = (
     "screenshot",
@@ -57,6 +58,8 @@ OBSERVE_AFTER = {
 }
 
 WAIT_CAP_MS = 5000
+VISION_UNSUPPORTED = "vision_unsupported"
+PIXEL_ACTIONS = {"screenshot", "click", "move", "drag", "scroll", "cursor"}
 
 # Exact control labels that commit money, mail, or account destruction.
 _CRITICAL_LABEL = re.compile(
@@ -148,7 +151,47 @@ def action_is_critical(ctx, args):
     return False
 
 
+def _current_model(ctx):
+    spec = getattr(ctx, "model", None)
+    return spec if isinstance(spec, dict) else {}
+
+
+def _leave_computer_use(ctx):
+    if getattr(ctx, "computer_use_approved", False):
+        try:
+            _native(ctx, "computer_use_session", {"op": "end"})
+        except Exception:
+            pass
+    ctx.computer_use_approved = False
+    ctx.computer_use_nodes = []
+    ctx.computer_use_last_shot = None
+    ctx.computer_use_focus_address = ""
+
+
+def _require_vision(ctx):
+    spec = _current_model(ctx)
+    if model_supports_vision(spec):
+        return None
+    _leave_computer_use(ctx)
+    return _error(vision_unsupported_message(spec), extra={"code": VISION_UNSUPPORTED})
+
+
+def _needs_screenshot(action, args):
+    if action == "screenshot" or (args or {}).get("screenshot") is True:
+        return True
+    if str((args or {}).get("observe") or "") == "screenshot":
+        return True
+    if action in PIXEL_ACTIONS and (
+        (args or {}).get("x") is not None or (args or {}).get("y") is not None
+    ):
+        return True
+    return False
+
+
 def _begin_session(ctx, summary):
+    blocked = _require_vision(ctx)
+    if blocked:
+        return blocked
     native = _native(
         ctx,
         "computer_use_session",
@@ -501,6 +544,9 @@ class RequestComputerUseTool(Tool):
     def execute(self, ctx, args):
         if ctx.profile.computer_use == NEVER:
             return _error("computer use is disabled")
+        blocked = _require_vision(ctx)
+        if blocked:
+            return blocked
         native = _begin_session(ctx, (args or {}).get("task_summary") or "")
         if native.get("status") == "error" or native.get("error"):
             return native
@@ -617,6 +663,9 @@ class UseComputerTool(Tool):
     def execute(self, ctx, args):
         if ctx.profile.computer_use == NEVER:
             return _error("computer use is disabled")
+        blocked = _require_vision(ctx)
+        if blocked:
+            return blocked
         args = args or {}
         if not ctx.computer_use_approved:
             native = _begin_session(
@@ -666,6 +715,10 @@ class UseComputerTool(Tool):
             return _error("unknown action: %s" % (action or "(empty)"))
         if ctx.cancelled():
             return self.cancelled()
+        if _needs_screenshot(action, args):
+            blocked = _require_vision(ctx)
+            if blocked:
+                return blocked
         gate = _native(ctx, "computer_use_session", {"op": "gate", "action": action, "summary": args.get("action_summary") or action})
         if gate.get("status") == "error" or gate.get("error"):
             return gate if gate.get("status") else _error(gate.get("error"))

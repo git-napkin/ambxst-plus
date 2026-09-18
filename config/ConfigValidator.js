@@ -7,16 +7,16 @@ function clone(obj) {
 }
 
 var DEAD_GEMINI_MODELS = {
-    "gemini-2.0-flash": "gemini-2.5-flash",
-    "gemini-2.0-flash-001": "gemini-2.5-flash",
-    "gemini-2.0-flash-lite": "gemini-2.5-flash",
-    "gemini-2.0-flash-lite-001": "gemini-2.5-flash"
+    "gemini-2.0-flash": true,
+    "gemini-2.0-flash-001": true,
+    "gemini-2.0-flash-lite": true,
+    "gemini-2.0-flash-lite-001": true
 };
 
 function remapDeadModelId(id) {
     var s = String(id || "");
-    if (DEAD_GEMINI_MODELS[s])
-        return DEAD_GEMINI_MODELS[s];
+    if (Object.prototype.hasOwnProperty.call(DEAD_GEMINI_MODELS, s))
+        return "";
     return s;
 }
 
@@ -26,9 +26,7 @@ function remapAiConfig(config) {
     if (config.defaultModel)
         config.defaultModel = remapDeadModelId(config.defaultModel);
     if (config.defaultModels && typeof config.defaultModels === "object") {
-        if (!config.defaultModels.gemini)
-            config.defaultModels.gemini = "gemini-2.5-flash";
-        else
+        if (config.defaultModels.gemini)
             config.defaultModels.gemini = remapDeadModelId(config.defaultModels.gemini);
     }
     if (Array.isArray(config.extraModels)) {

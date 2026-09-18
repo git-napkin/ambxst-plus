@@ -58,6 +58,7 @@ class ToolContext:
         self.wait_for_native = None
         self.wait_for_answers = None
         self.register_process = None
+        self.model = {}
         self.computer_use_approved = False
         self.computer_use_nodes = []
         self.computer_use_last_shot = None

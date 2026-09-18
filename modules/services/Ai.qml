@@ -86,7 +86,7 @@ Singleton {
     }
 
     function restoreModel() {
-        const fallback = Config.ai.defaultModel || "gemini-2.5-flash";
+        const fallback = Config.ai.defaultModel || "";
         const saved = StateService.get("lastAiModel", fallback);
         const remapped = Config.remapDeadAiModel(saved);
         if (remapped && remapped !== saved)

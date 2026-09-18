@@ -1288,7 +1288,7 @@ Singleton {
 
         adapter: JsonAdapter {
             property list<var> extraModels: []
-            property string defaultModel: "gemini-2.5-flash"
+            property string defaultModel: ""
             property string customEndpoint: ""
             property string customCurlTemplate: ""
             property string customName: ""
@@ -1298,7 +1298,7 @@ Singleton {
             property JsonObject defaultModels: JsonObject {
                 property string openai: ""
                 property string anthropic: ""
-                property string gemini: "gemini-2.5-flash"
+                property string gemini: ""
                 property string openrouter: ""
                 property string ollama: ""
                 property string custom: ""

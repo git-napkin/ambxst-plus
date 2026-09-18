@@ -13,22 +13,23 @@ approval, session end on agent `done`). Those are treated as settled unless
 they cap capability.
 
 **Must-fix before the next CU harness build:** purge `gemini-2.0-flash`
-(shut down; inaccessible). Replacement is `gemini-2.5-flash` (user
-override of the original `gemini-3.8-flash` pin — do **not** use
-`gemini-flash-latest` or `gemini-2.5-computer-use-preview-*` as the
-Spotlight default). Full inventory, LLM-optimality findings, and an
-implementer checklist are in the follow-up section at the end of this
-note.
+(shut down; inaccessible). Do **not** pin Spotlight or computer use to
+`gemini-2.5-flash` (or any other Flash ID) — 2.5 is still old, and a
+Google/OpenRouter key cannot be assumed. Computer use uses the user's
+currently selected Spotlight/session model (`lastAiModel`). If that model
+lacks vision, raise an error, leave computer use, and do not fall back.
+Full inventory, LLM-optimality findings, and an implementer checklist are
+in the follow-up section at the end of this note.
 
-**Implementation status (this branch):** harness + model purge shipped.
-See the checklist at the end (items marked done vs deferred).
+**Implementation status (this branch):** harness + dead-2.0 purge +
+current-model vision gate shipped. See the checklist at the end.
 
 ---
 
 ## Architecture map
 
 ```
-  Spotlight model  (default: gemini-2.5-flash; dead gemini-2.0-flash purged)
+  Spotlight model  (current lastAiModel / session model; dead gemini-2.0-flash purged)
         │  tool_calls: request_computer_use / use_computer
         ▼
   scripts/ai/agent.py          NDJSON stdin/stdout, no iter cap while CU granted
@@ -107,7 +108,7 @@ ydotool/wtype escape hatch, not compositor-portable.
 | Round-trips | Every action: native `gate`; type/key also `inject_begin`/`inject_end`; screenshot is a second native call | `_one`, `_with_inject`, `_capture` |
 | Safety | Session ask once; regex + `critical: true` for pay/send/purchase; lockscreen blocks; Jev may only **add** review | `action_is_critical`, `require_critical_review` |
 | Human takeover | Disable physical mice (not keyboard-named devices); exclusive HUD keys; replay compositor binds; unlock pointer in `approvalWait` | `ComputerUse.qml`, `ComputerUseHud.qml` |
-| Default model | **`gemini-2.5-flash`** (dead `gemini-2.0-flash` remapped) | `config/defaults/ai.js` |
+| Default model | **current Spotlight selection** (`lastAiModel`). Fresh `defaultModel` is empty; restore is last saved, then first configured catalog model. Dead `gemini-2.0-flash*` remaps to empty (not to 2.5 Flash). CU never switches models; vision-less models error and exit CU. | `config/defaults/ai.js`, `scripts/ai/models.py` |
 
 ---
 
@@ -515,49 +516,52 @@ lists `gemini-2.0-flash` under **Previous models / Shut down**.
 
 ### Must-fix: purge `gemini-2.0-flash`
 
-It is not “old but fine”. It is **shut down**. Spotlight and therefore
-computer use default to it, so a fresh Ambxst install with a Gemini key
-cannot run the agent at all.
+It is not “old but fine”. It is **shut down**. Leave it out of catalogs
+and remap persisted IDs so restore does not keep a dead selection.
 
-**Replace with `gemini-2.5-flash`.** User pin for Spotlight / CU-inherited
-default. Live Flash with vision + function calling. Fits
-`scripts/ai/providers/gemini.py` without a new HTTP shape. Do **not** use
-`gemini-flash-latest` or `gemini-2.5-computer-use-preview-*`.
+**Do not replace it with `gemini-2.5-flash` as a Spotlight or computer-use
+default.** 2.5 Flash is still old, and pinning it assumes a Google or
+OpenRouter key. Computer use must use whatever model the user already
+selected (`lastAiModel` / current session). On grant (and before
+screenshot-dependent actions) check vision. If the current model cannot
+see images: raise a clear error, end the CU session (release grant /
+unlock pointer), and surface the message. Never silently fall back to
+another model or provider.
+
+Fresh-install `defaultModel` / `defaultModels.gemini` stay empty so
+`tryRestore()` uses the first configured catalog model. Dead
+`gemini-2.0-flash*` IDs remap to empty for the same reason.
 
 | Candidate | Why not (or why) |
 |---|---|
-| **`gemini-2.5-flash`** | **Do this.** User-selected Spotlight default. |
-| `gemini-3.8-flash` | Original audit pin; not used. |
-| `gemini-flash-latest` | Hot-swap alias; repeats this outage class. Optional extra catalog entry, not the pin. |
+| **Current Spotlight model + vision gate** | **Do this.** CU inherits `lastAiModel`. No CU-specific override. |
+| `gemini-2.5-flash` as default | Still old; assumes a Gemini/OpenRouter key. Reverted. |
+| `gemini-3.8-flash` | Original audit pin; not used. Same key assumption. |
+| `gemini-flash-latest` | Hot-swap alias; repeats this outage class. |
 | `gemini-2.5-computer-use-preview-10-2025` | Google’s **browser CU** specialist. Preview ID, will rot, wrong as Spotlight default. Filtered from the live catalog. |
 
 Do **not** adopt Google’s native Computer Use tool in the same change as
-the ID swap. That is a later mapping job (P2). The next build just needs
-a live, agentic, multimodal default.
+the ID purge. That is a later mapping job (P2).
 
 #### Inventory (every hit in this checkout)
 
 | File | Role |
 |---|---|
-| `config/defaults/ai.js` | `defaultModel: "gemini-2.0-flash"` — **source of truth for new configs** |
-| `config/Config.qml` | `property string defaultModel: "gemini-2.0-flash"` — must match defaults |
-| `modules/services/Ai.qml` | `StateService.get("lastAiModel", … \|\| "gemini-2.0-flash")` fallback |
-| `scripts/ai/agent.py` | Agent constructor default `model` / `name` before `init` |
-| `scripts/ai/providers/gemini.py` | `spec.get("model") or spec.get("name") or "gemini-2.0-flash"` |
-| `tests/test_scripts.py` | `test_init_is_valid_command` fixture |
+| `config/defaults/ai.js` | `defaultModel: ""` — first configured catalog model |
+| `config/Config.qml` | `property string defaultModel: ""` — must match defaults |
+| `modules/services/Ai.qml` | `lastAiModel` fallback is `Config.ai.defaultModel` (empty → catalog) |
+| `scripts/ai/agent.py` | Constructor model empty until `init` / `set_model` |
+| `scripts/ai/providers/gemini.py` | No Flash fallback id; uses the spec the session already has |
+| `scripts/ai/models.py` | Dead 2.0 IDs remap to `""`; `model_supports_vision` fail-closed |
+| `tests/test_scripts.py` | Vision gate + empty default assertions |
 | `docs/computer-use-audit.md` | this note |
-| `assets/ai/skills/*` | no model IDs (good) |
+| `assets/ai/skills/*` | no pinned model IDs (good) |
 | Nix / AGENTS.md / README | no hits |
 
 Also migrate **persisted** `lastAiModel` in `StateService`. Existing users
-who already ran Spotlight have `gemini-2.0-flash` saved; `tryRestore()`
-will miss it in the live catalog and fall through to `defaultModels`
-(all empty) then `models[0]`. That is a silent random-model restore, not
-a clean swap.
-
-`config/defaults/ai.js` `defaultModels.gemini` is `""`. After the purge,
-set `defaultModels.gemini` to `gemini-3.8-flash` so provider-specific
-restore has a live ID.
+who already ran Spotlight have `gemini-2.0-flash` saved; remap clears it
+and `tryRestore()` falls through to `defaultModels` (empty) then
+`models[0]` — the first configured provider model.
 
 Not in-repo but real: `~/.config/ambxst+/config/ai.json` will keep the
 dead ID until ConfigValidator / a one-shot remap rewrites it.
@@ -671,9 +675,9 @@ Impact: **U**nderstanding (zero-shot), **T**okens, **D**ead config, **R**eliabil
 #### P2 — other dead / misleading surface
 
 15. **Persisted last model / empty `defaultModels`.** Covered in the
-    must-fix. Also remap `gemini-2.0-flash-001` and
-    `gemini-2.0-flash-lite` if they appear in `extraModels` /
-    `manualModelsJson`.
+    must-fix. Remap `gemini-2.0-flash*` in `extraModels` /
+    `manualModelsJson` to empty (not to a Flash pin). Restore is
+    `lastAiModel` then the first configured catalog model.
 
 16. **`gpt-4o` only in tests** (`test_scripts.py` list_models mock).
     Fine as a fake catalog id; not a runtime default. Leave it.
@@ -695,21 +699,23 @@ Impact: **U**nderstanding (zero-shot), **T**okens, **D**ead config, **R**eliabil
 Execute in this order. Do not start the P0 harness rewrite until 1–6
 are done; CU on a dead model is zero success rate.
 
-**A. Model ID (must ship)**
+**A. Model ID + vision gate (must ship)**
 
-- [x] Change `config/defaults/ai.js` `defaultModel` → `gemini-2.5-flash`
-- [x] Change `config/Config.qml` `defaultModel` to match
-- [x] Set `defaultModels.gemini` → `gemini-2.5-flash` in both files
-- [x] `scripts/ai/agent.py` constructor default
-- [x] `scripts/ai/providers/gemini.py` fallback id
-- [x] `tests/test_scripts.py` init fixture
-- [x] `Ai.qml` `lastAiModel` fallback string
+- [x] Leave `config/defaults/ai.js` `defaultModel` empty (first configured catalog model)
+- [x] Match `config/Config.qml` `defaultModel`
+- [x] Keep `defaultModels.gemini` empty (do not pin Flash)
+- [x] `scripts/ai/agent.py` constructor has no provider/model pin
+- [x] `scripts/ai/providers/gemini.py` uses the session spec (no Flash fallback)
+- [x] `tests/test_scripts.py` empty-default + vision-gate coverage
+- [x] `Ai.qml` `lastAiModel` fallback is `Config.ai.defaultModel` (empty → catalog)
 - [x] Migrate saved `lastAiModel` / `ai.json` `defaultModel` when the
       value is `gemini-2.0-flash`, `gemini-2.0-flash-001`,
-      `gemini-2.0-flash-lite`, `gemini-2.0-flash-lite-001`
-- [ ] Smoke: `list_models` with a live Gemini key contains
-      `gemini-2.5-flash`; `streamGenerateContent` returns text + a
-      function call *(needs a live key; catalog filter unit-tested)*
+      `gemini-2.0-flash-lite`, `gemini-2.0-flash-lite-001` → empty
+- [x] Computer use uses the current Spotlight/session model; no CU override
+- [x] Vision check on grant and screenshot-dependent actions; unsupported
+      → error + end session; no silent fallback
+- [ ] Smoke: `list_models` with a live key; `streamGenerateContent` returns
+      text + a function call *(needs a live key; catalog filter unit-tested)*
 - [x] Confirm 2.5 thought parts / signatures: thought text dropped;
       `thoughtSignature` forwarded on functionCall parts
 - [x] Filter catalog entries that are TTS, Live, image-only, or

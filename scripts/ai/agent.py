@@ -24,7 +24,12 @@ from ai.providers import get_provider
 from ai.tools.read_skill import skill_catalog_names
 from ai.tools.registry import AGENT_WAIT, ToolContext, advertised_tool_names, build_registry
 from ai.list_models import list_models
-from ai.models import DEFAULT_MODEL_ID, DEFAULT_PROVIDER
+from ai.models import (
+    DEFAULT_MODEL_ID,
+    DEFAULT_PROVIDER,
+    model_supports_vision,
+    vision_unsupported_message,
+)
 
 DEFAULT_SYSTEM = (
     "You are a helpful assistant running on Ambxst[+], a Linux desktop shell. "
@@ -172,6 +177,7 @@ class Agent:
         self.computer_use_nodes = []
         self.computer_use_last_shot = None
         self.computer_use_focus_address = ""
+        self.ctx.model = dict(self.model)
         self._lock = threading.Lock()
         self._busy = threading.Event()
 
@@ -218,6 +224,7 @@ class Agent:
         self._apply_sampling(payload)
         if payload.get("model"):
             self.model = dict(payload["model"])
+        self.ctx.model = dict(self.model)
         catalog = [n for n in skill_catalog_names(self.ctx.skill_dirs) if n != "computer-use"]
         extra = []
         if catalog:
@@ -357,7 +364,12 @@ class Agent:
         if cmd == "set_model":
             if payload.get("model"):
                 self.model = dict(payload["model"])
+            self.ctx.model = dict(self.model)
             self._apply_sampling(payload)
+            if self.computer_use_approved and not model_supports_vision(self.model):
+                self._clear_computer_use()
+                self.emit({"type": "error", "error": vision_unsupported_message(self.model)})
+                return
             self.emit({"type": "done", "reason": "set_model"})
             return
         if cmd == "set_autoapprove":
@@ -686,6 +698,18 @@ class Agent:
                 if attachments:
                     tool_msg["attachments"] = attachments
                 tool_messages.append(tool_msg)
+                if isinstance(result, dict) and result.get("code") == "vision_unsupported":
+                    self.messages.append(
+                        {
+                            "role": "assistant",
+                            "content": "".join(assistant_text),
+                            "tool_calls": openai_calls,
+                        }
+                    )
+                    self.messages.extend(tool_messages)
+                    self._clear_computer_use()
+                    self.emit({"type": "error", "error": result.get("error") or vision_unsupported_message(self.model)})
+                    return
             self.messages.append(
                 {
                     "role": "assistant",

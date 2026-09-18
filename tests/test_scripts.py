@@ -622,8 +622,10 @@ from ai.tools.registry import ToolContext
 
 def _ctx(workspace, **kwargs):
     profile = kwargs.pop("profile", None) or ExecutionProfile(kwargs.pop("execution_profile", None))
+    model = kwargs.pop("model", {"provider": "openai", "model": "gpt-4o"})
     ctx = ToolContext(workspace=workspace, profile=profile, **kwargs)
     ctx.emit = lambda _event: None
+    ctx.model = model
     return ctx
 
 
@@ -855,7 +857,10 @@ class TestOpenAiBaseUrls(unittest.TestCase):
         from ai.list_models import list_models
         from ai.models import DEFAULT_MODEL_ID, gemini_catalog_keep, remap_dead_model_id
 
-        self.assertEqual(remap_dead_model_id("gemini-2.0-flash"), DEFAULT_MODEL_ID)
+        self.assertEqual(DEFAULT_MODEL_ID, "")
+        self.assertEqual(remap_dead_model_id("gemini-2.0-flash"), "")
+        self.assertEqual(remap_dead_model_id("gemini-2.0-flash-lite-001"), "")
+        self.assertEqual(remap_dead_model_id("gemini-2.5-flash"), "gemini-2.5-flash")
         self.assertTrue(gemini_catalog_keep("gemini-2.5-flash"))
         self.assertFalse(gemini_catalog_keep("gemini-2.0-flash"))
         self.assertFalse(gemini_catalog_keep("gemini-2.5-flash-preview-tts"))
@@ -1275,6 +1280,93 @@ class TestComputerUse(unittest.TestCase):
         self.assertEqual(RequestComputerUseTool().should_autoexecute(allow, {"task_summary": "x"}), True)
         self.assertEqual(UseComputerTool().should_autoexecute(allow, {"action": "click"}), True)
         self.assertEqual(UseComputerTool().should_autoexecute(allow, {"action": "click", "critical": True}), "ask")
+
+    def test_vision_gate_uses_current_model_and_exits(self):
+        from unittest.mock import patch
+        from io import StringIO
+        from ai.agent import Agent
+        from ai.models import model_supports_vision
+        from ai.tools.computer_use import RequestComputerUseTool, UseComputerTool, VISION_UNSUPPORTED
+
+        self.assertTrue(model_supports_vision({"model": "gpt-4o"}))
+        self.assertTrue(model_supports_vision({"model": "claude-sonnet-4-5"}))
+        self.assertTrue(model_supports_vision({"model": "gemini-2.5-flash"}))
+        self.assertTrue(model_supports_vision("google/gemini-3-flash"))
+        self.assertTrue(model_supports_vision("llava:latest"))
+        self.assertFalse(model_supports_vision(""))
+        self.assertFalse(model_supports_vision({"model": "gpt-3.5-turbo"}))
+        self.assertFalse(model_supports_vision({"model": "o3-mini"}))
+        self.assertFalse(model_supports_vision("gemini-2.5-flash-preview-tts"))
+        self.assertFalse(model_supports_vision({"model": "whisper-1"}))
+
+        native_calls = []
+
+        def native(_ctx, name, args):
+            native_calls.append((name, dict(args)))
+            return {"ok": True, "locked": False}
+
+        text = _ctx(".", execution_profile={"computerUse": "AlwaysAllow"}, model={"provider": "openai", "model": "gpt-3.5-turbo"})
+        with patch("ai.tools.computer_use._native", side_effect=native):
+            denied = RequestComputerUseTool().execute(text, {"task_summary": "click the button"})
+        self.assertEqual(denied["status"], "error")
+        self.assertEqual(denied["code"], VISION_UNSUPPORTED)
+        self.assertIn("gpt-3.5-turbo", denied["error"])
+        self.assertIn("will not switch models", denied["error"])
+        self.assertFalse(text.computer_use_approved)
+        self.assertFalse(any(args.get("op") == "begin" for _name, args in native_calls))
+
+        native_calls.clear()
+        ok_ctx = _ctx(".", execution_profile={"computerUse": "AlwaysAllow"}, model={"provider": "openai", "model": "gpt-4o"})
+        with patch("ai.tools.computer_use._native", side_effect=native), patch(
+            "ai.tools.computer_use.atspi.probe", return_value=False
+        ), patch("ai.tools.computer_use.doctor.doctor_report", return_value={"can_click": False, "can_type": False}):
+            granted = RequestComputerUseTool().execute(ok_ctx, {"task_summary": "click"})
+        self.assertEqual(granted["status"], "ok")
+        self.assertTrue(ok_ctx.computer_use_approved)
+        self.assertTrue(any(args.get("op") == "begin" for _name, args in native_calls))
+        self.assertEqual(ok_ctx.model["model"], "gpt-4o")
+
+        native_calls.clear()
+        granted_then_blind = _ctx(
+            ".",
+            execution_profile={"computerUse": "AlwaysAllow"},
+            model={"provider": "openai", "model": "gpt-3.5-turbo"},
+        )
+        granted_then_blind.computer_use_approved = True
+        with patch("ai.tools.computer_use._native", side_effect=native):
+            shot = UseComputerTool().execute(granted_then_blind, {"action": "screenshot"})
+        self.assertEqual(shot["status"], "error")
+        self.assertEqual(shot["code"], VISION_UNSUPPORTED)
+        self.assertFalse(granted_then_blind.computer_use_approved)
+        self.assertTrue(any(args.get("op") == "end" for _name, args in native_calls))
+        self.assertFalse(any(args.get("op") == "begin" for _name, args in native_calls))
+
+        stdout = StringIO()
+        agent = Agent(stdin=StringIO(), stdout=stdout)
+        self.assertEqual(agent.model.get("model"), "")
+        self.assertEqual(agent.model.get("provider"), "")
+        agent.apply_init(
+            {
+                "execution_profile": {"computerUse": "AlwaysAllow"},
+                "enabled_tools": ["native"],
+                "system_prompt": "hi",
+                "model": {"provider": "openai", "model": "gpt-4o"},
+            }
+        )
+        self.assertEqual(agent.model["model"], "gpt-4o")
+        self.assertEqual(agent.ctx.model["model"], "gpt-4o")
+        agent.computer_use_approved = True
+        agent.ctx.computer_use_approved = True
+        before = dict(agent.model)
+        agent.handle_command({"cmd": "set_model", "model": {"provider": "openai", "model": "gpt-3.5-turbo"}})
+        self.assertEqual(agent.model["model"], "gpt-3.5-turbo")
+        self.assertNotEqual(before["model"], "gpt-3.5-turbo")
+        self.assertFalse(agent.computer_use_approved)
+        self.assertFalse(agent.ctx.computer_use_approved)
+        logged = stdout.getvalue()
+        self.assertIn('"type":"error"', logged)
+        self.assertIn("vision", logged.lower())
+        self.assertIn("will not switch models", logged)
 
     def test_critical_actions_ask_after_grant(self):
         from ai.tools.computer_use import UseComputerTool, action_is_critical
@@ -2018,10 +2110,10 @@ class TestComputerUse(unittest.TestCase):
     def test_inline_skill_and_defaults(self):
         from io import StringIO
         from ai.agent import Agent
-        from ai.models import DEFAULT_MODEL_ID
 
         agent = Agent(stdin=StringIO(), stdout=StringIO())
-        self.assertEqual(agent.model["model"], DEFAULT_MODEL_ID)
+        self.assertEqual(agent.model["model"], "")
+        self.assertEqual(agent.model["provider"], "")
         skill_root = Path(__file__).parent.parent / "assets" / "ai" / "skills"
         agent.apply_init(
             {

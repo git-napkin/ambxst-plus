@@ -6,7 +6,6 @@ import json
 import urllib.parse
 
 from .base import Provider, iter_lines, post_request
-from ..models import DEFAULT_MODEL_ID
 
 
 def _contents(messages):
@@ -104,7 +103,7 @@ class GeminiProvider(Provider):
 
     def stream_chat(self, messages, tools, temperature, max_tokens, model, api_key, endpoint=""):
         spec = model if isinstance(model, dict) else {"model": str(model)}
-        model_id = spec.get("model") or spec.get("name") or DEFAULT_MODEL_ID
+        model_id = spec.get("model") or spec.get("name") or ""
         base = (endpoint or spec.get("endpoint") or "https://generativelanguage.googleapis.com/v1beta").rstrip("/")
         query = urllib.parse.urlencode({"alt": "sse", "key": api_key or ""})
         url = "%s/models/%s:streamGenerateContent?%s" % (base, model_id, query)
