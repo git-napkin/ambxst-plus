@@ -458,13 +458,67 @@ function _splitDisplayMath(text) {
     return out;
 }
 
+function _isEscapedDollar(s, i) {
+    let n = 0;
+    for (let j = i - 1; j >= 0 && s[j] === "\\"; j--)
+        n++;
+    return (n % 2) === 1;
+}
+
+function _isValidInlineMathOpen(s, i) {
+    if (i < 0 || i >= s.length || s[i] !== "$")
+        return false;
+    if (_isEscapedDollar(s, i) || s[i + 1] === "$")
+        return false;
+    if (i + 1 >= s.length || /\s/.test(s[i + 1]))
+        return false;
+    return true;
+}
+
+function _isValidInlineMathClose(s, i) {
+    if (i <= 0 || i >= s.length || s[i] !== "$")
+        return false;
+    if (_isEscapedDollar(s, i) || s[i + 1] === "$")
+        return false;
+    if (/\s/.test(s[i - 1]))
+        return false;
+    if (i + 1 < s.length && /[0-9]/.test(s[i + 1]))
+        return false;
+    return true;
+}
+
+function _nextUnescapedDollar(s, from) {
+    let i = from;
+    while (i < s.length) {
+        if (s[i] === "$" && !_isEscapedDollar(s, i))
+            return i;
+        i++;
+    }
+    return -1;
+}
+
+function _isCurrencyLike(body) {
+    const t = String(body || "").trim();
+    if (!t.length)
+        return false;
+    return /^(?:\$?\d[\d,]*(?:\.\d+)?(?:\s*[-–—]\s*\$?\d[\d,]*(?:\.\d+)?)?)$/.test(t);
+}
+
 function _isMathy(body) {
-    const t = body.trim();
+    const t = String(body || "").trim();
     if (!t.length)
         return false;
     if (t.length > 200)
         return false;
-    return /[\\^_=+\-*/<>]|\\[a-zA-Z]+|[a-zA-Z]\s*\^/.test(t) || t.length <= 24;
+    if (t.indexOf("**") !== -1)
+        return false;
+    if (_isCurrencyLike(t))
+        return false;
+    if (/[\\^_=+\-*/<>]|\\[a-zA-Z]+|[a-zA-Z]\s*\^/.test(t))
+        return true;
+    if (/^[A-Za-z][A-Za-z0-9]*$/.test(t) && t.length <= 24)
+        return true;
+    return false;
 }
 
 function substituteInlineMath(text) {
@@ -483,9 +537,9 @@ function substituteInlineMath(text) {
             i++;
             continue;
         }
-        if (s[i] === "$") {
-            const close = s.indexOf("$", i + 1);
-            if (close !== -1 && s[close + 1] !== "$") {
+        if (s[i] === "$" && _isValidInlineMathOpen(s, i)) {
+            const close = _nextUnescapedDollar(s, i + 1);
+            if (close !== -1 && s[close + 1] !== "$" && _isValidInlineMathClose(s, close)) {
                 const body = s.slice(i + 1, close);
                 if (body.indexOf("\n") === -1 && _isMathy(body)) {
                     const u = latexToUnicode(body);
@@ -494,8 +548,6 @@ function substituteInlineMath(text) {
                     continue;
                 }
             }
-            i++;
-            continue;
         }
         out += s[i];
         i++;
@@ -504,8 +556,7 @@ function substituteInlineMath(text) {
     out = out.replace(/\\([a-zA-Z]+)/g, function (m, name) {
         return COMMANDS[name] !== undefined ? COMMANDS[name] : m;
     });
-    out = out.replace(/\$\$/g, "");
-    out = out.replace(/\$/g, "");
+    out = out.replace(/\\\$/g, "$");
     return out;
 }
 
