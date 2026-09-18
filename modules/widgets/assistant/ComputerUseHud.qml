@@ -29,6 +29,8 @@ PanelWindow {
             return WlrKeyboardFocus.None;
         if (ComputerUse.userHasControl || ComputerUse.injectingInput)
             return WlrKeyboardFocus.None;
+        if (ComputerUse.sessionState === "grantedIdle")
+            return WlrKeyboardFocus.None;
         return WlrKeyboardFocus.Exclusive;
     }
 
@@ -36,7 +38,7 @@ PanelWindow {
         item: ComputerUse.sessionState === "approvalWait" ? inputBlock : (hud.clickThrough ? grabPixel : hudAnchor)
     }
 
-    readonly property bool drivingKeys: ComputerUse.sessionActive && !ComputerUse.userHasControl && !ComputerUse.injectingInput
+    readonly property bool drivingKeys: ComputerUse.sessionActive && !ComputerUse.userHasControl && !ComputerUse.injectingInput && ComputerUse.sessionState !== "grantedIdle"
     readonly property bool showWait: ComputerUse.waiting && !Ai.approvalPending
     readonly property bool pointerChrome: ComputerUse.userHasControl
 
@@ -312,6 +314,12 @@ PanelWindow {
         function onWaitingChanged() {
             hud.refreshPresence();
             hud.revealOutput();
+        }
+        function onSessionStateChanged() {
+            if (ComputerUse.sessionState === "grantedIdle")
+                hud.refreshPresence();
+            else if (ComputerUse.sessionActive)
+                hud.claimKeys();
         }
         function onInjectingInputChanged() {
             if (!ComputerUse.injectingInput)

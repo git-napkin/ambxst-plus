@@ -1288,7 +1288,7 @@ Singleton {
 
         adapter: JsonAdapter {
             property list<var> extraModels: []
-            property string defaultModel: "gemini-2.0-flash"
+            property string defaultModel: "gemini-2.5-flash"
             property string customEndpoint: ""
             property string customCurlTemplate: ""
             property string customName: ""
@@ -1298,7 +1298,7 @@ Singleton {
             property JsonObject defaultModels: JsonObject {
                 property string openai: ""
                 property string anthropic: ""
-                property string gemini: ""
+                property string gemini: "gemini-2.5-flash"
                 property string openrouter: ""
                 property string ollama: ""
                 property string custom: ""
@@ -3500,6 +3500,12 @@ Singleton {
             var current = JSON.parse(raw);
             var state = { changed: false };
             var validated = ConfigValidator.validate(current, defaults, undefined, state);
+            if (name === "ai" && ConfigValidator.remapAiConfig) {
+                var before = JSON.stringify(validated);
+                validated = ConfigValidator.remapAiConfig(validated);
+                if (JSON.stringify(validated) !== before)
+                    state.changed = true;
+            }
 
             if (state.changed) {
                 console.log("Merging and updating " + name + ".json...");
@@ -3793,6 +3799,10 @@ Singleton {
             return;
         }
         root.saveAi();
+    }
+
+    function remapDeadAiModel(id) {
+        return ConfigValidator.remapDeadModelId ? ConfigValidator.remapDeadModelId(id) : String(id || "");
     }
 
     function setAiProviderDefault(provider, mid) {

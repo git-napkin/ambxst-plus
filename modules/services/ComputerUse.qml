@@ -322,6 +322,20 @@ Singleton {
         root.end({ restoreSpotlight: true });
     }
 
+    function markAgentIdle() {
+        if (!root.sessionActive || root.userHasControl || root.ending)
+            return;
+        root.sessionState = "grantedIdle";
+        root.unlockPointer();
+    }
+
+    function markAgentDriving() {
+        if (!root.sessionActive || root.userHasControl || root.ending)
+            return;
+        root.sessionState = "agentDriving";
+        root.lockPointer();
+    }
+
     function takeControl() {
         if (!root.sessionActive)
             return;
@@ -420,6 +434,8 @@ Singleton {
             return { error: "computer use session is ending" };
         if (!root.sessionActive)
             return { error: "computer use session is not active" };
+        if (root.sessionState === "grantedIdle" && action && action !== "screenshot" && action !== "snapshot" && action !== "cursor" && action !== "wait")
+            root.markAgentDriving();
         if (summary)
             root.lastAction = String(summary);
         else if (action)
@@ -465,7 +481,7 @@ Singleton {
     }
 
     function lockPointer() {
-        if (root.userHasControl || root.sessionState === "approvalWait")
+        if (root.userHasControl || root.sessionState === "approvalWait" || root.sessionState === "grantedIdle")
             return;
         root._devicesIntent = "lock";
         root.restartDevicesProc();
@@ -759,7 +775,7 @@ Singleton {
                 const pointers = root.pointerNamesFromDevices(data);
                 const keyboards = root.keyboardNamesFromDevices(data);
                 if (root._devicesIntent === "lock") {
-                    if (root.userHasControl || !root.sessionActive || root.sessionState === "approvalWait")
+                    if (root.userHasControl || !root.sessionActive || root.sessionState === "approvalWait" || root.sessionState === "grantedIdle")
                         return;
                     const names = [];
                     for (let i = 0; i < pointers.length; i++) {

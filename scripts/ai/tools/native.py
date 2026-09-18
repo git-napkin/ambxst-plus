@@ -11,6 +11,35 @@ READ_TOOLS = NATIVE_READ_TOOLS
 WRITE_TOOLS = NATIVE_WRITE_TOOLS
 COMPUTER_USE_NATIVE = frozenset({"focus_window", "get_windows", "screenshot", "get_clipboard"})
 
+NATIVE_SCHEMAS = {
+    "get_windows": {
+        "description": (
+            "List compositor windows. Each item has address (string), title, class, pid, focused, at, size. "
+            "Use address as a string for focus_window / use_computer."
+        ),
+        "parameters": {"type": "object", "properties": {}},
+    },
+    "focus_window": {
+        "description": "Focus a window. Prefer address from get_windows (string). Also pid, class, or title substring.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "address": {"type": "string", "description": "Window address from get_windows (string, may be hex)"},
+                "pid": {"type": "integer"},
+                "title": {"type": "string"},
+                "class": {"type": "string"},
+            },
+        },
+    },
+    "screenshot": {
+        "description": (
+            "Open the human screenshot overlay. Does not return pixels. "
+            "To see the screen as the agent, call request_computer_use then use_computer action=screenshot."
+        ),
+        "parameters": {"type": "object", "properties": {}},
+    },
+}
+
 FRIENDLY = {
     "get_volume": labels("Getting volume", "Got volume", ask="Get volume"),
     "get_brightness": labels("Getting brightness", "Got brightness", ask="Get brightness"),
@@ -70,10 +99,14 @@ class NativeTool(Tool):
         else:
             self.user_friendly_name = bundle or name
             self._friendly = None
-        self.schema = {
-            "description": self.user_friendly_name,
-            "parameters": {"type": "object", "properties": {"args": {"type": "object"}}},
-        }
+        spec = NATIVE_SCHEMAS.get(name)
+        if spec:
+            self.schema = spec
+        else:
+            self.schema = {
+                "description": self.user_friendly_name,
+                "parameters": {"type": "object", "properties": {"args": {"type": "object"}}},
+            }
 
     def should_autoexecute(self, ctx, args):
         if getattr(ctx, "computer_use_approved", False):
@@ -96,6 +129,12 @@ class NativeTool(Tool):
         payload = args or {}
         if "args" in payload and isinstance(payload["args"], dict) and set(payload.keys()) == {"args"}:
             payload = payload["args"]
+        if self.name == "screenshot" and getattr(ctx, "computer_use_approved", False):
+            from .computer_use import UseComputerTool
+
+            merged = dict(payload)
+            merged.setdefault("action", "screenshot")
+            return UseComputerTool().execute(ctx, merged)
         result = native_request(ctx, self.name, payload)
         if self.name == "get_windows":
             from ..jev_judgments import shadow_windows_from_native

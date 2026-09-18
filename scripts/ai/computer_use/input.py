@@ -27,10 +27,7 @@ def _which(name):
 MOVE_SETTLE = 0.03
 CLICK_HOLD = 0.035
 FOCUS_SETTLE = 0.05
-MOVE_MIN_MS = 80
-MOVE_MAX_MS = 350
-MOVE_STEPS_MIN = 4
-MOVE_STEPS_MAX = 8
+DRAG_STEPS_MAX = 6
 YDOTOOL_CLICK = {
     "left": "0xC0",
     "primary": "0xC0",
@@ -165,6 +162,7 @@ def cursor_position():
 
 
 def _ease_in_out(t):
+    # Kept for optional cosmetic/drag interpolation; targeting uses teleport.
     t = max(0.0, min(1.0, float(t)))
     if t < 0.5:
         return 2.0 * t * t
@@ -195,22 +193,23 @@ def _dispatch_move(x, y):
     raise RuntimeError("movecursor failed: " + ("; ".join(errors) or "no hyprctl/axctl"))
 
 
-def movecursor(x, y):
+def movecursor(x, y, interpolate=False):
+    """Teleport the compositor cursor. interpolate=True is for drag paths only."""
     ix, iy = int(round(x)), int(round(y))
-    start = cursor_position()
-    if start:
-        sx, sy = start
-        dist = ((ix - sx) ** 2 + (iy - sy) ** 2) ** 0.5
-        if dist >= 2:
-            duration = min(MOVE_MAX_MS, max(MOVE_MIN_MS, dist * 0.35)) / 1000.0
-            steps = min(MOVE_STEPS_MAX, max(MOVE_STEPS_MIN, int(dist / 90) + 8))
-            dt = duration / float(steps)
-            for i in range(1, steps + 1):
-                t = _ease_in_out(i / float(steps))
-                _dispatch_move(sx + (ix - sx) * t, sy + (iy - sy) * t)
-                if i < steps:
-                    time.sleep(dt)
-            return True
+    if interpolate:
+        start = cursor_position()
+        if start:
+            sx, sy = start
+            dist = ((ix - sx) ** 2 + (iy - sy) ** 2) ** 0.5
+            if dist >= 8:
+                steps = min(DRAG_STEPS_MAX, max(2, int(dist / 160) + 2))
+                for i in range(1, steps + 1):
+                    t = i / float(steps)
+                    _dispatch_move(sx + (ix - sx) * t, sy + (iy - sy) * t)
+                    if i < steps:
+                        time.sleep(0.012)
+                time.sleep(MOVE_SETTLE)
+                return True
     _dispatch_move(ix, iy)
     time.sleep(MOVE_SETTLE)
     return True
@@ -304,7 +303,7 @@ def drag(start, end, button="left"):
         try:
             _ydotool(["click", down])
             time.sleep(CLICK_HOLD)
-            movecursor(ex, ey)
+            movecursor(ex, ey, interpolate=True)
             time.sleep(CLICK_HOLD)
             _ydotool(["click", up])
         finally:

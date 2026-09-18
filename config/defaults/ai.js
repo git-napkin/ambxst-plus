@@ -1,7 +1,7 @@
 .pragma library
 
 var data = {
-    "defaultModel": "gemini-2.0-flash",
+    "defaultModel": "gemini-2.5-flash",
     "customEndpoint": "",
     "customCurlTemplate": "",
     "customName": "",
@@ -12,7 +12,7 @@ var data = {
     "defaultModels": {
         "openai": "",
         "anthropic": "",
-        "gemini": "",
+        "gemini": "gemini-2.5-flash",
         "openrouter": "",
         "ollama": "",
         "custom": ""

@@ -43,6 +43,19 @@ MUTATING = {
     "set_value",
 }
 
+OBSERVE_AFTER = {
+    "click",
+    "scroll",
+    "drag",
+    "move",
+    "type",
+    "key",
+    "perform_action",
+    "set_value",
+    "wait",
+    "focus",
+}
+
 WAIT_CAP_MS = 5000
 
 # Exact control labels that commit money, mail, or account destruction.
@@ -150,8 +163,11 @@ def _begin_session(ctx, summary):
     return native
 
 
-def _error(message):
-    return {"status": "error", "error": message}
+def _error(message, extra=None):
+    out = {"status": "error", "error": message}
+    if extra:
+        out.update(extra)
+    return out
 
 
 def _ok(payload=None):
@@ -173,6 +189,18 @@ def _native(ctx, name, args):
     return inner if isinstance(inner, dict) else {"result": inner}
 
 
+def _observe_mode(args):
+    raw = args.get("observe")
+    if raw is None:
+        return "tree"
+    text = str(raw).strip().lower()
+    if text in ("none", "false", "0", "off"):
+        return "none"
+    if text in ("screenshot", "image", "pixels", "shot"):
+        return "screenshot"
+    return "tree"
+
+
 def _maybe_shot(ctx, args, result):
     if not isinstance(result, dict) or result.get("status") == "error":
         return result
@@ -191,17 +219,24 @@ def _maybe_shot(ctx, args, result):
     return result
 
 
-def _capture(ctx, args, raise_window=None):
-    payload = {
+def _capture_args(ctx, args):
+    address = args.get("address") or args.get("window_id") or getattr(ctx, "computer_use_focus_address", "") or ""
+    return {
         "action": "screenshot",
         "target": args.get("target"),
         "monitor": args.get("monitor"),
-        "address": args.get("address") or args.get("window_id"),
+        "address": address,
         "full_screen": bool(args.get("full_screen")),
-        "raise_window": True if raise_window is None else bool(raise_window),
+        "raise_window": True if args.get("raise_window") is None else bool(args.get("raise_window")),
         "include_cursor": args.get("include_cursor", True),
         "geometry": args.get("geometry"),
     }
+
+
+def _capture(ctx, args, raise_window=None):
+    payload = _capture_args(ctx, args)
+    if raise_window is not None:
+        payload["raise_window"] = bool(raise_window)
     native = _native(ctx, "use_computer", payload)
     if native.get("status") == "error" or native.get("error"):
         return native if native.get("status") else _error(native.get("error") or "screenshot failed")
@@ -328,6 +363,12 @@ def _slim_windows(windows):
     return out
 
 
+def _remember_focus(ctx, win):
+    address = (win or {}).get("address") or ""
+    if address:
+        ctx.computer_use_focus_address = address
+
+
 def _a11y_followup(ctx, node=None):
     payload = {}
     if node:
@@ -339,13 +380,104 @@ def _a11y_followup(ctx, node=None):
     return payload
 
 
+def _snapshot_state(ctx, args):
+    windows_raw = _window_list(ctx)
+    windows = _slim_windows(windows_raw)
+    win = None
+    if args.get("address") or args.get("pid") or args.get("title") or args.get("class"):
+        win = cu_windows.resolve_window(windows_raw, args)
+    elif windows_raw:
+        win = next((w for w in windows_raw if w.get("focused") or w.get("is_focused")), None)
+    if win:
+        _remember_focus(ctx, win)
+    tree = []
+    tree_error = ""
+    try:
+        tree = atspi.snapshot_tree(
+            pid=(win or {}).get("pid") if win else args.get("pid"),
+            app_name=(win or {}).get("class") or args.get("class") or args.get("name"),
+            max_nodes=args.get("max_nodes"),
+            max_depth=args.get("max_depth"),
+        )
+        ctx.computer_use_nodes = tree
+    except Exception as exc:
+        tree_error = str(exc)
+        ctx.computer_use_nodes = []
+    focused = atspi.focused_from_nodes(tree)
+    usable = atspi.tree_usable(tree)
+    out = {
+        "windows": windows,
+        "focused_window": _slim_windows([win])[0] if win else next((w for w in windows if w.get("focused")), None),
+        "accessibility_tree": atspi.public_tree(tree),
+        "accessibility_tree_raw_count": len(tree),
+        "tree_usable": usable,
+        "focused": focused,
+    }
+    if tree_error:
+        out["accessibility_error"] = tree_error
+    if not usable:
+        out["accessibility_hint"] = atspi.A11Y_HINT
+    return out
+
+
+def _attach_shot_fields(dst, shot):
+    if not isinstance(shot, dict) or shot.get("status") == "error":
+        dst["screenshot_error"] = (shot or {}).get("error") or "screenshot failed"
+        return dst
+    for key, value in shot.items():
+        if key == "status":
+            continue
+        dst[key] = value
+    return dst
+
+
+def _attach_observe(ctx, args, result, force_shot=False):
+    if not isinstance(result, dict) or result.get("status") == "error":
+        return result
+    mode = _observe_mode(args)
+    if mode == "none" and not force_shot and args.get("screenshot") is not True:
+        return result
+    state = _snapshot_state(ctx, args)
+    result.update(state)
+    want_shot = force_shot or args.get("screenshot") is True or mode == "screenshot" or state.get("tree_usable") is False
+    if want_shot:
+        shot = _capture(ctx, args, raise_window=False)
+        _attach_shot_fields(result, shot)
+    return result
+
+
+def _pixel_needed(ctx, args):
+    extra = {"next": {"action": "screenshot"}}
+    shot = _capture(ctx, args, raise_window=False)
+    if shot.get("status") != "error" and shot.get("image_base64"):
+        extra["next"] = {"action": "click", "x": args.get("x"), "y": args.get("y")}
+        extra["note"] = "captured grim JPEG; retry click using this image's width x height"
+        extra.update({k: v for k, v in shot.items() if k != "status"})
+    return _error(PIXEL_SHOT_NEEDED, extra)
+
+
+def _steps(args):
+    args = args or {}
+    batch = args.get("actions") if isinstance(args.get("actions"), list) else None
+    steps = []
+    if args.get("action"):
+        head = dict(args)
+        head.pop("actions", None)
+        steps.append(head)
+    if batch:
+        for item in batch:
+            if isinstance(item, dict):
+                steps.append(item)
+    return steps
+
+
 class RequestComputerUseTool(Tool):
     name = "request_computer_use"
     user_friendly_name = "Request computer use"
     schema = {
         "description": (
             "Request permission to observe and control the desktop (screenshots, clicks, typing). "
-            "Call this before use_computer. Returns a doctor report of available backends."
+            "Call this before use_computer. Returns a compact doctor report (can_click/can_type/tree)."
         ),
         "parameters": {
             "type": "object",
@@ -395,11 +527,12 @@ class UseComputerTool(Tool):
     user_friendly_name = "Use computer"
     schema = {
         "description": (
-            "Control the local desktop. Observe with action=snapshot (accessibility tree, windows, "
-            "focused text — no screenshot). Click by element_index. Use action=screenshot only when "
-            "the tree is empty or you need pixels. Pixel x/y are in the attached screenshot image "
-            "(width x height), not coordinate_width or compositor logical pixels. Screenshot before "
-            "any pixel click, move, or drag."
+            "Control the local desktop. Prefer action=snapshot (accessibility tree + windows, no pixels). "
+            "Click with element_index. action=screenshot is grim JPEG for the agent — never the human overlay. "
+            "Pixel x/y are in the last attached grim image (width x height). "
+            "After click/type/key/scroll/drag the harness returns a fresh tree (JPEG only if the tree is empty). "
+            "actions[] is an ordered batch and is honored even when action is also set (action runs first). "
+            "Set observe=none to skip the harness recapture. Hyprland-only cursor/shortcuts; Niri/Mango cannot aim."
         ),
         "parameters": {
             "type": "object",
@@ -407,12 +540,20 @@ class UseComputerTool(Tool):
                 "action": {
                     "type": "string",
                     "enum": list(ACTIONS),
-                    "description": "Desktop action to perform",
+                    "description": (
+                        "snapshot=tree; screenshot=grim JPEG; click/type/key/scroll/drag/move; "
+                        "focus/move_window/resize_window; perform_action/set_value; wait; cursor"
+                    ),
                 },
                 "actions": {
                     "type": "array",
-                    "description": "Optional non-visual sequence (key then type). Ignored if action is set besides wait/key/type.",
+                    "description": "Ordered batch. Runs after a top-level action if both are set. Stops on first error. Observe once at the end.",
                     "items": {"type": "object"},
+                },
+                "observe": {
+                    "type": "string",
+                    "enum": ["tree", "screenshot", "none"],
+                    "description": "Harness recapture after mutate. Default tree; screenshot if tree_usable is false.",
                 },
                 "action_summary": {"type": "string"},
                 "critical": {
@@ -424,11 +565,11 @@ class UseComputerTool(Tool):
                 },
                 "x": {
                     "type": "number",
-                    "description": "Pixel X in the last attached screenshot (width x height of that image)",
+                    "description": "Pixel X in the last attached grim screenshot (width x height of that image)",
                 },
                 "y": {
                     "type": "number",
-                    "description": "Pixel Y in the last attached screenshot (width x height of that image)",
+                    "description": "Pixel Y in the last attached grim screenshot (width x height of that image)",
                 },
                 "start_x": {"type": "number"},
                 "start_y": {"type": "number"},
@@ -436,34 +577,26 @@ class UseComputerTool(Tool):
                 "end_y": {"type": "number"},
                 "button": {"type": "string"},
                 "click_count": {"type": "integer"},
-                "relative": {"type": "boolean"},
                 "direction": {"type": "string"},
                 "pages": {"type": "number"},
-                "text": {"type": "string"},
-                "key": {"type": "string"},
-                "keys": {"type": "string"},
-                "ms": {"type": "integer"},
-                "element_index": {"type": "integer"},
-                "element_identifier": {"type": "string"},
+                "text": {"type": "string", "description": "Text to type (action=type)"},
+                "key": {"type": "string", "description": "Key or chord (ctrl+c). keys is an alias."},
+                "keys": {"type": "string", "description": "Alias of key"},
+                "ms": {"type": "integer", "description": "Wait milliseconds (capped at 5000)"},
+                "element_index": {"type": "integer", "description": "Index from the last snapshot tree"},
                 "role": {"type": "string"},
                 "name": {"type": "string"},
                 "states": {"type": "array", "items": {"type": "string"}},
                 "value": {"type": "string"},
-                "address": {"type": "string"},
+                "address": {"type": "string", "description": "Window address string from snapshot/get_windows"},
                 "pid": {"type": "integer"},
                 "title": {"type": "string"},
                 "class": {"type": "string"},
                 "width": {"type": "integer"},
                 "height": {"type": "integer"},
-                "screenshot": {"type": "boolean"},
+                "screenshot": {"type": "boolean", "description": "Force a grim JPEG on this call"},
                 "full_screen": {"type": "boolean"},
-                "raise_window": {"type": "boolean"},
-                "target": {"type": "string"},
-                "monitor": {"type": "string"},
-                "format": {"type": "string"},
-                "max_width": {"type": "integer"},
-                "max_height": {"type": "integer"},
-                "max_bytes": {"type": "integer"},
+                "geometry": {"type": "string", "description": "Optional grim crop WxH+X+Y; does not change click origin unless this is the last_shot"},
             },
             "required": ["action"],
         },
@@ -492,20 +625,42 @@ class UseComputerTool(Tool):
             )
             if native.get("status") == "error" or native.get("error"):
                 return native
-        batch = args.get("actions") if isinstance(args.get("actions"), list) and not args.get("action") else None
-        if batch:
-            results = []
-            for step in batch:
-                if not isinstance(step, dict):
-                    return _error("actions[] items must be objects")
-                one = self._one(ctx, step)
-                results.append(one)
-                if one.get("status") == "error":
-                    return _error(one.get("error") or "action failed")
-            return _ok({"results": results})
-        return self._one(ctx, args)
+        steps = _steps(args)
+        if not steps:
+            return _error("unknown action: (empty)")
+        results = []
+        last = None
+        for i, step in enumerate(steps):
+            last = self._one(ctx, step, observe=(i == len(steps) - 1))
+            results.append(last)
+            if last.get("status") == "error":
+                if len(steps) == 1:
+                    return last
+                extra = {"results": results}
+                for key in ("next", "image_base64", "mime_type", "width", "height", "note"):
+                    if key in last:
+                        extra[key] = last[key]
+                return _error(last.get("error") or "action failed", extra)
+        if len(steps) == 1:
+            return last
+        out = _ok({"results": results})
+        for key in (
+            "windows",
+            "accessibility_tree",
+            "tree_usable",
+            "focused",
+            "focused_window",
+            "image_base64",
+            "mime_type",
+            "width",
+            "height",
+            "path",
+        ):
+            if last and key in last:
+                out[key] = last[key]
+        return out
 
-    def _one(self, ctx, args):
+    def _one(self, ctx, args, observe=True):
         action = str(args.get("action") or "").strip()
         if action not in ACTIONS:
             return _error("unknown action: %s" % (action or "(empty)"))
@@ -522,59 +677,25 @@ class UseComputerTool(Tool):
             result = self._dispatch(ctx, action, args)
         except Exception as exc:
             return _error(str(exc))
+        if not observe:
+            return _maybe_shot(ctx, args, result)
+        if action in ("screenshot", "snapshot", "cursor"):
+            return result
+        if action in OBSERVE_AFTER:
+            return _attach_observe(ctx, args, result)
         return _maybe_shot(ctx, args, result)
 
     def _dispatch(self, ctx, action, args):
         if action == "screenshot":
             return _capture(ctx, args, raise_window=args.get("raise_window"))
         if action == "snapshot":
-            windows_raw = _window_list(ctx)
-            windows = _slim_windows(windows_raw)
-            win = None
-            if args.get("address") or args.get("pid") or args.get("title") or args.get("class"):
-                win = cu_windows.resolve_window(windows_raw, args)
-            elif windows_raw:
-                win = next((w for w in windows_raw if w.get("focused") or w.get("is_focused")), None)
-            tree = []
-            tree_error = ""
-            try:
-                tree = atspi.snapshot_tree(
-                    pid=(win or {}).get("pid") if win else args.get("pid"),
-                    app_name=(win or {}).get("class") or args.get("class") or args.get("name"),
-                    max_nodes=args.get("max_nodes"),
-                    max_depth=args.get("max_depth"),
-                )
-                ctx.computer_use_nodes = tree
-            except Exception as exc:
-                tree_error = str(exc)
-                ctx.computer_use_nodes = []
-            focused = atspi.focused_from_nodes(tree)
-            usable = atspi.tree_usable(tree)
-            out = _ok(
-                {
-                    "windows": windows,
-                    "focused_window": _slim_windows([win])[0] if win else next((w for w in windows if w.get("focused")), None),
-                    "accessibility_tree": atspi.public_tree(tree),
-                    "accessibility_tree_raw_count": len(tree),
-                    "tree_usable": usable,
-                    "focused": focused,
-                }
-            )
-            if tree_error:
-                out["accessibility_error"] = tree_error
-            if not usable:
-                out["accessibility_hint"] = atspi.A11Y_HINT
-            if args.get("screenshot") is True:
+            out = _ok(_snapshot_state(ctx, args))
+            if args.get("screenshot") is True or out.get("tree_usable") is False:
                 shot = _capture(ctx, args, raise_window=False)
-                if shot.get("status") != "error":
-                    out.update({k: v for k, v in shot.items() if k != "status"})
-                    out["status"] = shot.get("status") or "ok"
-                else:
-                    out["screenshot_error"] = shot.get("error")
+                _attach_shot_fields(out, shot)
             return out
         if action == "click":
             node = None
-            err = ""
             if args.get("element_index") not in (None, "") or args.get("role") or args.get("name") or args.get("text"):
                 node, err = atspi.resolve_node(ctx.computer_use_nodes, args)
                 if err:
@@ -589,7 +710,23 @@ class UseComputerTool(Tool):
                     follow = _a11y_followup(ctx, node)
                     follow.update({"implemented": "atspi", "element_index": node.get("index")})
                     return _ok(follow)
+                center = atspi.bounds_center(node)
+                if center:
+                    cu_input.movecursor(center[0], center[1])
+                    cu_input.click(button, count)
+                    follow = _a11y_followup(ctx, node)
+                    follow.update(
+                        {
+                            "implemented": "bounds",
+                            "element_index": node.get("index"),
+                            "logical_x": int(round(center[0])),
+                            "logical_y": int(round(center[1])),
+                        }
+                    )
+                    return _ok(follow)
             x, y, err, node, preview = _resolve_point(ctx, args)
+            if err == PIXEL_SHOT_NEEDED:
+                return _pixel_needed(ctx, args)
             if err:
                 return _error(err)
             if x is None:
@@ -606,6 +743,8 @@ class UseComputerTool(Tool):
             return _ok(_pointer_payload(preview, (x, y), {"implemented": "pointer"}))
         if action == "move":
             x, y, err, _node, preview = _resolve_point(ctx, args)
+            if err == PIXEL_SHOT_NEEDED:
+                return _pixel_needed(ctx, args)
             if err:
                 return _error(err)
             cu_input.movecursor(x, y)
@@ -617,6 +756,8 @@ class UseComputerTool(Tool):
                     cu_input.movecursor(x, y)
                 except RuntimeError:
                     pass
+            elif err == PIXEL_SHOT_NEEDED and (args.get("x") is not None or args.get("y") is not None):
+                pass
             elif args.get("address") or args.get("title") or args.get("class") or args.get("pid"):
                 focused = _native(ctx, "use_computer", {"action": "focus", "warp": True, **{k: args.get(k) for k in ("address", "title", "class", "pid") if args.get(k) is not None}})
                 if focused.get("status") == "error" or focused.get("verified") is False:
@@ -625,12 +766,16 @@ class UseComputerTool(Tool):
             return _ok({"implemented": "wheel"})
         if action == "drag":
             sx, sy, err, _node, start_preview = _resolve_point(ctx, args, start=True)
+            if err == PIXEL_SHOT_NEEDED:
+                return _pixel_needed(ctx, args)
             if err:
                 return _error(err)
             end_args = dict(args)
             end_args["x"] = args.get("end_x")
             end_args["y"] = args.get("end_y")
             ex, ey, err, _node2, end_preview = _resolve_point(ctx, end_args)
+            if err == PIXEL_SHOT_NEEDED:
+                return _pixel_needed(ctx, end_args)
             if err:
                 return _error(err)
             cu_input.drag((sx, sy), (ex, ey), args.get("button") or "left")
@@ -649,8 +794,8 @@ class UseComputerTool(Tool):
                     return _error(focused.get("error") or "could not focus target window")
                 time.sleep(cu_input.FOCUS_SETTLE)
             _with_inject(ctx, lambda: cu_input.type_text(args.get("text") or ""))
+            focused = atspi.focused_from_nodes(getattr(ctx, "computer_use_nodes", None) or [])
             note = ""
-            focused = atspi.focused_element()
             if focused and not focused.get("editable"):
                 note = "WARNING: focused element is %s which is not editable" % (focused.get("role") or "unknown")
             return _ok({"implemented": "wtype", "focused": focused, "note": note})
@@ -667,6 +812,8 @@ class UseComputerTool(Tool):
             native = _native(ctx, "use_computer", args)
             if native.get("status") == "error":
                 return native
+            if action == "focus":
+                _remember_focus(ctx, native)
             return _ok(native)
         if action == "wait":
             ms = max(0, min(WAIT_CAP_MS, int(args.get("ms") or 0)))

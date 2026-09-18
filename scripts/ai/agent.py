@@ -24,6 +24,7 @@ from ai.providers import get_provider
 from ai.tools.read_skill import skill_catalog_names
 from ai.tools.registry import AGENT_WAIT, ToolContext, advertised_tool_names, build_registry
 from ai.list_models import list_models
+from ai.models import DEFAULT_MODEL_ID, DEFAULT_PROVIDER
 
 DEFAULT_SYSTEM = (
     "You are a helpful assistant running on Ambxst[+], a Linux desktop shell. "
@@ -81,6 +82,17 @@ def _jev_native_outcome(result):
 
 
 MAX_IMAGE_ATTACHMENTS = 2
+
+
+def _inline_computer_use_skill(skill_dirs):
+    for root in skill_dirs or []:
+        path = Path(root).expanduser() / "computer-use" / "SKILL.md"
+        if path.is_file():
+            try:
+                return path.read_text(encoding="utf-8").strip()
+            except OSError:
+                continue
+    return ""
 
 
 def prune_image_attachments(messages, keep=MAX_IMAGE_ATTACHMENTS):
@@ -147,10 +159,10 @@ class Agent:
         self.registry = build_registry(self.ctx)
         self.messages = []
         self.model = {
-            "provider": "gemini",
-            "model": "gemini-2.0-flash",
+            "provider": DEFAULT_PROVIDER,
+            "model": DEFAULT_MODEL_ID,
             "endpoint": "",
-            "name": "gemini-2.0-flash",
+            "name": DEFAULT_MODEL_ID,
         }
         self.system_prompt = DEFAULT_SYSTEM
         self.temperature = None
@@ -159,6 +171,7 @@ class Agent:
         self.computer_use_approved = False
         self.computer_use_nodes = []
         self.computer_use_last_shot = None
+        self.computer_use_focus_address = ""
         self._lock = threading.Lock()
         self._busy = threading.Event()
 
@@ -198,13 +211,14 @@ class Agent:
         self.ctx.computer_use_approved = self.computer_use_approved
         self.ctx.computer_use_nodes = list(self.computer_use_nodes)
         self.ctx.computer_use_last_shot = self.computer_use_last_shot
+        self.ctx.computer_use_focus_address = getattr(self, "computer_use_focus_address", "") or ""
         user_tools_dir = payload.get("user_tools_dir")
         self.registry = build_registry(self.ctx, user_tools_dir=user_tools_dir)
         self.system_prompt = payload.get("system_prompt") or payload.get("systemPrompt") or DEFAULT_SYSTEM
         self._apply_sampling(payload)
         if payload.get("model"):
             self.model = dict(payload["model"])
-        catalog = skill_catalog_names(self.ctx.skill_dirs)
+        catalog = [n for n in skill_catalog_names(self.ctx.skill_dirs) if n != "computer-use"]
         extra = []
         if catalog:
             extra.append("Available skills: %s. Use read_skill to load one." % ", ".join(catalog))
@@ -215,15 +229,17 @@ class Agent:
         from ai.execution_profile import NEVER
 
         if self.ctx.profile.computer_use != NEVER:
+            skill_text = _inline_computer_use_skill(self.ctx.skill_dirs)
             extra.append(
-                "Computer use is available. Call request_computer_use first, then use_computer. "
-                "Start with action=snapshot to read the accessibility tree, windows, and focused text. "
-                "Click by element_index. Call action=screenshot only if tree_usable is false or you need pixels. "
-                "Pixel x/y are in the attached screenshot image (width x height). Screenshot before any pixel click. "
-                "After the session is granted, routine actions (focus, click, type) run without asking. "
-                "Set critical=true on use_computer before payments, sending email or messages, purchases, "
-                "or other irreversible actions. The user-only HUD will not appear in screenshots. "
-                "Read the computer-use skill for details."
+                skill_text
+                or (
+                    "Computer use is available. Call request_computer_use first, then use_computer. "
+                    "Start with action=snapshot (accessibility tree). Click by element_index. "
+                    "action=screenshot is grim JPEG for the agent — not the human overlay. "
+                    "Pixel x/y are in the attached image (width x height). "
+                    "The session stays granted until Stop, lock, or end_computer_use. "
+                    "Set critical=true before payments, sending email, or purchases."
+                )
             )
         if extra:
             self.system_prompt = self.system_prompt.rstrip() + "\n\n" + "\n".join(extra)
@@ -232,9 +248,11 @@ class Agent:
         self.computer_use_approved = False
         self.computer_use_nodes = []
         self.computer_use_last_shot = None
+        self.computer_use_focus_address = ""
         self.ctx.computer_use_approved = False
         self.ctx.computer_use_nodes = []
         self.ctx.computer_use_last_shot = None
+        self.ctx.computer_use_focus_address = ""
 
     def _apply_sampling(self, payload):
         if "temperature" in payload:
@@ -597,8 +615,6 @@ class Agent:
             if not tool_calls:
                 if assistant_text:
                     self.messages.append({"role": "assistant", "content": "".join(assistant_text)})
-                if self.computer_use_approved:
-                    self._clear_computer_use()
                 self.emit({"type": "done"})
                 return
             openai_calls = []
@@ -609,13 +625,14 @@ class Agent:
                 name = call.get("name") or ""
                 args = call.get("args") or {}
                 prepared.append((call_id, name, args))
-                openai_calls.append(
-                    {
-                        "id": call_id,
-                        "type": "function",
-                        "function": {"name": name, "arguments": json.dumps(args)},
-                    }
-                )
+                call_item = {
+                    "id": call_id,
+                    "type": "function",
+                    "function": {"name": name, "arguments": json.dumps(args)},
+                }
+                if call.get("thought_signature"):
+                    call_item["thought_signature"] = call["thought_signature"]
+                openai_calls.append(call_item)
                 self.emit(
                     {
                         "type": "tool_call",
@@ -639,6 +656,7 @@ class Agent:
                 self.computer_use_approved = bool(getattr(self.ctx, "computer_use_approved", False))
                 self.computer_use_nodes = list(getattr(self.ctx, "computer_use_nodes", None) or [])
                 self.computer_use_last_shot = getattr(self.ctx, "computer_use_last_shot", None)
+                self.computer_use_focus_address = getattr(self.ctx, "computer_use_focus_address", "") or ""
                 emit_result = dict(result) if isinstance(result, dict) else result
                 attachments = []
                 if isinstance(emit_result, dict):

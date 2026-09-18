@@ -8,6 +8,7 @@ import urllib.request
 
 from .providers.base import models_url, normalize_openai_base
 from .providers.openai import DEFAULT_ENDPOINTS
+from .models import gemini_catalog_keep
 
 OPENAI_COMPAT = {
     "openai": None,  # list everything from /v1/models
@@ -206,6 +207,8 @@ def list_models(ctx, custom_endpoint="", custom_models=None, custom_name="", ign
                 out = []
                 for item in data.get("models") or []:
                     mid = (item.get("name") or "").replace("models/", "")
+                    if not gemini_catalog_keep(mid):
+                        continue
                     if "gemini" in mid or "flash" in mid or "pro" in mid:
                         display = item.get("displayName") or mid
                         out.append(

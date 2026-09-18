@@ -86,7 +86,12 @@ Singleton {
     }
 
     function restoreModel() {
-        savedModelId = StateService.get("lastAiModel", Config.ai.defaultModel || "gemini-2.0-flash");
+        const fallback = Config.ai.defaultModel || "gemini-2.5-flash";
+        const saved = StateService.get("lastAiModel", fallback);
+        const remapped = Config.remapDeadAiModel(saved);
+        if (remapped && remapped !== saved)
+            StateService.set("lastAiModel", remapped);
+        savedModelId = remapped || fallback;
         tryRestore();
         persistenceReady = true;
     }
@@ -407,6 +412,8 @@ Singleton {
         if (processCommand(text))
             return;
         isLoading = true;
+        if (ComputerUse.sessionActive)
+            ComputerUse.markAgentDriving();
         lastError = "";
         lastHudActivityAt = Date.now();
         const userMsg = { role: "user", content: text };
@@ -738,7 +745,7 @@ Singleton {
                 currentChat = next;
                 chatModelChanged();
                 if (ComputerUse.sessionActive)
-                    root.finishComputerUseSession();
+                    ComputerUse.markAgentIdle();
             }
             break;
         case "cancelled":

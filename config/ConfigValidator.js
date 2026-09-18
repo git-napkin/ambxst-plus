@@ -6,6 +6,66 @@ function clone(obj) {
     return JSON.parse(JSON.stringify(obj));
 }
 
+var DEAD_GEMINI_MODELS = {
+    "gemini-2.0-flash": "gemini-2.5-flash",
+    "gemini-2.0-flash-001": "gemini-2.5-flash",
+    "gemini-2.0-flash-lite": "gemini-2.5-flash",
+    "gemini-2.0-flash-lite-001": "gemini-2.5-flash"
+};
+
+function remapDeadModelId(id) {
+    var s = String(id || "");
+    if (DEAD_GEMINI_MODELS[s])
+        return DEAD_GEMINI_MODELS[s];
+    return s;
+}
+
+function remapAiConfig(config) {
+    if (!config || typeof config !== "object")
+        return config;
+    if (config.defaultModel)
+        config.defaultModel = remapDeadModelId(config.defaultModel);
+    if (config.defaultModels && typeof config.defaultModels === "object") {
+        if (!config.defaultModels.gemini)
+            config.defaultModels.gemini = "gemini-2.5-flash";
+        else
+            config.defaultModels.gemini = remapDeadModelId(config.defaultModels.gemini);
+    }
+    if (Array.isArray(config.extraModels)) {
+        for (var i = 0; i < config.extraModels.length; i++) {
+            var item = config.extraModels[i];
+            if (item && item.model)
+                item.model = remapDeadModelId(item.model);
+        }
+    }
+    if (typeof config.manualModelsJson === "string" && config.manualModelsJson) {
+        try {
+            var manuals = JSON.parse(config.manualModelsJson);
+            var changed = false;
+            if (manuals && typeof manuals === "object") {
+                for (var provider in manuals) {
+                    var list = manuals[provider];
+                    if (!Array.isArray(list))
+                        continue;
+                    for (var j = 0; j < list.length; j++) {
+                        if (list[j] && list[j].model) {
+                            var next = remapDeadModelId(list[j].model);
+                            if (next !== list[j].model) {
+                                list[j].model = next;
+                                changed = true;
+                            }
+                        }
+                    }
+                }
+            }
+            if (changed)
+                config.manualModelsJson = JSON.stringify(manuals);
+        } catch (e) {
+        }
+    }
+    return config;
+}
+
 function migrate(oldConfig, oldVersion) {
     if (oldVersion === undefined || oldVersion === null) {
         // Pre-version configs: workspaceSpacing was 4, now 8
