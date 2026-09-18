@@ -8,7 +8,7 @@ import urllib.request
 
 from .providers.base import models_url, normalize_openai_base
 from .providers.openai import DEFAULT_ENDPOINTS
-from .models import gemini_catalog_keep
+from .models import gemini_catalog_keep, input_modalities_of
 
 OPENAI_COMPAT = {
     "openai": None,  # list everything from /v1/models
@@ -103,17 +103,16 @@ def _openai_style(provider, url, key, allow_prefixes=None, key_id=None, name_fn=
         if allow_prefixes and not any(mid == p or mid.startswith(p + "-") for p in allow_prefixes):
             continue
         display = _display_name(item, mid)
-        out.append(
-            {
-                "name": name_fn(display) if name_fn else display,
-                "model": mid,
-                "provider": provider,
-                "endpoint": root,
-                "description": (item.get("description") or provider),
-                "requires_key": True,
-                "key_id": key_id or provider,
-            }
-        )
+        entry = {
+            "name": name_fn(display) if name_fn else display,
+            "model": mid,
+            "provider": provider,
+            "endpoint": root,
+            "description": (item.get("description") or provider),
+            "requires_key": True,
+            "key_id": key_id or provider,
+        }
+        out.append(_attach_modalities(entry, item))
     return out
 
 
@@ -156,18 +155,24 @@ def _append_manuals(models, provider, items, endpoint, custom_name=""):
         if not display:
             display = _humanize_model_id(mid) or mid
         out = [m for m in out if not (m.get("provider") == provider and m.get("model") == mid)]
-        out.append(
-            {
-                "name": display,
-                "model": mid,
-                "provider": provider,
-                "endpoint": endpoint,
-                "description": display,
-                "requires_key": provider != "ollama",
-                "key_id": provider,
-            }
-        )
+        entry = {
+            "name": display,
+            "model": mid,
+            "provider": provider,
+            "endpoint": endpoint,
+            "description": display,
+            "requires_key": provider != "ollama",
+            "key_id": provider,
+        }
+        out.append(_attach_modalities(entry, item))
     return out
+
+
+def _attach_modalities(entry, item):
+    mods = input_modalities_of(item)
+    if mods:
+        entry["input_modalities"] = mods
+    return entry
 
 
 def _safe_models(fn):

@@ -289,13 +289,16 @@ Singleton {
     function modelPayload(model) {
         if (!model)
             return {};
-        return {
+        const payload = {
             name: model.name,
             model: model.model,
             provider: model.provider,
             endpoint: model.endpoint,
             key_id: model.key_id || model.provider
         };
+        if (model.inputModalities && model.inputModalities.length)
+            payload.input_modalities = model.inputModalities;
+        return payload;
     }
 
     function skillDirs() {
@@ -897,7 +900,8 @@ Singleton {
                 model: item.model,
                 provider: item.provider,
                 requires_key: item.requires_key !== false,
-                key_id: item.key_id || item.provider
+                key_id: item.key_id || item.provider,
+                inputModalities: item.input_modalities || item.inputModalities || []
             }));
         }
         for (let i = 0; i < models.length; i++) {
