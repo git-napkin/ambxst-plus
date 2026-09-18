@@ -4,5 +4,5 @@
 
 After the user captures, they can attach or paste. Do not shell out to `grim` unless asked for a file path capture.
 
-To see the screen as the agent, use the computer-use skill (`request_computer_use` then `use_computer action=snapshot`). That path is silent grim and does not open this overlay.
+To see pixels as the agent, use `request_computer_use` then `use_computer action=screenshot`. `action=snapshot` is the accessibility tree only (no grim). Neither opens this overlay.
 
