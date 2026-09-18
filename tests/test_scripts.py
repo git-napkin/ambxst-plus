@@ -622,8 +622,10 @@ from ai.tools.registry import ToolContext
 
 def _ctx(workspace, **kwargs):
     profile = kwargs.pop("profile", None) or ExecutionProfile(kwargs.pop("execution_profile", None))
+    model = kwargs.pop("model", {"provider": "openai", "model": "gpt-4o"})
     ctx = ToolContext(workspace=workspace, profile=profile, **kwargs)
     ctx.emit = lambda _event: None
+    ctx.model = model
     return ctx
 
 
@@ -655,7 +657,7 @@ class TestAiProtocol(unittest.TestCase):
                     "skill_dirs": [],
                     "keystore_db": "",
                     "custom_endpoint": "",
-                    "model": {"provider": "gemini", "model": "gemini-2.0-flash"},
+                    "model": {"provider": "gemini", "model": "gemini-2.5-flash"},
                     "context": {},
                 }
             )
@@ -850,6 +852,44 @@ class TestOpenAiBaseUrls(unittest.TestCase):
             _humanize_model_id("~openai/gpt-luna-latest"),
             "GPT Luna Latest",
         )
+
+    def test_gemini_catalog_filters_non_chat_and_dead_flash(self):
+        from ai.list_models import list_models
+        from ai.models import DEFAULT_MODEL_ID, gemini_catalog_keep, remap_dead_model_id
+
+        self.assertEqual(DEFAULT_MODEL_ID, "")
+        self.assertEqual(remap_dead_model_id("gemini-2.0-flash"), "")
+        self.assertEqual(remap_dead_model_id("gemini-2.0-flash-lite-001"), "")
+        self.assertEqual(remap_dead_model_id("gemini-2.5-flash"), "gemini-2.5-flash")
+        self.assertTrue(gemini_catalog_keep("gemini-2.5-flash"))
+        self.assertFalse(gemini_catalog_keep("gemini-2.0-flash"))
+        self.assertFalse(gemini_catalog_keep("gemini-2.5-flash-preview-tts"))
+        self.assertFalse(gemini_catalog_keep("gemini-2.5-computer-use-preview-10-2025"))
+        self.assertFalse(gemini_catalog_keep("gemini-2.0-flash-live-001"))
+
+        class Ctx:
+            def get_key(self, provider):
+                return "gk" if provider == "gemini" else ""
+
+            def list_keys(self, provider):
+                if provider != "gemini":
+                    return []
+                return [{"id": None, "label": "", "api_key": "gk"}]
+
+        def fake_get(url, headers=None, timeout=20):
+            return {
+                "models": [
+                    {"name": "models/gemini-2.5-flash", "displayName": "Gemini 2.5 Flash"},
+                    {"name": "models/gemini-2.0-flash", "displayName": "Dead"},
+                    {"name": "models/gemini-2.5-flash-preview-tts", "displayName": "TTS"},
+                    {"name": "models/gemini-2.5-computer-use-preview-10-2025", "displayName": "CU"},
+                    {"name": "models/imagen-4.0-generate", "displayName": "Imagen"},
+                ]
+            }
+
+        with patch("ai.list_models._get", side_effect=fake_get):
+            models = list_models(Ctx())
+        self.assertEqual([m["model"] for m in models if m["provider"] == "gemini"], ["gemini-2.5-flash"])
 
 
     def test_list_keys_cache_clears(self):
@@ -1241,6 +1281,93 @@ class TestComputerUse(unittest.TestCase):
         self.assertEqual(UseComputerTool().should_autoexecute(allow, {"action": "click"}), True)
         self.assertEqual(UseComputerTool().should_autoexecute(allow, {"action": "click", "critical": True}), "ask")
 
+    def test_vision_gate_uses_current_model_and_exits(self):
+        from unittest.mock import patch
+        from io import StringIO
+        from ai.agent import Agent
+        from ai.models import model_supports_vision
+        from ai.tools.computer_use import RequestComputerUseTool, UseComputerTool, VISION_UNSUPPORTED
+
+        self.assertTrue(model_supports_vision({"model": "gpt-4o"}))
+        self.assertTrue(model_supports_vision({"model": "claude-sonnet-4-5"}))
+        self.assertTrue(model_supports_vision({"model": "gemini-2.5-flash"}))
+        self.assertTrue(model_supports_vision("google/gemini-3-flash"))
+        self.assertTrue(model_supports_vision("llava:latest"))
+        self.assertFalse(model_supports_vision(""))
+        self.assertFalse(model_supports_vision({"model": "gpt-3.5-turbo"}))
+        self.assertFalse(model_supports_vision({"model": "o3-mini"}))
+        self.assertFalse(model_supports_vision("gemini-2.5-flash-preview-tts"))
+        self.assertFalse(model_supports_vision({"model": "whisper-1"}))
+
+        native_calls = []
+
+        def native(_ctx, name, args):
+            native_calls.append((name, dict(args)))
+            return {"ok": True, "locked": False}
+
+        text = _ctx(".", execution_profile={"computerUse": "AlwaysAllow"}, model={"provider": "openai", "model": "gpt-3.5-turbo"})
+        with patch("ai.tools.computer_use._native", side_effect=native):
+            denied = RequestComputerUseTool().execute(text, {"task_summary": "click the button"})
+        self.assertEqual(denied["status"], "error")
+        self.assertEqual(denied["code"], VISION_UNSUPPORTED)
+        self.assertIn("gpt-3.5-turbo", denied["error"])
+        self.assertIn("will not switch models", denied["error"])
+        self.assertFalse(text.computer_use_approved)
+        self.assertFalse(any(args.get("op") == "begin" for _name, args in native_calls))
+
+        native_calls.clear()
+        ok_ctx = _ctx(".", execution_profile={"computerUse": "AlwaysAllow"}, model={"provider": "openai", "model": "gpt-4o"})
+        with patch("ai.tools.computer_use._native", side_effect=native), patch(
+            "ai.tools.computer_use.atspi.probe", return_value=False
+        ), patch("ai.tools.computer_use.doctor.doctor_report", return_value={"can_click": False, "can_type": False}):
+            granted = RequestComputerUseTool().execute(ok_ctx, {"task_summary": "click"})
+        self.assertEqual(granted["status"], "ok")
+        self.assertTrue(ok_ctx.computer_use_approved)
+        self.assertTrue(any(args.get("op") == "begin" for _name, args in native_calls))
+        self.assertEqual(ok_ctx.model["model"], "gpt-4o")
+
+        native_calls.clear()
+        granted_then_blind = _ctx(
+            ".",
+            execution_profile={"computerUse": "AlwaysAllow"},
+            model={"provider": "openai", "model": "gpt-3.5-turbo"},
+        )
+        granted_then_blind.computer_use_approved = True
+        with patch("ai.tools.computer_use._native", side_effect=native):
+            shot = UseComputerTool().execute(granted_then_blind, {"action": "screenshot"})
+        self.assertEqual(shot["status"], "error")
+        self.assertEqual(shot["code"], VISION_UNSUPPORTED)
+        self.assertFalse(granted_then_blind.computer_use_approved)
+        self.assertTrue(any(args.get("op") == "end" for _name, args in native_calls))
+        self.assertFalse(any(args.get("op") == "begin" for _name, args in native_calls))
+
+        stdout = StringIO()
+        agent = Agent(stdin=StringIO(), stdout=stdout)
+        self.assertEqual(agent.model.get("model"), "")
+        self.assertEqual(agent.model.get("provider"), "")
+        agent.apply_init(
+            {
+                "execution_profile": {"computerUse": "AlwaysAllow"},
+                "enabled_tools": ["native"],
+                "system_prompt": "hi",
+                "model": {"provider": "openai", "model": "gpt-4o"},
+            }
+        )
+        self.assertEqual(agent.model["model"], "gpt-4o")
+        self.assertEqual(agent.ctx.model["model"], "gpt-4o")
+        agent.computer_use_approved = True
+        agent.ctx.computer_use_approved = True
+        before = dict(agent.model)
+        agent.handle_command({"cmd": "set_model", "model": {"provider": "openai", "model": "gpt-3.5-turbo"}})
+        self.assertEqual(agent.model["model"], "gpt-3.5-turbo")
+        self.assertNotEqual(before["model"], "gpt-3.5-turbo")
+        self.assertFalse(agent.computer_use_approved)
+        self.assertFalse(agent.ctx.computer_use_approved)
+        logged = stdout.getvalue()
+        self.assertIn('"type":"error"', logged)
+        self.assertIn("vision", logged.lower())
+        self.assertIn("will not switch models", logged)
+
     def test_critical_actions_ask_after_grant(self):
         from ai.tools.computer_use import UseComputerTool, action_is_critical
         from ai.tools.native import NativeTool
@@ -1287,6 +1414,7 @@ class TestComputerUse(unittest.TestCase):
         self.assertEqual(agent.ctx.computer_use_nodes[0]["name"], "Save")
         self.assertEqual(agent.ctx.computer_use_last_shot["scale"], 0.5)
         self.assertIn("Computer use is available", agent.system_prompt)
+        self.assertNotIn("Read the computer-use skill", agent.system_prompt)
 
         agent.handle_command({"cmd": "end_computer_use"})
         self.assertFalse(agent.computer_use_approved)
@@ -1406,6 +1534,7 @@ class TestComputerUse(unittest.TestCase):
         slim = slim_node(fat)
         self.assertNotIn("object_ref", slim)
         self.assertNotIn("bounds", slim)
+        self.assertEqual(slim["frame"], [1, 2, 3, 4])
         self.assertEqual(slim["actions"], ["click"])
         self.assertEqual(len(slim["text"]), 200)
         public = public_tree([fat] * 200)
@@ -1459,7 +1588,7 @@ class TestComputerUse(unittest.TestCase):
         ]
         with patch("ai.tools.computer_use._native", return_value={"windows": windows}), patch(
             "ai.tools.computer_use.atspi.snapshot_tree", return_value=tree
-        ), patch("ai.tools.computer_use.atspi.focused_element", return_value={"role": "push button", "name": "Save"}):
+        ):
             out = UseComputerTool()._dispatch(ctx, "snapshot", {})
         self.assertEqual(out["status"], "ok")
         self.assertNotIn("image_base64", out)
@@ -1577,7 +1706,7 @@ class TestComputerUse(unittest.TestCase):
         self.assertIn("movecursor failed", text)
         self.assertIn("method not found", text)
 
-    def test_movecursor_eases_from_current_position(self):
+    def test_movecursor_teleports_from_current_position(self):
         from unittest.mock import patch
         from ai.computer_use import input as cu_input
 
@@ -1601,7 +1730,7 @@ class TestComputerUse(unittest.TestCase):
         ), patch("ai.computer_use.input.time.sleep"):
             self.assertTrue(cu_input.movecursor(400, 500))
         lua = [c for c in calls if len(c) > 2 and "hl.dsp.cursor.move" in str(c[2])]
-        self.assertGreaterEqual(len(lua), cu_input.MOVE_STEPS_MIN)
+        self.assertEqual(len(lua), 1)
         self.assertIn("400", lua[-1][2])
         self.assertIn("500", lua[-1][2])
 
@@ -1614,6 +1743,7 @@ class TestComputerUse(unittest.TestCase):
         self.assertEqual(out["status"], "error")
         self.assertIn("screenshot", out["error"].lower())
         self.assertEqual(out["error"], PIXEL_SHOT_NEEDED)
+        self.assertEqual(out.get("next", {}).get("action"), "screenshot")
 
     def test_click_echoes_preview_coords(self):
         from unittest.mock import patch
@@ -1669,8 +1799,10 @@ class TestComputerUse(unittest.TestCase):
 
         with patch("ai.tools.computer_use._native", side_effect=native), patch(
             "ai.tools.computer_use.time.sleep"
-        ) as slept:
-            out = UseComputerTool()._one(ctx, {"action": "wait", "ms": 5000})
+        ) as slept, patch("ai.tools.computer_use.atspi.snapshot_tree", return_value=[]), patch(
+            "ai.tools.computer_use._window_list", return_value=[]
+        ):
+            out = UseComputerTool()._one(ctx, {"action": "wait", "ms": 5000, "observe": "none"})
         self.assertEqual(out["status"], "ok")
         self.assertEqual(out["waited_ms"], 5000)
         slept.assert_called_once_with(5.0)
@@ -1708,6 +1840,10 @@ class TestComputerUse(unittest.TestCase):
         self.assertIn("pointerChrome: ComputerUse.userHasControl", hud)
         self.assertIn("visible: hud.pointerChrome", hud)
         self.assertNotIn('qsTr("Take control")', hud)
+        self.assertIn("grantedIdle", service)
+        self.assertIn("function markAgentIdle", service)
+        self.assertIn("function markAgentDriving", service)
+        self.assertIn("grantedIdle", hud)
         self.assertIn("wait_begin", service)
         self.assertIn("wait_end", service)
         self.assertIn("function startWait", service)
@@ -1779,7 +1915,9 @@ class TestComputerUse(unittest.TestCase):
         _sys, gemini = _contents([tool_msg])
         kinds = [list(p.keys())[0] for p in gemini[0]["parts"]]
         self.assertIn("functionResponse", kinds)
-        self.assertIn("inline_data", kinds)
+        self.assertNotIn("inline_data", kinds)
+        self.assertEqual(gemini[1]["role"], "user")
+        self.assertIn("inline_data", [list(p.keys())[0] for p in gemini[1]["parts"]])
 
     def test_window_resolve_priority(self):
         from ai.computer_use.windows import resolve_window
@@ -1792,6 +1930,219 @@ class TestComputerUse(unittest.TestCase):
         self.assertEqual(resolve_window(windows, {"tty": "pts/3"})["address"], "0x2")
         self.assertEqual(resolve_window(windows, {"pid": 10})["class"], "firefox")
         self.assertEqual(resolve_window(windows, {"title": "firefox"})["address"], "0x1")
+
+    def test_observe_after_click_returns_tree(self):
+        from unittest.mock import patch
+        from ai.tools.computer_use import UseComputerTool
+
+        ctx = _ctx(".", execution_profile={"computerUse": "AlwaysAllow"})
+        ctx.computer_use_approved = True
+        ctx.computer_use_last_shot = {
+            "scale": 1,
+            "monitor_scale": 1,
+            "origin_x": 0,
+            "origin_y": 0,
+            "crop_x": 0,
+            "crop_y": 0,
+            "width": 100,
+            "height": 100,
+        }
+        tree = [{"index": 0, "role": "push button", "name": "OK", "actions": [{"name": "click"}], "text": "OK", "states": []}]
+
+        def native(_ctx, name, args):
+            if args.get("op") == "gate":
+                return {"ok": True, "user_control": False, "steer_open": False, "locked": False}
+            if name == "get_windows":
+                return {"windows": [{"address": "0x1", "title": "App", "focused": True, "pid": 1}]}
+            return {"ok": True}
+
+        with patch("ai.tools.computer_use._native", side_effect=native), patch(
+            "ai.tools.computer_use.cu_input.movecursor", return_value=True
+        ), patch("ai.tools.computer_use.cu_input.click"), patch(
+            "ai.tools.computer_use.atspi.snapshot_tree", return_value=tree
+        ):
+            out = UseComputerTool()._one(ctx, {"action": "click", "x": 10, "y": 10})
+        self.assertEqual(out["status"], "ok")
+        self.assertTrue(out["tree_usable"])
+        self.assertEqual(out["accessibility_tree"][0]["name"], "OK")
+        self.assertNotIn("image_base64", out)
+
+    def test_click_falls_back_to_cached_bounds(self):
+        from unittest.mock import patch
+        from ai.tools.computer_use import UseComputerTool
+
+        ctx = _ctx(".", execution_profile={"computerUse": "AlwaysAllow"})
+        ctx.computer_use_approved = True
+        ctx.computer_use_nodes = [
+            {
+                "index": 0,
+                "role": "label",
+                "name": "Icon",
+                "actions": [],
+                "text": "",
+                "states": [],
+                "bounds": {"x": 10, "y": 20, "width": 40, "height": 10},
+            }
+        ]
+        moved = []
+        with patch("ai.tools.computer_use.cu_input.movecursor", side_effect=lambda x, y: moved.append((x, y))), patch(
+            "ai.tools.computer_use.cu_input.click"
+        ):
+            out = UseComputerTool()._dispatch(ctx, "click", {"element_index": 0})
+        self.assertEqual(out["status"], "ok")
+        self.assertEqual(out["implemented"], "bounds")
+        self.assertEqual(moved, [(30.0, 25.0)])
+
+    def test_type_does_not_rewalk_focused_element(self):
+        from unittest.mock import patch
+        from ai.tools.computer_use import UseComputerTool
+
+        ctx = _ctx(".", execution_profile={"computerUse": "AlwaysAllow"})
+        ctx.computer_use_approved = True
+        ctx.computer_use_nodes = [{"index": 0, "role": "text", "states": ["focused", "editable"], "supports_editable_text": True}]
+        with patch("ai.tools.computer_use._with_inject", side_effect=lambda _ctx, fn: fn()), patch(
+            "ai.tools.computer_use.cu_input.type_text", return_value=True
+        ), patch("ai.tools.computer_use.atspi.focused_element") as walked:
+            out = UseComputerTool()._dispatch(ctx, "type", {"text": "hi"})
+        walked.assert_not_called()
+        self.assertEqual(out["status"], "ok")
+        self.assertEqual(out["focused"]["role"], "text")
+
+    def test_actions_batch_honored_with_top_level_action(self):
+        from unittest.mock import patch
+        from ai.tools.computer_use import UseComputerTool
+
+        ctx = _ctx(".", execution_profile={"computerUse": "AlwaysAllow"})
+        ctx.computer_use_approved = True
+        seen = []
+
+        def one(self, ctx, step, observe=True):
+            seen.append((step.get("action"), observe))
+            return {"status": "ok", "action": step.get("action")}
+
+        with patch.object(UseComputerTool, "_one", one):
+            out = UseComputerTool().execute(ctx, {"action": "click", "actions": [{"action": "type", "text": "x"}]})
+        self.assertEqual(out["status"], "ok")
+        self.assertEqual(seen, [("click", False), ("type", True)])
+
+    def test_snapshot_auto_shots_when_tree_unusable(self):
+        from unittest.mock import patch
+        from ai.tools.computer_use import UseComputerTool
+
+        ctx = _ctx(".", execution_profile={"computerUse": "AlwaysAllow"})
+        ctx.computer_use_approved = True
+        with patch("ai.tools.computer_use._window_list", return_value=[]), patch(
+            "ai.tools.computer_use.atspi.snapshot_tree", return_value=[{"name": "", "actions": [], "text": ""}]
+        ), patch(
+            "ai.tools.computer_use._capture",
+            return_value={"status": "ok", "image_base64": "abc", "mime_type": "image/jpeg", "width": 10, "height": 10},
+        ):
+            out = UseComputerTool()._dispatch(ctx, "snapshot", {})
+        self.assertEqual(out["status"], "ok")
+        self.assertFalse(out["tree_usable"])
+        self.assertEqual(out["image_base64"], "abc")
+
+    def test_grant_survives_assistant_done(self):
+        from io import StringIO
+        from unittest.mock import patch
+        from ai.agent import Agent
+
+        agent = Agent(stdin=StringIO(), stdout=StringIO())
+        agent.apply_init({"execution_profile": {"computerUse": "AlwaysAsk"}, "enabled_tools": ["native"], "system_prompt": "hi"})
+        agent.computer_use_approved = True
+        agent.ctx.computer_use_approved = True
+        events = []
+        agent.emit = lambda ev: events.append(ev)
+
+        class Prov:
+            def stream_chat(self, *a, **k):
+                yield {"type": "token", "text": "clicked"}
+
+        agent.messages = [{"role": "user", "content": "hi"}]
+        with patch("ai.agent.get_provider", return_value=Prov()):
+            agent._run_turn()
+        self.assertTrue(agent.computer_use_approved)
+        self.assertTrue(any(ev.get("type") == "done" for ev in events))
+
+    def test_gemini_tool_call_ids_are_unique(self):
+        from unittest.mock import patch
+        from ai.providers.gemini import GeminiProvider
+
+        class Resp:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *a):
+                return False
+
+            def close(self):
+                return None
+
+        lines = [
+            'data: {"candidates":[{"content":{"parts":[{"functionCall":{"name":"use_computer","args":{"action":"click"}}}]}}]}',
+            'data: {"candidates":[{"content":{"parts":[{"functionCall":{"name":"use_computer","args":{"action":"type"}}}]}}]}',
+        ]
+        with patch("ai.providers.gemini.post_request", return_value=Resp()), patch(
+            "ai.providers.gemini.iter_lines", return_value=lines
+        ):
+            events = list(GeminiProvider().stream_chat([], [], None, None, {"model": "gemini-2.5-flash"}, "k"))
+        ids = [e["id"] for e in events if e.get("type") == "tool_call"]
+        self.assertEqual(ids, ["use_computer#1", "use_computer#2"])
+
+    def test_native_window_schemas_and_screenshot_alias(self):
+        from unittest.mock import patch
+        from ai.tools.native import NativeTool
+
+        windows = NativeTool("get_windows", write=False)
+        focus = NativeTool("focus_window", write=True)
+        self.assertIn("address", focus.schema["parameters"]["properties"])
+        self.assertIn("windows", windows.schema["description"].lower())
+        shot = NativeTool("screenshot", write=True)
+        self.assertIn("overlay", shot.schema["description"].lower())
+        ctx = _ctx(".", execution_profile={"computerUse": "AlwaysAllow"})
+        ctx.computer_use_approved = True
+        with patch("ai.tools.computer_use.UseComputerTool") as aliased:
+            aliased.return_value.execute.return_value = {"status": "ok", "source": "grim"}
+            out = shot.execute(ctx, {})
+        self.assertEqual(out["source"], "grim")
+        aliased.return_value.execute.assert_called_once()
+
+    def test_inline_skill_and_defaults(self):
+        from io import StringIO
+        from ai.agent import Agent
+
+        agent = Agent(stdin=StringIO(), stdout=StringIO())
+        self.assertEqual(agent.model["model"], "")
+        self.assertEqual(agent.model["provider"], "")
+        skill_root = Path(__file__).parent.parent / "assets" / "ai" / "skills"
+        agent.apply_init(
+            {
+                "execution_profile": {"computerUse": "AlwaysAsk"},
+                "enabled_tools": ["native"],
+                "system_prompt": "hi",
+                "skill_dirs": [str(skill_root)],
+            }
+        )
+        self.assertIn("action=snapshot", agent.system_prompt)
+        self.assertIn("stays granted", agent.system_prompt)
+        self.assertNotIn("Read the computer-use skill", agent.system_prompt)
+        self.assertNotIn("request_computer_use again", agent.system_prompt)
+
+    def test_doctor_omits_window_dump(self):
+        from unittest.mock import patch
+        from ai.computer_use.doctor import doctor_report
+
+        with patch("ai.computer_use.doctor.find_ydotool_socket", return_value=""), patch(
+            "ai.computer_use.doctor.layer_noscreenshare", return_value=False
+        ):
+            report = doctor_report(
+                native={"screens": [{"name": "eDP-1"}], "windows": [{"title": "Kitty"}], "locked": False},
+                atspi_ok=True,
+            )
+        self.assertNotIn("windows", report)
+        self.assertNotIn("screens", report)
+        self.assertTrue(report["tree"])
+        self.assertIn("can_click", report)
 
 
 class TestPerformanceContracts(unittest.TestCase):
@@ -1823,6 +2174,8 @@ class TestPerformanceContracts(unittest.TestCase):
         self.assertIn("focused_from_nodes", src)
         snapshot = src[src.index('if action == "snapshot"') : src.index('if action == "click"')]
         self.assertNotIn("focused_element", snapshot)
+        typing = src[src.index('if action == "type"') : src.index('if action == "key"')]
+        self.assertNotIn("focused_element", typing)
 
     def test_skill_catalog_names_skips_content(self):
         from ai.tools.read_skill import skill_catalog_names

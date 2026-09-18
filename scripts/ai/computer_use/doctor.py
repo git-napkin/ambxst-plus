@@ -135,19 +135,15 @@ def doctor_report(native=None, atspi_ok=None):
         "wtype": bins["wtype"],
         "ydotool": bins["ydotool"],
         "ydotool_socket": ydo_sock,
-        "ydotool_socket_path": socket_path,
         "uinput": uinput_writable(),
         "sendshortcut": bins["hyprctl"],
         "movecursor": bins["hyprctl"] or bins["axctl"],
         "atspi": bool(atspi_ok),
+        "tree": bool(atspi_ok),
         "noscreenshare": noscreenshare,
         "hide_for_capture": True,
         "locked": bool(native.get("locked")),
-        "screens": native.get("screens") or [],
-        "focused_window": native.get("focused_window"),
-        "windows": native.get("windows") or [],
         "coordinate_space": "attached screenshot pixels (width x height); mapped to compositor logical via last_shot scale/origin/crop",
-        "binaries": bins,
     }
     blockers = []
     if native.get("locked"):

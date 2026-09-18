@@ -1,7 +1,7 @@
 .pragma library
 
 var data = {
-    "defaultModel": "gemini-2.0-flash",
+    "defaultModel": "",
     "customEndpoint": "",
     "customCurlTemplate": "",
     "customName": "",

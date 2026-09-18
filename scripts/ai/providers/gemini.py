@@ -28,7 +28,13 @@ def _contents(messages):
                         args = json.loads(args)
                     except json.JSONDecodeError:
                         args = {}
-                parts.append({"functionCall": {"name": fn.get("name") or tc.get("name"), "args": args}})
+                fc = {"functionCall": {"name": fn.get("name") or tc.get("name"), "args": args}}
+                # gemini-2.5-flash thinking models require the signature on the
+                # next turn; thought text itself is dropped (not streamed).
+                sig = tc.get("thought_signature") or tc.get("thoughtSignature")
+                if sig:
+                    fc["thoughtSignature"] = sig
+                parts.append(fc)
             contents.append({"role": "model", "parts": parts or [{"text": ""}]})
             continue
         if role in ("tool", "function"):
@@ -40,9 +46,13 @@ def _contents(messages):
                     }
                 }
             ]
+            contents.append({"role": "function", "parts": parts})
+            # Screenshots as a follow-up user turn (OpenAI-shaped). inline_data
+            # on the function role is dropped by some Gemini tool+image paths.
+            image_parts = []
             for att in msg.get("attachments") or []:
                 if att.get("type") == "image" and att.get("base64"):
-                    parts.append(
+                    image_parts.append(
                         {
                             "inline_data": {
                                 "mime_type": att.get("mimeType") or att.get("mime_type") or "image/png",
@@ -50,7 +60,13 @@ def _contents(messages):
                             }
                         }
                     )
-            contents.append({"role": "function", "parts": parts})
+            if image_parts:
+                contents.append(
+                    {
+                        "role": "user",
+                        "parts": [{"text": "Screenshot from %s" % (msg.get("name") or "tool")}] + image_parts,
+                    }
+                )
             continue
         parts = [{"text": msg.get("content") or ""}]
         for att in msg.get("attachments") or []:
@@ -87,7 +103,7 @@ class GeminiProvider(Provider):
 
     def stream_chat(self, messages, tools, temperature, max_tokens, model, api_key, endpoint=""):
         spec = model if isinstance(model, dict) else {"model": str(model)}
-        model_id = spec.get("model") or spec.get("name") or "gemini-2.0-flash"
+        model_id = spec.get("model") or spec.get("name") or ""
         base = (endpoint or spec.get("endpoint") or "https://generativelanguage.googleapis.com/v1beta").rstrip("/")
         query = urllib.parse.urlencode({"alt": "sse", "key": api_key or ""})
         url = "%s/models/%s:streamGenerateContent?%s" % (base, model_id, query)
@@ -115,6 +131,7 @@ class GeminiProvider(Provider):
             return
         try:
             with response:
+                call_n = 0
                 for line in iter_lines(response):
                     trimmed = line.strip()
                     if trimmed.startswith("data:"):
@@ -132,16 +149,25 @@ class GeminiProvider(Provider):
                     for cand in chunk.get("candidates") or []:
                         parts = ((cand.get("content") or {}).get("parts")) or []
                         for part in parts:
-                            if part.get("text"):
+                            # Drop thought text; keep thoughtSignature on the functionCall.
+                            if part.get("thought") and not part.get("functionCall"):
+                                continue
+                            if part.get("text") and not part.get("thought"):
                                 yield {"type": "token", "text": part["text"]}
                             fc = part.get("functionCall")
                             if fc:
-                                yield {
+                                call_n += 1
+                                name = fc.get("name") or "gemini_tool"
+                                event = {
                                     "type": "tool_call",
-                                    "id": fc.get("name") or "gemini_tool",
-                                    "name": fc.get("name") or "",
+                                    "id": "%s#%d" % (name, call_n),
+                                    "name": name,
                                     "args": fc.get("args") or {},
                                 }
+                                sig = part.get("thoughtSignature") or part.get("thought_signature")
+                                if sig:
+                                    event["thought_signature"] = sig
+                                yield event
         finally:
             try:
                 response.close()

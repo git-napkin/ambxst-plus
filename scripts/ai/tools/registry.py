@@ -58,9 +58,11 @@ class ToolContext:
         self.wait_for_native = None
         self.wait_for_answers = None
         self.register_process = None
+        self.model = {}
         self.computer_use_approved = False
         self.computer_use_nodes = []
         self.computer_use_last_shot = None
+        self.computer_use_focus_address = ""
         self.current_call_id = ""
         self.api_keys = {}
         self._listed_keys = {}

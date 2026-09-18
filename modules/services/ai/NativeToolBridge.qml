@@ -30,9 +30,13 @@ QtObject {
             return;
         }
         if (name === "screenshot") {
+            if (ComputerUse.sessionActive) {
+                ComputerUse.handleAction(Object.assign({ action: "screenshot" }, a), result => root.resultReady(callId, result || {}));
+                return;
+            }
             Screenshot.initialize();
             GlobalStates.screenshotToolVisible = true;
-            Qt.callLater(() => root.resultReady(callId, { ok: true, opened: true }));
+            Qt.callLater(() => root.resultReady(callId, { ok: true, opened: true, overlay: true, pixels: false }));
             return;
         }
         if (name === "computer_use_session") {

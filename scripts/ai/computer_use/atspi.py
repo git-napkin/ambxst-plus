@@ -438,7 +438,30 @@ def slim_node(node, max_text=MODEL_MAX_TEXT):
         "states": list(node.get("states") or [])[:12],
         "actions": actions[:8],
         "text": text,
+        "frame": _frame(node),
     }
+
+
+def _frame(node):
+    bounds = (node or {}).get("bounds") or {}
+    try:
+        x = int(bounds.get("x"))
+        y = int(bounds.get("y"))
+        w = int(bounds.get("width"))
+        h = int(bounds.get("height"))
+    except (TypeError, ValueError):
+        return None
+    if w <= 0 or h <= 0:
+        return None
+    return [x, y, w, h]
+
+
+def bounds_center(node):
+    frame = _frame(node)
+    if not frame:
+        return None
+    x, y, w, h = frame
+    return (x + w / 2.0, y + h / 2.0)
 
 
 def public_tree(nodes, max_nodes=MODEL_MAX_NODES, max_text=MODEL_MAX_TEXT):
