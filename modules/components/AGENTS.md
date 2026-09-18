@@ -16,7 +16,7 @@ Atomic design library for the Ambxst[+] shell. 26 QML components + 29 GLSL shade
 | Component | Role |
 |-----------|------|
 | `SearchInput.qml` | Text entry with icon, prefix, escape-to-clear |
-| `SettingsSwitch.qml` | Native on/off toggle for settings rows |
+| `SettingsSwitch.qml` | Native on/off toggle. Track + thumb are `StyledRect` with `Styling.radius(-4)` (same square/half-tone language as chips — never a `height/2` pill) |
 | `SettingsCheckbox.qml` | Native checkbox (multi-select / enable rows) |
 | `SettingsRow.qml` | Settings label + description + control |
 | `SettingsGroup.qml` | Inset pane grouping related settings |
@@ -65,5 +65,6 @@ Atomic design library for the Ambxst[+] shell. 26 QML components + 29 GLSL shade
 
 ## ANTI-PATTERNS
 - Using raw `Rectangle` instead of `StyledRect` for any container.
+- Drawing `SettingsSwitch` as a `height/2` capsule with a circular thumb — that ignores `Styling.radius()` and drops half-tone.
 - Hardcoding colors, radii, or font sizes instead of using `Colors.*`, `Styling.radius()`, `Styling.fontSize()`.
 - Creating popups without the `anchorItem`/`bar` reference pattern from `BarPopup`.

@@ -3,8 +3,12 @@ import QtQuick
 import QtQuick.Layouts
 import qs.config
 import qs.modules.theme
+import qs.modules.components
 
 // Ambxst[+]-native on/off control. Controlled: bind `checked`, handle `toggled`.
+// Track and thumb are StyledRects so they share shell radius and variant
+// surfaces (including half-tone) with buttons, checkboxes, and chips —
+// not a Material/iOS pill.
 Item {
     id: root
 
@@ -12,11 +16,15 @@ Item {
 
     signal toggled(bool checked)
 
-    readonly property int trackWidth: 44
-    readonly property int trackHeight: 24
-    readonly property int thumbSize: 18
+    // Match PanelTitlebar action buttons (28px, radius(-4)) so the thumb
+    // stays a rounded square at default roundness instead of collapsing
+    // into a circle. Track is taller than a pill's 2*radius capsule.
+    readonly property int trackWidth: 52
+    readonly property int trackHeight: 32
+    readonly property int thumbSize: 28
+    readonly property int thumbPad: 2
 
-    implicitWidth: 52
+    implicitWidth: 60
     implicitHeight: 36
     Layout.preferredWidth: implicitWidth
     Layout.preferredHeight: implicitHeight
@@ -26,6 +34,10 @@ Item {
     Accessible.checkable: true
     Accessible.checked: checked
     Accessible.onPressAction: root.toggle()
+    opacity: enabled ? 1 : 0.4
+
+    readonly property string trackVariant: root.checked ? "primary" : (mouseArea.containsMouse ? "focus" : "internalbg")
+    readonly property string thumbVariant: root.checked ? "overprimary" : "common"
 
     function toggle() {
         if (!enabled)
@@ -42,24 +54,15 @@ Item {
         event.accepted = true;
     }
 
-    Rectangle {
+    StyledRect {
         id: track
         anchors.centerIn: parent
         width: root.trackWidth
         height: root.trackHeight
-        radius: height / 2
-        color: root.checked ? Styling.srItem("overprimary") : Colors.surfaceBright
-        border.width: root.checked ? 0 : 1
-        border.color: root.activeFocus ? Styling.srItem("overprimary") : Colors.outline
+        variant: root.trackVariant
+        radius: Styling.radius(-4)
         scale: mouseArea.pressed ? 0.96 : 1
 
-        Behavior on color {
-            enabled: Config.animDuration > 0
-            ColorAnimation {
-                duration: Styling.animQuick
-                easing.type: Styling.animEasingInOut
-            }
-        }
         Behavior on scale {
             enabled: Config.animDuration > 0
             NumberAnimation {
@@ -68,27 +71,14 @@ Item {
             }
         }
 
-        Rectangle {
-            anchors.fill: parent
-            radius: parent.radius
-            color: Colors.overBackground
-            opacity: mouseArea.containsMouse && root.enabled ? Styling.hoverAlpha : 0
-            Behavior on opacity {
-                enabled: Config.animDuration > 0
-                NumberAnimation {
-                    duration: Styling.animInstant
-                }
-            }
-        }
-
-        Rectangle {
+        StyledRect {
             id: thumb
             width: root.thumbSize
             height: root.thumbSize
-            radius: width / 2
+            variant: root.thumbVariant
+            radius: Styling.radius(-4)
             y: (track.height - height) / 2
-            x: root.checked ? track.width - width - 3 : 3
-            color: root.checked ? Colors.background : Colors.overSurfaceVariant
+            x: root.checked ? track.width - width - root.thumbPad : root.thumbPad
 
             Behavior on x {
                 enabled: Config.animDuration > 0
@@ -97,13 +87,17 @@ Item {
                     easing.type: Styling.animEasingInOut
                 }
             }
-            Behavior on color {
-                enabled: Config.animDuration > 0
-                ColorAnimation {
-                    duration: Styling.animQuick
-                }
-            }
         }
+    }
+
+    Rectangle {
+        anchors.fill: track
+        radius: track.radius
+        color: "transparent"
+        border.width: root.activeFocus ? 1 : 0
+        border.color: Styling.srItem("overprimary")
+        opacity: 0.7
+        visible: root.activeFocus
     }
 
     MouseArea {
