@@ -12,12 +12,17 @@ HUD / takeover UX was recently hardened (exclusive keys, pointer unlock on
 approval, session end on agent `done`). Those are treated as settled unless
 they cap capability.
 
+**Must-fix before the next CU harness build:** purge `gemini-2.0-flash`
+(shut down; inaccessible). Replacement is `gemini-3.8-flash`. Full
+inventory, LLM-optimality findings, and an implementer checklist are in
+the follow-up section at the end of this note.
+
 ---
 
 ## Architecture map
 
 ```
-  Spotlight model  (default: gemini-2.0-flash)
+  Spotlight model  (DEAD default: gemini-2.0-flash → replace with gemini-3.8-flash)
         │  tool_calls: request_computer_use / use_computer
         ▼
   scripts/ai/agent.py          NDJSON stdin/stdout, no iter cap while CU granted
@@ -96,7 +101,7 @@ ydotool/wtype escape hatch, not compositor-portable.
 | Round-trips | Every action: native `gate`; type/key also `inject_begin`/`inject_end`; screenshot is a second native call | `_one`, `_with_inject`, `_capture` |
 | Safety | Session ask once; regex + `critical: true` for pay/send/purchase; lockscreen blocks; Jev may only **add** review | `action_is_critical`, `require_critical_review` |
 | Human takeover | Disable physical mice (not keyboard-named devices); exclusive HUD keys; replay compositor binds; unlock pointer in `approvalWait` | `ComputerUse.qml`, `ComputerUseHud.qml` |
-| Default model | `gemini-2.0-flash` — general chat, not a CU-trained toolset | `config/defaults/ai.js` |
+| Default model | **DEAD** `gemini-2.0-flash` (shut down). Must become `gemini-3.8-flash` | `config/defaults/ai.js` — see follow-up |
 
 ---
 
@@ -195,7 +200,7 @@ Hybrid is the competitive design. Ambxst is halfway there:
   box is here”.
 - Weak: one fat `use_computer` tool with 16 actions vs Claude’s 17 **member**
   tools the model was trained on **(public)**. Generic function-calling
-  against `gemini-2.0-flash` will lose to a CU-trained toolset even with
+  against a generic Flash enum will lose to a CU-trained toolset even with
   identical backends.
 
 ### Latency and round-trips
@@ -490,4 +495,262 @@ Primary files:
 - `modules/services/ai/NativeToolBridge.qml`
 - `modules/widgets/assistant/ComputerUseHud.qml`
 - `assets/ai/skills/computer-use/SKILL.md`
+- `assets/ai/skills/screenshot/SKILL.md` (was teaching snapshot = grim)
 - axctl: `pkg/ipc/hyprland/client.go` vs niri/mango `ErrNotSupported`
+
+---
+
+## Follow-up: is this optimal for the LLM?
+
+Planning pass only. Goal: a modern model should succeed at CU **zero-shot**,
+cheaply, without discovering the protocol by failing. Google’s model list
+(updated 2026-09-17, [Gemini models](https://ai.google.dev/gemini-api/docs/models))
+lists `gemini-2.0-flash` under **Previous models / Shut down**.
+
+### Must-fix: purge `gemini-2.0-flash`
+
+It is not “old but fine”. It is **shut down**. Spotlight and therefore
+computer use default to it, so a fresh Ambxst install with a Gemini key
+cannot run the agent at all.
+
+**Replace with `gemini-3.8-flash`.** Public: “most intelligent Flash …
+long-horizon software engineering, autonomous agents”. Stable, not a
+preview ID. Vision + function calling. Fits the existing Gemini provider
+(`scripts/ai/providers/gemini.py`) without a new HTTP shape.
+
+| Candidate | Why not (or why) |
+|---|---|
+| **`gemini-3.8-flash`** | **Do this.** Current stable agentic Flash. |
+| `gemini-3.7-flash` / `gemini-3.5-flash` | Fallback only if a catalog is missing 3.8. 3.5 is now labeled legacy Flash. |
+| `gemini-flash-latest` | Hot-swap alias; repeats this outage class. Optional extra catalog entry, not the pin. |
+| `gemini-2.5-flash` | Still listed, but not the current Flash line. |
+| `gemini-2.5-computer-use-preview-10-2025` | Google’s **browser CU** specialist. Preview ID, will rot, wrong as Spotlight default (diffs/shell/skills). Do not pin. |
+| `gemini-3-flash-preview` | Preview; CU tool exists here **(public)** but Ambxst does not speak that toolset yet. |
+
+Do **not** adopt Google’s native Computer Use tool in the same change as
+the ID swap. That is a later mapping job (P2). The next build just needs
+a live, agentic, multimodal default.
+
+#### Inventory (every hit in this checkout)
+
+| File | Role |
+|---|---|
+| `config/defaults/ai.js` | `defaultModel: "gemini-2.0-flash"` — **source of truth for new configs** |
+| `config/Config.qml` | `property string defaultModel: "gemini-2.0-flash"` — must match defaults |
+| `modules/services/Ai.qml` | `StateService.get("lastAiModel", … \|\| "gemini-2.0-flash")` fallback |
+| `scripts/ai/agent.py` | Agent constructor default `model` / `name` before `init` |
+| `scripts/ai/providers/gemini.py` | `spec.get("model") or spec.get("name") or "gemini-2.0-flash"` |
+| `tests/test_scripts.py` | `test_init_is_valid_command` fixture |
+| `docs/computer-use-audit.md` | this note |
+| `assets/ai/skills/*` | no model IDs (good) |
+| Nix / AGENTS.md / README | no hits |
+
+Also migrate **persisted** `lastAiModel` in `StateService`. Existing users
+who already ran Spotlight have `gemini-2.0-flash` saved; `tryRestore()`
+will miss it in the live catalog and fall through to `defaultModels`
+(all empty) then `models[0]`. That is a silent random-model restore, not
+a clean swap.
+
+`config/defaults/ai.js` `defaultModels.gemini` is `""`. After the purge,
+set `defaultModels.gemini` to `gemini-3.8-flash` so provider-specific
+restore has a live ID.
+
+Not in-repo but real: `~/.config/ambxst+/config/ai.json` will keep the
+dead ID until ConfigValidator / a one-shot remap rewrites it.
+
+### Additional findings (ranked for the LLM)
+
+Impact: **U**nderstanding (zero-shot), **T**okens, **D**ead config, **R**eliability.
+
+#### P0 — the model has to fail to learn the protocol
+
+1. **Skill is optional homework (U/T).** CU is advertised, then the
+   system prompt says “Read the computer-use skill for details.”
+   `read_skill` is a whole extra inference. Inline the skill (or the
+   15-line subset the model actually needs) when `computerUse != Never`.
+   Stop asking the model to fetch its own manual.
+   `scripts/ai/agent.py` `apply_init`; `scripts/ai/tools/read_skill.py`.
+
+2. **`snapshot` vs `screenshot` vs native `screenshot` (U).** Three
+   names, two grim paths, one overlay. The screenshot skill previously
+   told the model that `action=snapshot` *is* silent grim — that was a
+   lie (`snapshot` has no image). Native `screenshot` is still
+   advertised whenever `native` is enabled and **opens the human overlay
+   with no pixels**. During a CU session the harness should deny or
+   alias that tool to `use_computer action=screenshot`.
+   `protocol.py` `NATIVE_WRITE_TOOLS`; `NativeToolBridge.qml`;
+   `assets/ai/skills/screenshot/SKILL.md` (corrected in this pass).
+
+3. **Fat `use_computer` schema (U).** One enum of 16 actions plus ~40
+   optional fields (`element_identifier`, `relative`, `format`,
+   `max_bytes`, `actions[]` that is ignored when `action` is set,
+   `key` and `keys` duplicates, `move` vs `move_window`). Models
+   guess `x/y` without a shot (hard-error `PIXEL_SHOT_NEEDED` — a
+   wasted turn), or call `wait` expecting a new picture. Split into
+   observe / pointer / keyboard / window tools, or keep one tool but
+   **conditionally required** fields in the description and reject with
+   the exact next call to make (`"next": {"action":"screenshot"}`).
+
+4. **No harness observe after mutate (U/T).** Already in the main
+   audit. Restated for the LLM: after click/type the model sees
+   `{status: ok}` JSON. It must spend an inference to look. Codex/Claude
+   recapture. This is the largest token tax that is not the JPEG
+   itself.
+
+5. **Session dies on assistant `done` (U).** Skill *teaches* “call
+   `request_computer_use` again for another pass.” That is a product
+   surprise encoded as protocol. A modern model that finishes “I clicked
+   Open” then needs a user “now type the URL” pays grant + doctor +
+   AT-SPI again. Hold the grant across turns until Stop/lock.
+
+6. **Public tree has no `frame` (U).** `slim_node` drops `bounds`. The
+   model cannot say “click the box I see at index 7’s rectangle” and
+   cannot ground pixels to nodes. Runtime-only bounds for the click
+   fallback (main audit P0.3) plus a 4-int `frame` on slim nodes is
+   enough. Do not dump `object_ref`.
+
+7. **Native tools have empty schemas (U).** `NativeTool.schema` is
+   `{ properties: { args: { type: object } } }` with description =
+   friendly name. `get_windows` / `focus_window` are how CU targeting
+   starts. The model cannot see `address` is required. Real parameter
+   schemas, even for non-CU native tools.
+
+#### P1 — tokens and cost once the ID is live
+
+8. **Gemini screenshots ride on `role: function` (U/R).**
+   `gemini.py` puts `inline_data` on the same function turn as
+   `functionResponse`. OpenAI correctly emits a **follow-up user**
+   message with `image_url`. Anthropic puts the image **inside**
+   `tool_result`. Gemini’s documented pattern is: functionResponse, then
+   a user turn with the image (or `functionResponse.response` JSON
+   only). Confirm against current Gemini tool+image docs in the
+   implementation pass; if images on `function` are dropped, CU on
+   Gemini is flying blind even after a screenshot. Tests today only
+   assert the parts exist (`test_provider_image_fixtures`), not that
+   the API accepts them.
+
+9. **Gemini tool-call `id` is the function name (R).**
+   `"id": fc.get("name")` in `gemini.py`. Two `use_computer` calls in
+   one model response collide. Generate a unique id (`use_computer#1`).
+
+10. **Post-`type` AT-SPI re-walk (T).** `focused_element()` after every
+    type (up to 10s, 400 nodes). Snapshot already has
+    `focused_from_nodes`. The type path should reuse that. Hidden cost
+    plus a stale-tree warning that itself can time out.
+
+11. **JPEG 1280/q70 × 2 kept, but every shot is a full monitor (T).**
+    Default capture is the window crop if a window was targeted,
+    otherwise the focused monitor. Models often omit `address` and get
+    a 1280 wallpaper. Prefer last focused window crop. Add `zoom` later
+    (main audit). Do not raise `MAX_IMAGE_ATTACHMENTS` until Gemini
+    image plumbing is verified.
+
+12. **Doctor + window list on grant (T, minor).**
+    `request_computer_use` returns a full doctor blob (binaries,
+    screens, windows). Keep `can_click` / `can_type` / `tree` hint;
+    drop duplicate window lists that `snapshot` will send next.
+
+13. **`actions[]` is a trap (U/T).** Documented as “ignored if `action`
+    is set besides wait/key/type.” Models will set both. Either honor
+    ordered batches (Claude-style) or remove `actions` from the schema
+    until implemented.
+
+14. **Thinking models (T, new).** `gemini-3.8-flash` is an agentic
+    Flash; several 3.x models use thinking. Ambxst’s Gemini client only
+    forwards `text` and `functionCall` parts — it ignores
+    `thought` / `thoughtSignature`. If 3.8 emits thoughts, we may
+    strip signatures the next call needs, or pay thought tokens without
+    surfacing them. Verify `streamGenerateContent` against 3.8 before
+    shipping the ID swap. Do not set a huge `maxOutputTokens` by
+    default.
+
+#### P2 — other dead / misleading surface
+
+15. **Persisted last model / empty `defaultModels`.** Covered in the
+    must-fix. Also remap `gemini-2.0-flash-001` and
+    `gemini-2.0-flash-lite` if they appear in `extraModels` /
+    `manualModelsJson`.
+
+16. **`gpt-4o` only in tests** (`test_scripts.py` list_models mock).
+    Fine as a fake catalog id; not a runtime default. Leave it.
+
+17. **Google CU preview model in live catalogs.** `list_models.py`
+    pulls every Gemini id containing `gemini`/`flash`/`pro`. Users will
+    see `gemini-2.5-computer-use-preview-*` and `*-tts` / Live /
+    image models. Filter the Spotlight picker to text+tools+vision
+    chat models, or the next person will select a TTS endpoint and
+    file a CU bug.
+
+18. **System prompt vs skill vs code.** Three sources of CU truth.
+    After inlining, make the skill the spec and generate the system
+    blurb from it (or delete the “read the skill” line). Screenshot
+    skill is now aligned; keep it that way.
+
+### Concrete next-build checklist
+
+Execute in this order. Do not start the P0 harness rewrite until 1–6
+are done; CU on a dead model is zero success rate.
+
+**A. Model ID (must ship)**
+
+- [ ] Change `config/defaults/ai.js` `defaultModel` → `gemini-3.8-flash`
+- [ ] Change `config/Config.qml` `defaultModel` to match
+- [ ] Set `defaultModels.gemini` → `gemini-3.8-flash` in both files
+- [ ] `scripts/ai/agent.py` constructor default
+- [ ] `scripts/ai/providers/gemini.py` fallback id
+- [ ] `tests/test_scripts.py` init fixture
+- [ ] `Ai.qml` `lastAiModel` fallback string
+- [ ] Migrate saved `lastAiModel` / `ai.json` `defaultModel` when the
+      value is `gemini-2.0-flash`, `gemini-2.0-flash-001`,
+      `gemini-2.0-flash-lite`, `gemini-2.0-flash-lite-001`
+- [ ] Smoke: `list_models` with a live Gemini key contains
+      `gemini-3.8-flash`; `streamGenerateContent` returns text + a
+      function call
+- [ ] Confirm 3.8 thought parts / signatures are forwarded or
+      explicitly dropped with a comment
+- [ ] Filter catalog entries that are TTS, Live, image-only, or
+      `computer-use-preview` from the default picker (still allow
+      manual override)
+
+**B. Zero-shot protocol (same build if time; else immediately after)**
+
+- [ ] Inline computer-use skill into the system prompt when CU is on;
+      remove “Read the computer-use skill for details”
+- [ ] While CU session is active, map or reject native `screenshot`
+- [ ] After click/type/key/scroll/drag, return tree (and JPEG iff
+      `tree_usable` is false) without a second model call
+- [ ] On `PIXEL_SHOT_NEEDED`, include `"next": {"action":"screenshot"}`
+- [ ] Auto-screenshot when snapshot `tree_usable` is false
+- [ ] Click `element_index` via cached bounds if `DoAction` missing
+- [ ] Stop `focused_element()` after `type`
+- [ ] Teleport cursor (drop targeting ease)
+- [ ] Give slim nodes a `frame: [x,y,w,h]` (runtime already has bounds)
+- [ ] Unique Gemini function-call ids; move screenshot `inline_data`
+      off the function role if the API requires a user turn (match
+      OpenAI’s follow-up user image)
+- [ ] Real schemas for `get_windows` / `focus_window`
+
+**C. Session / tokens**
+
+- [ ] Do not end the CU grant on assistant `done`; end on Stop / lock /
+      error / `end_computer_use`
+- [ ] Update computer-use skill HUD paragraph to match (no
+      “request again for another pass”)
+- [ ] Honor ordered `actions[]` **or** remove it from the schema
+- [ ] Shrink doctor payload to blockers + `can_*`
+
+**D. Explicit non-goals for that build**
+
+- Do not switch Spotlight to `gemini-2.5-computer-use-preview-*`
+- Do not implement Anthropic `computer_toolset_20260801` in the same PR
+  as the ID swap
+- Do not screenshot every action
+- Do not raise JPEG size or `MAX_IMAGE_ATTACHMENTS` until Gemini image
+  plumbing is verified
+- Do not rewrite HUD/takeover
+
+### Tiny fix landed in this pass
+
+`assets/ai/skills/screenshot/SKILL.md` no longer claims
+`action=snapshot` is silent grim. That was actively teaching the wrong
+observe loop. No harness rewrite.
