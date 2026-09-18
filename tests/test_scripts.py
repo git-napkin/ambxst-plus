@@ -4,6 +4,7 @@
 import json
 import os
 import re
+import shutil
 import sqlite3
 import subprocess
 import sys
@@ -2461,6 +2462,98 @@ class TestJev(unittest.TestCase):
         self.assertEqual(native_calls, [])
         self.assertFalse(any(event.get("name") == "get_windows" for event in events))
         self.assertFalse(any(event.get("name") == "focus_window" for event in events))
+
+
+@unittest.skipUnless(shutil.which("node"), "node not installed")
+class TestMessageContentInlineMath(unittest.TestCase):
+    """Currency `$` must stay literal; intentional `$...$` math still renders."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.js = Path(__file__).parent.parent / "modules/widgets/assistant/message_content.js"
+        cls.runner = r"""
+const fs = require("fs");
+const vm = require("vm");
+const src = fs.readFileSync(process.argv[1], "utf8").replace(/^\.pragma library\s*/m, "");
+const ctx = {};
+vm.createContext(ctx);
+vm.runInContext(src, ctx);
+const req = JSON.parse(fs.readFileSync(0, "utf8"));
+const out = {};
+if (Object.prototype.hasOwnProperty.call(req, "substitute"))
+    out.substitute = req.substitute.map((t) => ctx.substituteInlineMath(t));
+if (Object.prototype.hasOwnProperty.call(req, "split"))
+    out.split = req.split.map((t) => ctx.splitParts(t).map((p) => ({ type: p.type, content: p.content })));
+if (Object.prototype.hasOwnProperty.call(req, "rich"))
+    out.rich = req.rich.map((t) => {
+        const parts = ctx.splitParts(t);
+        return parts.map((p) => p.type === "text" ? ctx.markdownToRichText(p.content, "monospace") : p);
+    });
+process.stdout.write(JSON.stringify(out));
+"""
+
+    def _eval(self, **payload):
+        proc = subprocess.run(
+            [shutil.which("node"), "-e", self.runner, str(self.js)],
+            input=json.dumps(payload),
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        if proc.returncode != 0:
+            self.fail(proc.stderr or proc.stdout or f"node exited {proc.returncode}")
+        return json.loads(proc.stdout)
+
+    def test_currency_prices_keep_dollar_signs(self):
+        cases = [
+            "$25",
+            "$25 - $30",
+            "$292-$314",
+            "$398.00",
+            "$459.99",
+            "from $292-$314",
+            'Sony.com: **$459.99** **$398.00** (sale, "$62 off" - all colors)',
+            "Amazon: **$398.00**+ new; used/open-box from $292-$314",
+            r"\$25 - \$30",
+        ]
+        out = self._eval(substitute=cases)["substitute"]
+        self.assertEqual(out[0], "$25")
+        self.assertEqual(out[1], "$25 - $30")
+        self.assertEqual(out[2], "$292-$314")
+        self.assertEqual(out[3], "$398.00")
+        self.assertEqual(out[4], "$459.99")
+        self.assertEqual(out[5], "from $292-$314")
+        self.assertIn("$459.99", out[6])
+        self.assertIn("$398.00", out[6])
+        self.assertIn("$62 off", out[6])
+        self.assertNotIn("from292", out[7])
+        self.assertIn("from $292-$314", out[7])
+        self.assertEqual(out[8], "$25 - $30")
+
+    def test_pound_prices_unchanged(self):
+        out = self._eval(substitute=["£349.00"])["substitute"]
+        self.assertEqual(out[0], "£349.00")
+
+    def test_intentional_inline_math_still_renders(self):
+        cases = ["$x$", "$x^2$", "$E=mc^2$", r"\(a + b\)", "The formula is $a + b$ and the price is $25."]
+        out = self._eval(substitute=cases)["substitute"]
+        self.assertEqual(out[0], "`x`")
+        self.assertEqual(out[1], "`x²`")
+        self.assertEqual(out[2], "`E=mc²`")
+        self.assertEqual(out[3], "`a + b`")
+        self.assertEqual(out[4], "The formula is `a + b` and the price is $25.")
+
+    def test_display_math_blocks_still_split(self):
+        parts = self._eval(split=["$$x^2$$"])["split"][0]
+        self.assertEqual(len(parts), 1)
+        self.assertEqual(parts[0]["type"], "math")
+        self.assertEqual(parts[0]["content"], "x²")
+
+    def test_bold_prices_survive_markdown(self):
+        html = self._eval(rich=["**$398.00**"])["rich"][0]
+        self.assertEqual(len(html), 1)
+        self.assertIn("$398.00", html[0])
+        self.assertIn("<b>", html[0])
 
 
 if __name__ == "__main__":
