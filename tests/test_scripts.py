@@ -649,9 +649,11 @@ class TestUpstreamPhaseA(unittest.TestCase):
 
     def test_gap_analysis_excludes_presets(self):
         src = self._read("docs/upstream-gap-analysis.md")
-        self.assertIn("Won't port", src)
+        self.assertIn("Out of scope", src)
         self.assertIn("Official presets", src)
         self.assertIn("Porting progress", src)
+        self.assertIn("Go `ambxst` daemon", src)
+        self.assertNotIn("Planned (Phase B)", src)
 
 
 class TestKeystorePath(unittest.TestCase):

@@ -1,6 +1,9 @@
 # Upstream gap analysis: Axenide/Ambxst vs git-napkin/ambxst-plus
 
-Read-only comparison. No code was ported.
+Comparison of **Axenide/Ambxst** 1.3.5 against this fork, plus a record of
+what was actually ported. Ports are limited to features that fit Ambxst[+]
+(`cli.sh` + Python computer-use). Go daemon, mods, presets, and native Go
+capture are **out of scope**.
 
 | | Ambxst[+] (`git-napkin/ambxst-plus`) | Upstream (`Axenide/Ambxst`) |
 |---|---|---|
@@ -389,18 +392,30 @@ wallpaper CLI, BarPopup `groupId` mutual exclusion, NvChad wallsync, workspace
 
 ---
 
-## Suggested port order (if this doc is acted on later)
+## What this fork will not port
 
-1. Easy QML fixes: pomodoro resync; lockscreen unlock timer; optional Fedora
-   COPR line.
-2. `axctl layout set` + monocle in the picker/keybinds (axctl-plus is ready).
-3. `cli.sh install niri|mango` and TOML `[target]` — no daemon required.
-4. Presets assets + QML, rebased onto `ambxst+` paths.
-5. **Do not** start mods until a Go daemon (or a compatible IPC host) exists
-   beside `cli.sh`. Mods without generations/health-window is a different
-   product.
-6. Native capture/picker/clipboard encryption only as part of that daemon,
-   keeping `scripts/ai/` and fingerprint Python intact.
+Ambxst[+] keeps `cli.sh`, `scripts/ai/` (Spotlight / computer-use), fingerprint,
+and camera. These upstream pieces **do not fit** that architecture and are
+**out of scope**:
+
+- Go `ambxst` daemon (would replace or dual-path `cli.sh`; computer-use stays Python)
+- Mods (requires that daemon; community mods target upstream paths)
+- Official presets (intentionally removed here)
+- Packaging for a Go daemon (`Makefile`, `nix/packages/backend.nix`, release binaries)
+- Encrypted clipboard / native Wayland screenshot / loupe / Go OCR-QR *as
+  upstream Go backend ports* (tools menu entries already exist via Python/Bash)
+
+---
+
+## Suggested port order (acted on)
+
+1. Easy QML fixes: pomodoro resync; lockscreen unlock timer; Fedora COPR;
+   optional `TMUX_TMPDIR`. **Done.**
+2. `axctl layout set` + monocle in the picker/keybinds. **Done.**
+3. `cli.sh install niri|mango` and TOML `[target]`. **Done.**
+4. Live compositor `hl.config()` via `axctl config raw-batch` (no Go daemon).
+   **Done.**
+5. Presets / mods / Go daemon / native Go capture: **out of scope** (see above).
 
 ---
 
@@ -416,21 +431,21 @@ Compared `origin/main` (`git-napkin/ambxst-plus`) to `upstream/main`
 
 ## Porting progress
 
-Official presets are **out of scope** (intentionally omitted from this fork).
+Only ports that make sense without a Go daemon. `cli.sh` and `scripts/ai/` stay.
 
 | Item | Status | Notes |
 |---|---|---|
-| Pomodoro `resyncTimerInputs` (#235) | **Done** (Phase A) | `modules/bar/clock/Pomodoro.qml` |
-| Lockscreen unlock timer when `animDuration` is 0 | **Done** (Phase A) | Fingerprint success path unchanged |
-| Monocle in picker/keybinds/icons + `axctl layout set` | **Done** (Phase A) | `GlobalStates.setCompositorLayout` now dispatches |
-| Niri + MangoWC `install`/`remove` | **Done** (Phase A) | `cli.sh`; paths under `~/.local/share/ambxst+/` |
-| TOML `[target]` hyprland/niri/mango | **Done** (Phase A) | `CompositorTomlWriter.qml`; axctl-plus still writes `hyprland.conf` until it reads `[target]` |
-| Live `hl.config()` via `axctl config raw-batch` | **Done** (Phase A) | `CompositorConfig.qml`; skips live eval while Game Mode is on |
-| Fedora COPR `lionheartp/Hyprland` | **Done** (Phase A) | `install.sh` |
-| `TMUX_TMPDIR` → `$XDG_RUNTIME_DIR` | **Done** (Phase A) | `cli.sh` launch path; existing value wins |
-| Go `ambxst+` daemon beside `cli.sh` | Planned (Phase B) | Must keep `cli.sh`, `scripts/ai/`, fingerprint, camera, Spotlight |
-| Encrypted clipboard / SQLCipher | Planned (Phase B) | Needs daemon + `system.clipboard.tmpfs` |
-| Native screenshot / loupe / Go OCR-QR | Planned (Phase B) | Keep tools menu entry points |
-| Mods manager | Planned (Phase B) | Ambxst[+]-aware paths; community mods may not apply |
-| Packaging (Makefile, nix backend, release binaries) | Planned (Phase B) | After the daemon builds |
-| Official presets | **Won't port** | Intentionally removed here |
+| Pomodoro `resyncTimerInputs` (#235) | **Done** | `modules/bar/clock/Pomodoro.qml` |
+| Lockscreen unlock timer when `animDuration` is 0 | **Done** | Fingerprint success path unchanged |
+| Monocle in picker/keybinds/icons + `axctl layout set` | **Done** | `GlobalStates.setCompositorLayout` now dispatches |
+| Niri + MangoWC `install`/`remove` | **Done** | `cli.sh`; paths under `~/.local/share/ambxst+/` |
+| TOML `[target]` hyprland/niri/mango | **Done** | `CompositorTomlWriter.qml`; axctl-plus still writes `hyprland.conf` until it reads `[target]` |
+| Live `hl.config()` via `axctl config raw-batch` | **Done** | `CompositorConfig.qml`; skips live eval while Game Mode is on |
+| Fedora COPR `lionheartp/Hyprland` | **Done** | `install.sh` |
+| `TMUX_TMPDIR` → `$XDG_RUNTIME_DIR` | **Done** | `cli.sh` launch path; existing value wins |
+| Go `ambxst` daemon | **Out of scope** | Fork keeps Python/`cli.sh` computer-use |
+| Mods manager | **Out of scope** | Requires the Go daemon |
+| Official presets | **Out of scope** | Intentionally removed here |
+| Encrypted clipboard / SQLCipher | **Out of scope** | Upstream Go backend port |
+| Native screenshot / loupe / Go OCR-QR | **Out of scope** | Tools menu already uses Python/Bash helpers |
+| Packaging (Makefile, nix backend, release binaries) | **Out of scope** | Only exists to ship the Go daemon |
