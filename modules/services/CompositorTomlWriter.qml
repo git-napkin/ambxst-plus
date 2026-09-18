@@ -133,13 +133,6 @@ Singleton {
     function generateToml() {
         let toml = "";
 
-        // [target] first so axctl can resolve compositor output paths
-        // against this file's directory (~/.local/share/ambxst+/).
-        toml += "[target]\n";
-        toml += "hyprland = \"hyprland.lua\"\n";
-        toml += "niri = \"niri.kdl\"\n";
-        toml += "mango = \"mango.conf\"\n\n";
-
         // No [startup] exec-once: the shell is launched by the ambxst-plus
         // systemd user unit and spawns the axctl daemon itself (with -c and
         // the correct config path). A hyprland exec-once here would start a

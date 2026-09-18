@@ -24,12 +24,13 @@ but the binary/command is lowercase `ambxst+` — use that in shell commands.
   these commands don't launch it. On launch, `cli.sh` forces
   `QT_QPA_PLATFORMTHEME=qt6ct` and, if unset, `TMUX_TMPDIR=$XDG_RUNTIME_DIR`;
   don't override the Qt platform theme.
-- `ambxst+ install <target>` / `ambxst+ remove <target>` take `hyprland`,
-  `niri`, or `mango`. They append/remove an Ambxst[+] import block in
-  `~/.config/hypr/hyprland.lua` (or `.conf`), `~/.config/niri/config.kdl`, or
-  `~/.config/mango/config.conf`. `remove` refuses symlinked configs
-  (dotfile-managed setups). Don't run these from an agent session expecting a
-  clean environment. `goodbye` uninstalls Ambxst[+] entirely.
+- `ambxst+ install hyprland` / `ambxst+ remove hyprland` (`install`/`remove`
+  take a *target* argument) **mutate the user's Hyprland config** by
+  appending/removing an Ambxst[+] import block in `~/.config/hypr/hyprland.lua`
+  (or `.conf`). Ambxst[+] is **Hyprland-only** — niri/mango install targets
+  are out of scope. `remove` refuses symlinked configs (dotfile-managed
+  setups). Don't run these from an agent session expecting a clean
+  environment. `goodbye` uninstalls Ambxst[+] entirely.
 - `install.sh` is the standalone distro installer (Arch/Fedora/Debian/NixOS detection,
   clones the repo to `~/.local/src/ambxst+`, symlinks `/usr/local/bin/ambxst+`);
   the Nix flake is the alternative user install path. Neither is needed from source.

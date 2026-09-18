@@ -77,8 +77,8 @@ Commands:
     help                              Show this help message
     version, -v, --version            Show Ambxst[+] version
     goodbye                           Uninstall Ambxst[+] :(
-    install <target>                  Install compositor config (hyprland, niri, mango)
-    remove <target>                   Remove compositor config (hyprland, niri, mango)
+    install <target>                    Install compositor config (hyprland)
+    remove <target>                    Remove compositor config (hyprland)
 
 Examples:
     ambxst+ brightness 75              Set all monitors to 75%
@@ -113,27 +113,6 @@ loadfile(os.getenv("HOME") .. "/.local/share/ambxst+/hyprland.lua")()
 -- Down here you can write or source anything that you want to override from Ambxst[+]'s settings.
 EOF
 )
-AMBXST_PLUS_NIRI_MARKER='include "~/.local/share/ambxst+/niri.kdl"'
-AMBXST_PLUS_NIRI_BLOCK=$(
-	cat <<'EOF'
-// Ambxst[+]
-include "~/.local/share/ambxst+/niri.kdl"
-
-// OVERRIDES
-// Down here you can write or include anything that you want to override from Ambxst[+]'s settings.
-EOF
-)
-AMBXST_PLUS_MANGO_MARKER="source = ~/.local/share/ambxst+/mango.conf"
-AMBXST_PLUS_MANGO_BLOCK=$(
-	cat <<'EOF'
-# Ambxst[+]
-source = ~/.local/share/ambxst+/mango.conf
-
-# OVERRIDES
-# Down here you can write or source anything that you want to override from Ambxst[+]'s settings.
-EOF
-)
-
 append_ambxst_plus_hyprland_block() {
 	local conf="$1"
 	local source="$2"
@@ -191,13 +170,10 @@ remove_ambxst_plus_hyprland_block() {
 			return line == source \
 				|| line == "# Ambxst[+]" \
 				|| line == "-- Ambxst[+]" \
-				|| line == "// Ambxst[+]" \
 				|| line == "# OVERRIDES" \
 				|| line == "-- OVERRIDES" \
-				|| line == "// OVERRIDES" \
 				|| line == "# Down here you can write or source anything that you want to override from Ambxst[+]'\''s settings." \
-				|| line == "-- Down here you can write or source anything that you want to override from Ambxst[+]'\''s settings." \
-				|| line == "// Down here you can write or include anything that you want to override from Ambxst[+]'\''s settings."
+				|| line == "-- Down here you can write or source anything that you want to override from Ambxst[+]'\''s settings."
 		}
 		{
 			lines[NR] = $0
@@ -217,7 +193,7 @@ remove_ambxst_plus_hyprland_block() {
 		}
 	' "$conf" >"${conf}.tmp" && chmod --reference="$conf" "${conf}.tmp" && mv "${conf}.tmp" "$conf"
 
-	echo "Removed Ambxst[+] block from $conf"
+	echo "Removed Ambxst[+] Hyprland block from $conf"
 }
 
 find_ambxst_plus_pid() {
@@ -743,30 +719,8 @@ install)
 			append_ambxst_plus_hyprland_block "$HYPR_CONF" "$AMBXST_PLUS_HYPR_CONF_SOURCE" "$AMBXST_PLUS_HYPR_CONF_BLOCK"
 			ensure_ambxst_plus_hyprland_source "$HOME/.local/share/ambxst+/hyprland.conf" "# Ambxst[+] user overrides"
 		fi
-	elif [ "$TARGET" = "niri" ]; then
-		NIRI_DIR="$HOME/.config/niri"
-		NIRI_CONF="$NIRI_DIR/config.kdl"
-		mkdir -p "$NIRI_DIR"
-		if is_nix_store_symlink "$NIRI_CONF"; then
-			echo "Ambxst[+]: $NIRI_CONF is home-manager managed. Add the include from home.nix instead:"
-			echo "  include \"~/.local/share/ambxst+/niri.kdl\""
-			exit 0
-		fi
-		append_ambxst_plus_hyprland_block "$NIRI_CONF" "// Ambxst[+]" "$AMBXST_PLUS_NIRI_BLOCK"
-		ensure_ambxst_plus_hyprland_source "$HOME/.local/share/ambxst+/niri.kdl" "// Ambxst[+] user overrides"
-	elif [ "$TARGET" = "mango" ]; then
-		MANGO_DIR="$HOME/.config/mango"
-		MANGO_CONF="$MANGO_DIR/config.conf"
-		mkdir -p "$MANGO_DIR"
-		if is_nix_store_symlink "$MANGO_CONF"; then
-			echo "Ambxst[+]: $MANGO_CONF is home-manager managed. Add the source from home.nix instead:"
-			echo "  source = ~/.local/share/ambxst+/mango.conf"
-			exit 0
-		fi
-		append_ambxst_plus_hyprland_block "$MANGO_CONF" "# Ambxst[+]" "$AMBXST_PLUS_MANGO_BLOCK"
-		ensure_ambxst_plus_hyprland_source "$HOME/.local/share/ambxst+/mango.conf" "# Ambxst[+] user overrides"
 	else
-		echo "Error: Unknown target '$TARGET'. Supported: hyprland, niri, mango"
+		echo "Error: Unknown target '$TARGET'. Supported: hyprland"
 		exit 1
 	fi
 	;;
@@ -784,22 +738,8 @@ remove)
 
 		remove_ambxst_plus_hyprland_block "$HYPR_LUA" "$AMBXST_PLUS_HYPR_LUA_SOURCE"
 		remove_ambxst_plus_hyprland_block "$HYPR_CONF" "$AMBXST_PLUS_HYPR_CONF_SOURCE"
-	elif [ "$TARGET" = "niri" ]; then
-		NIRI_CONF="$HOME/.config/niri/config.kdl"
-		if is_nix_store_symlink "$NIRI_CONF"; then
-			echo "Ambxst[+]: Niri config is home-manager managed. Remove the include from home.nix instead."
-			exit 0
-		fi
-		remove_ambxst_plus_hyprland_block "$NIRI_CONF" "$AMBXST_PLUS_NIRI_MARKER"
-	elif [ "$TARGET" = "mango" ]; then
-		MANGO_CONF="$HOME/.config/mango/config.conf"
-		if is_nix_store_symlink "$MANGO_CONF"; then
-			echo "Ambxst[+]: Mango config is home-manager managed. Remove the source from home.nix instead."
-			exit 0
-		fi
-		remove_ambxst_plus_hyprland_block "$MANGO_CONF" "$AMBXST_PLUS_MANGO_MARKER"
 	else
-		echo "Error: Unknown target '$TARGET'. Supported: hyprland, niri, mango"
+		echo "Error: Unknown target '$TARGET'. Supported: hyprland"
 		exit 1
 	fi
 	;;
@@ -825,8 +765,6 @@ goodbye)
 		# Remove the Hyprland import block if one was installed
 		remove_ambxst_plus_hyprland_block "$HOME/.config/hypr/hyprland.lua" "$AMBXST_PLUS_HYPR_LUA_SOURCE" 2>/dev/null || true
 		remove_ambxst_plus_hyprland_block "$HOME/.config/hypr/hyprland.conf" "$AMBXST_PLUS_HYPR_CONF_SOURCE" 2>/dev/null || true
-		remove_ambxst_plus_hyprland_block "$HOME/.config/niri/config.kdl" "$AMBXST_PLUS_NIRI_MARKER" 2>/dev/null || true
-		remove_ambxst_plus_hyprland_block "$HOME/.config/mango/config.conf" "$AMBXST_PLUS_MANGO_MARKER" 2>/dev/null || true
 		exit 0
 	fi
 
@@ -840,8 +778,6 @@ goodbye)
 	# Remove the Hyprland import block if one was installed
 	remove_ambxst_plus_hyprland_block "$HOME/.config/hypr/hyprland.lua" "$AMBXST_PLUS_HYPR_LUA_SOURCE" 2>/dev/null || true
 	remove_ambxst_plus_hyprland_block "$HOME/.config/hypr/hyprland.conf" "$AMBXST_PLUS_HYPR_CONF_SOURCE" 2>/dev/null || true
-	remove_ambxst_plus_hyprland_block "$HOME/.config/niri/config.kdl" "$AMBXST_PLUS_NIRI_MARKER" 2>/dev/null || true
-	remove_ambxst_plus_hyprland_block "$HOME/.config/mango/config.conf" "$AMBXST_PLUS_MANGO_MARKER" 2>/dev/null || true
 
 	# Remove launcher installed by the curl installer (may need root)
 	rm -f /usr/local/bin/ambxst+ 2>/dev/null || echo "Note: could not remove /usr/local/bin/ambxst+ (run as root if needed)"

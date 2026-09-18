@@ -2,8 +2,8 @@
 
 Comparison of **Axenide/Ambxst** 1.3.5 against this fork, plus a record of
 what was actually ported. Ports are limited to features that fit Ambxst[+]
-(`cli.sh` + Python computer-use). Go daemon, mods, presets, and native Go
-capture are **out of scope**.
+(`cli.sh` + Python computer-use, **Hyprland only**). Go daemon, mods, presets,
+native Go capture, and Niri/MangoWC are **out of scope**.
 
 | | Ambxst[+] (`git-napkin/ambxst-plus`) | Upstream (`Axenide/Ambxst`) |
 |---|---|---|
@@ -37,7 +37,7 @@ ported. The rest are done (see Porting progress).
    backend. **Out of scope.**
 2. **Go `ambxst` daemon** replacing `cli.sh` — supervisor + JSON-RPC for qs,
    axctl, wl-paste, and most services. **Out of scope.** Required for (1);
-   not required for (6)–(9) or (11)–(12).
+   not required for (7)–(9) or (11)–(12).
 3. **Official presets** — nine bundled looks + Settings/overlay switcher +
    `ambxst preset`. **Out of scope** (intentionally removed here).
 4. **Encrypted clipboard** — SQLCipher stores, 50-item cap, image blobs, optional
@@ -46,7 +46,7 @@ ported. The rest are done (see Porting progress).
    screencopy engine, layer-shell loupe, Go barcodes. **Out of scope** as an
    upstream Go backend port (tools menu already uses Python/Bash).
 6. **Niri + MangoWC `install`/`remove`** plus generated TOML `[target]` paths.
-   **Done.**
+   **Out of scope** — Ambxst[+] is Hyprland-only.
 7. **Monocle layout** in the layout picker and keybind catalog. **Done**
    (`axctl-plus` already special-cases monocle).
 8. **Live compositor config eval** (`axctl config raw-batch` / `hl.config()`)
@@ -175,7 +175,7 @@ exist** here. Do not port the clients without the daemon.
 New CLI surface Ambxst[+] lacks (beyond mods):
 
 ```
-ambxst install|remove niri|mango
+ambxst install|remove niri|mango   # out of scope: Hyprland only
 ambxst colorpicker          # native loupe, not hyprpicker
 ambxst preset [-l|"Name"]
 ambxst ipc call <method> <json>
@@ -229,9 +229,9 @@ this shell.
 **Port:** easy/medium. Add the layout + icon + keybinds, and actually call
 `axctl layout set`. Little mods interaction.
 
-### Niri / MangoWC install targets — missing
+### Niri / MangoWC install targets — out of scope (Hyprland only)
 
-`ambxst install niri` / `ambxst install mango` (and `remove`) in
+Upstream `ambxst install niri` / `ambxst install mango` (and `remove`) live in
 `backend/cmd/ambxst/commands.go`. Generated compositor TOML includes:
 
 ```toml
@@ -240,12 +240,9 @@ niri = "niri.kdl"
 mango = "mango.conf"
 ```
 
-Ambxst[+] `cli.sh` only documents `install hyprland`. Assets already include
-niri/mango compositor icons.
-
-**Port:** medium. Pattern already exists for Hyprland in `cli.sh`; TOML
-`[target]` is a small `CompositorTomlWriter.qml` / backend change. Full
-compositor parity is still axctl’s job.
+Ambxst[+] is **Hyprland-only**. `cli.sh` documents `install hyprland` only.
+Niri/MangoWC install targets and multi-compositor TOML `[target]` will not be
+ported. Assets may still include unused compositor icons.
 
 ### Native color picker / screenshot / OCR / QR — missing as *implementations*
 
@@ -407,6 +404,8 @@ and camera. These upstream pieces **do not fit** that architecture and are
 - Packaging for a Go daemon (`Makefile`, `nix/packages/backend.nix`, release binaries)
 - Encrypted clipboard / native Wayland screenshot / loupe / Go OCR-QR *as
   upstream Go backend ports* (tools menu entries already exist via Python/Bash)
+- Niri / MangoWC `install`/`remove` and multi-compositor TOML `[target]`
+  (Ambxst[+] is **Hyprland-only**)
 
 ---
 
@@ -415,7 +414,8 @@ and camera. These upstream pieces **do not fit** that architecture and are
 1. Easy QML fixes: pomodoro resync; lockscreen unlock timer; Fedora COPR;
    optional `TMUX_TMPDIR`. **Done.**
 2. `axctl layout set` + monocle in the picker/keybinds. **Done.**
-3. `cli.sh install niri|mango` and TOML `[target]`. **Done.**
+3. `cli.sh install niri|mango` and TOML `[target]`. **Out of scope**
+   (Hyprland only).
 4. Live compositor `hl.config()` via `axctl config raw-batch` (no Go daemon).
    **Done.**
 5. Presets / mods / Go daemon / native Go capture: **out of scope** (see above).
@@ -434,15 +434,16 @@ Compared `origin/main` (`git-napkin/ambxst-plus`) to `upstream/main`
 
 ## Porting progress
 
-Only ports that make sense without a Go daemon. `cli.sh` and `scripts/ai/` stay.
+Only ports that make sense without a Go daemon, on **Hyprland**. `cli.sh` and
+`scripts/ai/` stay.
 
 | Item | Status | Notes |
 |---|---|---|
 | Pomodoro `resyncTimerInputs` (#235) | **Done** | `modules/bar/clock/Pomodoro.qml` |
 | Lockscreen unlock timer when `animDuration` is 0 | **Done** | Fingerprint success path unchanged |
 | Monocle in picker/keybinds/icons + `axctl layout set` | **Done** | `GlobalStates.setCompositorLayout` now dispatches |
-| Niri + MangoWC `install`/`remove` | **Done** | `cli.sh`; paths under `~/.local/share/ambxst+/` |
-| TOML `[target]` hyprland/niri/mango | **Done** | `CompositorTomlWriter.qml`; axctl-plus still writes `hyprland.conf` until it reads `[target]` |
+| Niri + MangoWC `install`/`remove` | **Out of scope** | Ambxst[+] is Hyprland-only |
+| TOML `[target]` niri/mango | **Out of scope** | Multi-compositor plumbing dropped; Hyprland `install` is unchanged |
 | Live `hl.config()` via `axctl config raw-batch` | **Done** | `CompositorConfig.qml`; skips live eval while Game Mode is on |
 | Fedora COPR `lionheartp/Hyprland` | **Done** | `install.sh` |
 | `TMUX_TMPDIR` → `$XDG_RUNTIME_DIR` | **Done** | `cli.sh` launch path; existing value wins |
