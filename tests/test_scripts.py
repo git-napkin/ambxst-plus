@@ -737,6 +737,52 @@ class TestOpenAiBaseUrls(unittest.TestCase):
         self.assertTrue(all(m["provider"] == "custom" for m in models))
         self.assertTrue(all(m["endpoint"] == "https://example.com/v1" for m in models))
 
+    def test_list_models_forwards_openrouter_input_modalities(self):
+        from ai.list_models import list_models
+
+        class Ctx:
+            def get_key(self, provider):
+                return "sk-or" if provider == "openrouter" else ""
+
+            def list_keys(self, provider):
+                if provider != "openrouter":
+                    return []
+                return [{"id": None, "label": "", "api_key": "sk-or"}]
+
+        def fake_get(url, headers=None, timeout=20):
+            self.assertEqual(url, "https://openrouter.ai/api/v1/models")
+            return {
+                "data": [
+                    {
+                        "id": "openrouter/auto",
+                        "name": "Auto",
+                        "architecture": {"modality": "text+image->text", "input_modalities": ["text", "image"]},
+                    },
+                    {
+                        "id": "inception/mercury-2.5",
+                        "name": "Mercury 2.5",
+                        "architecture": {"modality": "text+image->text", "input_modalities": ["text", "image"]},
+                    },
+                    {
+                        "id": "acme/text-only",
+                        "name": "Text Only",
+                        "architecture": {"modality": "text->text", "input_modalities": ["text"]},
+                    },
+                ]
+            }
+
+        with patch("ai.list_models._get", side_effect=fake_get):
+            models = list_models(Ctx())
+        by_id = {m["model"]: m for m in models}
+        self.assertEqual(by_id["openrouter/auto"]["input_modalities"], ["text", "image"])
+        self.assertEqual(by_id["inception/mercury-2.5"]["input_modalities"], ["text", "image"])
+        self.assertEqual(by_id["acme/text-only"]["input_modalities"], ["text"])
+        from ai.models import model_supports_vision
+
+        self.assertTrue(model_supports_vision(by_id["openrouter/auto"]))
+        self.assertTrue(model_supports_vision(by_id["inception/mercury-2.5"]))
+        self.assertFalse(model_supports_vision(by_id["acme/text-only"]))
+
     def test_manual_custom_models_override_display_name(self):
         from ai.list_models import list_models
 
@@ -1367,6 +1413,112 @@ class TestComputerUse(unittest.TestCase):
         self.assertIn('"type":"error"', logged)
         self.assertIn("vision", logged.lower())
         self.assertIn("will not switch models", logged)
+
+    def test_vision_gate_fail_open_for_router_auto_unknown_and_metadata(self):
+        from unittest.mock import patch
+        from ai.models import (
+            canonical_model_id,
+            display_model_id,
+            model_supports_vision,
+        )
+        from ai.tools.computer_use import RequestComputerUseTool, VISION_UNSUPPORTED
+
+        self.assertEqual(canonical_model_id({"provider": "openrouter", "model": "openrouter/auto"}), "auto")
+        self.assertEqual(
+            canonical_model_id({"provider": "openrouter", "model": "openrouter/openrouter/auto"}),
+            "auto",
+        )
+        self.assertEqual(canonical_model_id("openrouter/openrouter/auto"), "openrouter/auto")
+        self.assertEqual(
+            canonical_model_id({"provider": "openrouter", "model": "inception/mercury-2.5"}),
+            "inception/mercury-2.5",
+        )
+        self.assertEqual(
+            display_model_id({"provider": "openrouter", "model": "openrouter/openrouter/auto"}),
+            "openrouter/auto",
+        )
+
+        self.assertTrue(model_supports_vision({"provider": "openrouter", "model": "openrouter/auto"}))
+        self.assertTrue(model_supports_vision({"provider": "openrouter", "model": "auto"}))
+        self.assertTrue(model_supports_vision({"provider": "openrouter", "model": "openrouter/openrouter/auto"}))
+        self.assertTrue(model_supports_vision("openrouter/auto"))
+        self.assertTrue(model_supports_vision({"provider": "openrouter", "model": "inception/mercury-2.5"}))
+        self.assertTrue(model_supports_vision({"provider": "openrouter", "model": "openrouter/inception/mercury-2.5"}))
+        self.assertTrue(model_supports_vision({"model": "some-unknown-chat-model"}))
+        self.assertTrue(
+            model_supports_vision(
+                {
+                    "provider": "openrouter",
+                    "model": "inception/mercury-2.5",
+                    "architecture": {
+                        "modality": "text+image->text",
+                        "input_modalities": ["text", "image"],
+                    },
+                }
+            )
+        )
+
+        self.assertFalse(model_supports_vision(""))
+        self.assertFalse(model_supports_vision({"provider": "openai", "model": "gpt-3.5-turbo"}))
+        self.assertFalse(model_supports_vision({"model": "o3-mini"}))
+        self.assertFalse(model_supports_vision({"model": "whisper-1"}))
+        self.assertFalse(
+            model_supports_vision(
+                {
+                    "provider": "openrouter",
+                    "model": "acme/totally-unknown-text-only",
+                    "architecture": {"modality": "text->text", "input_modalities": ["text"]},
+                }
+            )
+        )
+
+        native_calls = []
+
+        def native(_ctx, name, args):
+            native_calls.append((name, dict(args)))
+            return {"ok": True, "locked": False}
+
+        def _grant(model):
+            native_calls.clear()
+            ctx = _ctx(".", execution_profile={"computerUse": "AlwaysAllow"}, model=model)
+            with patch("ai.tools.computer_use._native", side_effect=native), patch(
+                "ai.tools.computer_use.atspi.probe", return_value=False
+            ), patch("ai.tools.computer_use.doctor.doctor_report", return_value={"can_click": False}):
+                return ctx, RequestComputerUseTool().execute(ctx, {"task_summary": "refresh gmail"})
+
+        auto_ctx, granted = _grant({"provider": "openrouter", "model": "openrouter/auto"})
+        self.assertEqual(granted["status"], "ok")
+        self.assertTrue(auto_ctx.computer_use_approved)
+        self.assertTrue(any(args.get("op") == "begin" for _name, args in native_calls))
+
+        dup_ctx, dup_granted = _grant({"provider": "openrouter", "model": "openrouter/openrouter/auto"})
+        self.assertEqual(dup_granted["status"], "ok")
+        self.assertTrue(dup_ctx.computer_use_approved)
+
+        mercury_ctx, mercury_granted = _grant({"provider": "openrouter", "model": "inception/mercury-2.5"})
+        self.assertEqual(mercury_granted["status"], "ok")
+        self.assertTrue(mercury_ctx.computer_use_approved)
+
+        unknown_ctx, unknown_granted = _grant({"provider": "openrouter", "model": "acme/brand-new-chat"})
+        self.assertEqual(unknown_granted["status"], "ok")
+        self.assertTrue(unknown_ctx.computer_use_approved)
+
+        text_ctx, denied = _grant({"provider": "openai", "model": "gpt-3.5-turbo"})
+        self.assertEqual(denied["status"], "error")
+        self.assertEqual(denied["code"], VISION_UNSUPPORTED)
+        self.assertFalse(text_ctx.computer_use_approved)
+        self.assertFalse(any(args.get("op") == "begin" for _name, args in native_calls))
+
+        meta_text_ctx, meta_denied = _grant(
+            {
+                "provider": "openrouter",
+                "model": "acme/totally-unknown-text-only",
+                "input_modalities": ["text"],
+            }
+        )
+        self.assertEqual(meta_denied["status"], "error")
+        self.assertEqual(meta_denied["code"], VISION_UNSUPPORTED)
+        self.assertFalse(meta_text_ctx.computer_use_approved)
 
     def test_critical_actions_ask_after_grant(self):
         from ai.tools.computer_use import UseComputerTool, action_is_critical
