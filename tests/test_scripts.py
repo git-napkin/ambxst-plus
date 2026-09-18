@@ -402,11 +402,56 @@ class TestJustWorksContracts(unittest.TestCase):
         rec = self._read("modules/services/ScreenRecorder.qml")
         tool = self._read("modules/tools/ScreenrecordTool.qml")
         script = REPO_ROOT / "scripts" / "wf-record.sh"
+        script_text = script.read_text()
         self.assertIn("wf-record.sh", rec)
         self.assertIn("-fallback-cpu-encoding yes", rec)
+        self.assertIn("-cr full", rec)
         self.assertIn("Notifications.notifyInternal", rec)
         self.assertNotIn('tooltip: "Portal"', tool)
+        self.assertIn("color_range=pc", script_text)
+        self.assertIn("colorspace=bt709", script_text)
+        self.assertIn("color_primaries=bt709", script_text)
+        self.assertIn("color_trc=bt709", script_text)
+        self.assertIn("-x yuv420p", script_text)
         subprocess.run(["bash", "-n", str(script)], check=True)
+
+    def test_screen_recorder_full_range_bt709_tags(self):
+        """wf-record.sh color flags write full-range bt.709 metadata, not untagged TV range."""
+        if not shutil.which("ffmpeg") or not shutil.which("ffprobe"):
+            self.skipTest("ffmpeg/ffprobe not installed")
+        with tempfile.TemporaryDirectory() as tmp:
+            out = Path(tmp) / "tagged.mp4"
+            cmd = [
+                "ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
+                "-f", "lavfi", "-i", "color=c=black:s=160x120:r=1,format=rgb24",
+                "-frames:v", "2",
+                "-vf", "scale=out_color_matrix=bt709:out_range=full,format=yuv420p",
+                "-c:v", "libx264", "-preset", "ultrafast", "-crf", "18",
+                "-pix_fmt", "yuv420p",
+                "-color_range", "pc",
+                "-colorspace", "bt709",
+                "-color_primaries", "bt709",
+                "-color_trc", "bt709",
+                str(out),
+            ]
+            subprocess.run(cmd, check=True)
+            probe = subprocess.run(
+                [
+                    "ffprobe", "-v", "error", "-select_streams", "v:0",
+                    "-show_entries",
+                    "stream=color_range,color_space,color_transfer,color_primaries",
+                    "-of", "default=nw=1",
+                    str(out),
+                ],
+                check=True,
+                capture_output=True,
+                text=True,
+            )
+            text = probe.stdout
+            self.assertIn("color_range=pc", text)
+            self.assertIn("color_space=bt709", text)
+            self.assertIn("color_transfer=bt709", text)
+            self.assertIn("color_primaries=bt709", text)
 
     def test_qml_toasts_use_in_shell_notifications(self):
         for rel in (

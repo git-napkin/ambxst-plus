@@ -65,7 +65,23 @@ if ! command -v wf-recorder >/dev/null 2>&1; then
     exit 1
 fi
 
-CMD=(wf-recorder -f "$OUTPUT" -r 60 -y)
+# Desktop capture is full-range sRGB (Rec.709 primaries). Default libx264
+# limited-range (TV) conversion plus missing VUI tags makes recordings look
+# washed out vs the live display. Tag full-range bt.709 and keep a sensible CRF.
+CMD=(
+    wf-recorder
+    -f "$OUTPUT"
+    -r 60
+    -y
+    -c libx264
+    -x yuv420p
+    -p preset=fast
+    -p crf=18
+    -p color_range=pc
+    -p colorspace=bt709
+    -p color_primaries=bt709
+    -p color_trc=bt709
+)
 
 if [ "$MODE" = "region" ]; then
     if [ -z "$GEOMETRY" ]; then
