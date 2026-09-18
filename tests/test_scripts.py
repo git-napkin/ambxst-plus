@@ -510,6 +510,7 @@ class TestCliPort(unittest.TestCase):
             check=True,
         )
         self.assertIn("wallpaper <file>", result.stdout)
+        self.assertIn("hyprland, niri, mango", result.stdout)
         self.assertNotIn("preset -l", result.stdout)
 
     def test_wallpaper_missing_file_fails_before_ipc(self):
@@ -536,6 +537,121 @@ class TestCliPort(unittest.TestCase):
             other_rc = subprocess.run(["bash", "-c", probe, "_", other]).returncode
             self.assertEqual(store_rc, 0)
             self.assertNotEqual(other_rc, 0)
+
+    def test_install_remove_niri_and_mango(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp)
+            env = os.environ.copy()
+            env["HOME"] = str(home)
+            env["XDG_CONFIG_HOME"] = str(home / ".config")
+            env["XDG_DATA_HOME"] = str(home / ".local" / "share")
+
+            niri = subprocess.run(
+                ["bash", str(self.CLI), "install", "niri"],
+                capture_output=True,
+                text=True,
+                env=env,
+                check=True,
+            )
+            kdl = home / ".config" / "niri" / "config.kdl"
+            share_kdl = home / ".local" / "share" / "ambxst+" / "niri.kdl"
+            self.assertTrue(kdl.is_file(), niri.stdout)
+            self.assertIn('include "~/.local/share/ambxst+/niri.kdl"', kdl.read_text())
+            self.assertTrue(share_kdl.is_file())
+
+            subprocess.run(
+                ["bash", str(self.CLI), "remove", "niri"],
+                capture_output=True,
+                text=True,
+                env=env,
+                check=True,
+            )
+            self.assertNotIn("// Ambxst[+]", kdl.read_text())
+
+            mango = subprocess.run(
+                ["bash", str(self.CLI), "install", "mango"],
+                capture_output=True,
+                text=True,
+                env=env,
+                check=True,
+            )
+            conf = home / ".config" / "mango" / "config.conf"
+            self.assertTrue(conf.is_file(), mango.stdout)
+            self.assertIn("source = ~/.local/share/ambxst+/mango.conf", conf.read_text())
+            subprocess.run(
+                ["bash", str(self.CLI), "remove", "mango"],
+                capture_output=True,
+                text=True,
+                env=env,
+                check=True,
+            )
+            self.assertNotIn("# Ambxst[+]", conf.read_text())
+
+    def test_unknown_install_target_fails(self):
+        result = subprocess.run(
+            ["bash", str(self.CLI), "install", "sway"],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("niri", result.stdout + result.stderr)
+
+
+class TestUpstreamPhaseA(unittest.TestCase):
+    def _read(self, rel):
+        return (REPO_ROOT / rel).read_text()
+
+    def test_pomodoro_resyncs_timer_inputs(self):
+        src = self._read("modules/bar/clock/Pomodoro.qml")
+        self.assertIn("function resyncTimerInputs()", src)
+        self.assertIn("function resync()", src)
+        self.assertIn("Qt.binding(() => tIn.value.toString().padStart(2, '0'))", src)
+
+    def test_lockscreen_unlock_timer_fires_without_animations(self):
+        src = self._read("modules/lockscreen/LockScreen.qml")
+        self.assertIn("interval: Config.animDuration > 0 ? Config.animDuration * 2 : 1", src)
+        self.assertIn("FingerprintService", src)
+        self.assertIn("startFingerprintAuth", src)
+
+    def test_monocle_layout_dispatches_axctl(self):
+        states = self._read("modules/globals/GlobalStates.qml")
+        icons = self._read("modules/theme/Icons.qml")
+        actions = self._read("config/KeybindActions.js")
+        button = self._read("modules/bar/LayoutSelectorButton.qml")
+        self.assertIn('"monocle"', states)
+        self.assertIn('["axctl", "layout", "set", layout]', states)
+        self.assertIn("readonly property string monocle:", icons)
+        self.assertIn('id: "monocle.focus"', actions)
+        self.assertIn('case "monocle":', button)
+
+    def test_toml_target_lists_niri_and_mango(self):
+        src = self._read("modules/services/CompositorTomlWriter.qml")
+        self.assertIn("[target]", src)
+        self.assertIn("niri.kdl", src)
+        self.assertIn("mango.conf", src)
+
+    def test_live_hl_config_uses_axctl_raw_batch(self):
+        src = self._read("modules/services/CompositorConfig.qml")
+        self.assertIn("function luaLiteral", src)
+        self.assertIn("function dispatchHlConfig", src)
+        self.assertIn('"axctl", "config", "raw-batch"', src)
+        self.assertIn("eval ", src)
+        self.assertIn("GameModeService.toggled", src)
+
+    def test_fedora_copr_and_tmux_tmpdir(self):
+        installer = self._read("install.sh")
+        cli = self._read("cli.sh")
+        self.assertIn("lionheartp/Hyprland", installer)
+        self.assertNotIn("solopasha/hyprland", installer)
+        self.assertIn("TMUX_TMPDIR", cli)
+        self.assertIn('export TMUX_TMPDIR="$XDG_RUNTIME_DIR"', cli)
+
+    def test_gap_analysis_excludes_presets(self):
+        src = self._read("docs/upstream-gap-analysis.md")
+        self.assertIn("Won't port", src)
+        self.assertIn("Official presets", src)
+        self.assertIn("Porting progress", src)
 
 
 class TestKeystorePath(unittest.TestCase):
