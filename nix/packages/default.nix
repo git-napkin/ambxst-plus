@@ -68,6 +68,10 @@ let
     export QML2_IMPORT_PATH="${envAmbxstPlus}/lib/qt-6/qml:$QML2_IMPORT_PATH"
     export QML_IMPORT_PATH="$QML2_IMPORT_PATH"
 
+    # QtMultimedia: force the GStreamer backend and its plugin dir
+    export QT_MEDIA_BACKEND="''${QT_MEDIA_BACKEND:-gstreamer}"
+    export GST_PLUGIN_SYSTEM_PATH="''${GST_PLUGIN_SYSTEM_PATH:-${envAmbxstPlus}/lib/gstreamer-1.0}"
+
     # Expose bundled icon themes (breeze-icons, hicolor) to Qt/Quickshell.
     # Without this, XDG_DATA_DIRS never sees the buildEnv share/ tree and every
     # symbolic/app icon resolves to image-missing.

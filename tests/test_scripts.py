@@ -574,6 +574,73 @@ class TestCliPort(unittest.TestCase):
         self.assertNotIn("mango", out)
 
 
+class TestQtMultimediaWallpaper(unittest.TestCase):
+    def _read(self, rel):
+        return (REPO_ROOT / rel).read_text()
+
+    def test_video_wallpaper_uses_qtmultimedia(self):
+        src = self._read("modules/widgets/dashboard/wallpapers/VideoWallpaper.qml")
+        self.assertIn("import QtMultimedia", src)
+        self.assertIn("MediaPlayer", src)
+        self.assertIn("VideoOutput", src)
+        self.assertIn("positionMs", src)
+        self.assertIn("onVideoSyncTickChanged", src)
+
+    def test_mpvpaper_pipeline_removed(self):
+        wall_dir = REPO_ROOT / "modules" / "widgets" / "dashboard" / "wallpapers"
+        self.assertFalse((wall_dir / "mpvpaper.sh").exists())
+        self.assertFalse((wall_dir / "MpvShaderGenerator.js").exists())
+        wallpaper = self._read("modules/widgets/dashboard/wallpapers/Wallpaper.qml")
+        self.assertNotIn("mpvpaper", wallpaper)
+        self.assertNotIn("MpvShaderGenerator", wallpaper)
+        self.assertNotIn("mpvSocket", wallpaper)
+        self.assertIn("videoWallpaperComponent", wallpaper)
+        self.assertIn("VideoWallpaper", wallpaper)
+
+    def test_lockscreen_plays_live_wallpaper(self):
+        lock = self._read("modules/lockscreen/LockScreen.qml")
+        self.assertIn("wallpaperPath", lock)
+        self.assertIn("GlobalStates.wallpaperForScreen", lock)
+        self.assertIn("syncLockscreenVideo", lock)
+        self.assertIn("videoPlayAt", lock)
+        self.assertIn("onVideoSyncTickChanged", lock)
+        self.assertNotIn("lockscreenFramePath", lock)
+        self.assertIn("PamContext", lock)
+        self.assertIn("startFingerprintAuth", lock)
+
+    def test_tinted_wallpaper_video_api(self):
+        src = self._read("modules/components/TintedWallpaper.qml")
+        self.assertIn("import QtMultimedia", src)
+        self.assertIn("readonly property bool isVideo", src)
+        self.assertIn("function videoPlayAt", src)
+        self.assertIn("function videoSeek", src)
+
+    def test_global_states_video_sync(self):
+        src = self._read("modules/globals/GlobalStates.qml")
+        self.assertIn("property int videoSyncTick: 0", src)
+        self.assertIn("property var screenWallpapers", src)
+        self.assertIn("function wallpaperForScreen", src)
+
+    def test_cli_forces_gstreamer_backend(self):
+        cli = self._read("cli.sh")
+        self.assertIn('export QT_MEDIA_BACKEND="${QT_MEDIA_BACKEND:-gstreamer}"', cli)
+        self.assertIn("wallpaper-set", cli)
+
+    def test_packaging_drops_mpvpaper_for_gstreamer(self):
+        installer = self._read("install.sh")
+        media = self._read("nix/packages/media.nix")
+        nix_pkg = self._read("nix/packages/default.nix")
+        self.assertNotIn("mpvpaper", installer)
+        self.assertIn('["gstreamer"]="gst-inspect-1.0"', installer)
+        self.assertIn("gst-plugins-good", installer)
+        self.assertIn("gstreamer1-plugins-good", installer)
+        self.assertNotIn("mpvpaper", media)
+        self.assertIn("gst_all_1.gst-plugins-good", media)
+        self.assertIn("gst_all_1.gst-libav", media)
+        self.assertIn("QT_MEDIA_BACKEND", nix_pkg)
+        self.assertIn("GST_PLUGIN_SYSTEM_PATH", nix_pkg)
+
+
 class TestUpstreamPhaseA(unittest.TestCase):
     def _read(self, rel):
         return (REPO_ROOT / rel).read_text()

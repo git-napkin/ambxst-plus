@@ -6,7 +6,6 @@ import qs.modules.globals
 import qs.modules.theme
 import qs.modules.services
 import qs.config
-import "MpvShaderGenerator.js" as ShaderGenerator
 
 PanelWindow {
     id: wallpaper
@@ -40,6 +39,7 @@ PanelWindow {
     property string currentScreenName: wallpaper.screen ? wallpaper.screen.name : ""
     property alias tintEnabled: wallpaperAdapter.tintEnabled
     property int thumbnailsVersion: 0
+    property var activeVideo: null
 
     // --- Video wallpaper GPU optimization ---
     // Oversized video wallpapers (e.g. 4K/60 on a 1080p screen) make the GPU
@@ -51,11 +51,11 @@ PanelWindow {
     readonly property string _optimizeDir: Quickshell.env("HOME") + "/.cache/ambxst+/optimized_wallpapers"
     property string _optimizingSource: ""
     property string _optimizedVideoPath: ""
+    readonly property string playbackSource: (_optimizedVideoPath && getFileType(effectiveWallpaper) === "video") ? _optimizedVideoPath : effectiveWallpaper
 
     // Kick off a (cached) transcode of the current video wallpaper to the
-    // monitor's native resolution + refresh rate. mpvpaper keeps playing the
-    // original meanwhile; once ready we hot-swap the file into the SAME mpv
-    // instance via IPC (loadfile) — no second decoder process is spawned.
+    // monitor's native resolution + refresh rate. The original file plays
+    // until the optimized copy is ready, then VideoWallpaper swaps source.
     function updateVideoSource() {
         _optimizedVideoPath = "";
         var src = effectiveWallpaper;
@@ -67,7 +67,11 @@ PanelWindow {
     }
 
     onOptimizeVideoWallpapersChanged: updateVideoSource()
-    onCurrentScreenNameChanged: updateVideoSource()
+    onCurrentScreenNameChanged: {
+        if (currentScreenName)
+            GlobalStates.screenWallpapers[currentScreenName] = wallpaper;
+        updateVideoSource();
+    }
 
     Process {
         id: optimizeProcess
@@ -80,39 +84,16 @@ PanelWindow {
                 // the original (out === source).
                 if (out && out !== wallpaper._optimizingSource && wallpaper._optimizingSource === wallpaper.effectiveWallpaper) {
                     wallpaper._optimizedVideoPath = out;
-                    loadOptimizedTimer.restart();
+                    console.debug("Swapping in optimized video wallpaper:", out);
                 }
             }
         }
     }
 
-    Timer {
-        id: loadOptimizedTimer
-        interval: 1500 // allow mpvpaper's IPC socket to come up
-        repeat: false
-        onTriggered: {
-            if (!wallpaper._optimizedVideoPath || getFileType(wallpaper.effectiveWallpaper) !== "video")
-                return;
-            console.debug("Swapping in optimized video wallpaper:", wallpaper._optimizedVideoPath);
-            var jsonCmd = JSON.stringify({
-                command: ["loadfile", wallpaper._optimizedVideoPath, "replace"]
-            });
-            loadOptimizedProcess.command = ["bash", "-c", "echo '" + jsonCmd + "' | socat - " + wallpaper.mpvSocket];
-            loadOptimizedProcess.running = true;
-            // loadfile resumes playback; re-apply the pause state shortly after.
-            wallpaperPauseTimer.restart();
-        }
-    }
-
-    Process {
-        id: loadOptimizedProcess
-        running: false
-    }
-
     // --- Pause decoding while the wallpaper is fully hidden ---
     // When a fullscreen window on this screen completely covers the wallpaper,
-    // pause mpv over IPC so it stops decoding/rendering (GPU drops to ~idle);
-    // resume when it becomes visible again. Only affects video wallpapers.
+    // pause QtMultimedia playback so it stops decoding/rendering; resume when
+    // it becomes visible again. Only affects video wallpapers.
     readonly property var _screenMonitor: AxctlService.monitorFor(wallpaper.screen)
     readonly property bool wallpaperHidden: {
         // A true-fullscreen window fully covers the wallpaper. Use the Wayland
@@ -125,35 +106,6 @@ PanelWindow {
         var fmon = AxctlService.focusedMonitor;
         return mon && fmon && fmon.id === mon.id;
     }
-
-    onWallpaperHiddenChanged: wallpaperPauseTimer.restart()
-
-    Timer {
-        id: wallpaperPauseTimer
-        interval: 250
-        repeat: false
-        onTriggered: {
-            if (getFileType(wallpaper.effectiveWallpaper) !== "video")
-                return;
-            var jsonCmd = JSON.stringify({
-                command: ["set_property", "pause", wallpaper.wallpaperHidden]
-            });
-            wallpaperPauseProcess.command = ["bash", "-c", "echo '" + jsonCmd + "' | socat - " + wallpaper.mpvSocket];
-            wallpaperPauseProcess.running = true;
-        }
-    }
-
-    Process {
-        id: wallpaperPauseProcess
-        running: false
-    }
-
-    // QUICKSHELL-GIT: property string mpvShaderDir: Quickshell.cacheDir + "/mpv_shaders_" + (currentScreenName ? currentScreenName : "ALL")
-    property string mpvShaderDir: Quickshell.env("HOME") + "/.cache/ambxst+/mpv_shaders_" + (currentScreenName ? currentScreenName : "ALL")
-    property string mpvShaderPath: ""
-    property bool mpvShaderReady: false
-
-    readonly property var optimizedPalette: ["background", "overBackground", "shadow", "surface", "surfaceBright", "surfaceDim", "surfaceContainer", "surfaceContainerHigh", "surfaceContainerHighest", "surfaceContainerLow", "surfaceContainerLowest", "primary", "secondary", "tertiary", "red", "lightRed", "green", "lightGreen", "blue", "lightBlue", "yellow", "lightYellow", "cyan", "lightCyan", "magenta", "lightMagenta"]
 
     // Sync state from the primary wallpaper manager to secondary instances
     Binding {
@@ -602,9 +554,6 @@ PanelWindow {
         }
     }
 
-    // property string mpvSocket: "/tmp/ambxst+_mpv_socket"
-    property string mpvSocket: "/tmp/ambxst+_mpv_socket_" + (currentScreenName ? currentScreenName : "ALL")
-
     function runMatugenForCurrentWallpaper() {
         if (activeColorPreset) {
             console.debug("Skipping Matugen because color preset is active:", activeColorPreset);
@@ -645,27 +594,6 @@ PanelWindow {
         }
     }
 
-    function updateMpvRuntime(enable) {
-        var cmdString;
-        if (enable) {
-            // Since we are using unique filenames, we can just set the new path.
-            // MPV will handle the switch smoothly and won't use cached versions.
-            var setCmd = JSON.stringify({
-                "command": ["set_property", "glsl-shaders", mpvShaderPath]
-            });
-            cmdString = "echo '" + setCmd + "' | socat - " + mpvSocket;
-        } else {
-            // Clear shaders
-            var jsonCmd = JSON.stringify({
-                "command": ["set_property", "glsl-shaders", ""]
-            });
-            cmdString = "echo '" + jsonCmd + "' | socat - " + mpvSocket;
-        }
-
-        mpvIpcProcess.command = ["bash", "-c", cmdString];
-        mpvIpcProcess.running = true;
-    }
-
     function requestVideoSync() {
         if (GlobalStates.wallpaperManager !== wallpaper) {
             if (GlobalStates.wallpaperManager) {
@@ -673,188 +601,17 @@ PanelWindow {
             }
             return;
         }
-        videoSyncTimer.restart();
-    }
-
-    Timer {
-        id: videoSyncTimer
-        interval: 1200 // give mpvpaper processes time to spawn and initialize
-        repeat: false
-        onTriggered: {
-            console.debug("Broadcasting video sync to all mpvpaper sockets...");
-            mpvSyncProcess.running = true;
-        }
-    }
-
-    Process {
-        id: mpvSyncProcess
-        running: false
-        command: ["bash", "-c", "for sock in /tmp/ambxst+_mpv_socket_*; do echo '{ \"command\": [\"set_property\", \"time-pos\", 0] }' | socat - \"$sock\" 2>/dev/null; done"]
-        onExited: code => {
-            console.debug("Video sync broadcast completed with code:", code);
-        }
-    }
-
-    function updateMpvShader() {
-        if (getFileType(effectiveWallpaper) !== "video") {
-            return;
-        }
-        if (!wallpaperAdapter.tintEnabled) {
-            updateMpvRuntime(false);
-            return;
-        }
-
-        var colors = [];
-        // Log the first color to see if it changed
-        var firstColorRaw = Colors[optimizedPalette[0]];
-        console.debug("Generating MPV shader. First palette color (" + optimizedPalette[0] + "):", firstColorRaw);
-
-        for (var i = 0; i < optimizedPalette.length; i++) {
-            var rawColor = Colors[optimizedPalette[i]];
-            if (rawColor) {
-                var c = Qt.darker(rawColor, 1.0);
-                if (c && !isNaN(c.r) && !isNaN(c.g) && !isNaN(c.b)) {
-                    colors.push({
-                        r: c.r,
-                        g: c.g,
-                        b: c.b
-                    });
-                }
-            }
-        }
-
-        if (colors.length === 0) {
-            console.warn("MpvShaderGenerator: No valid colors found for palette! Aborting.");
-            return;
-        }
-
-        var shaderContent = ShaderGenerator.generate(colors);
-
-        // Generate a unique filename in a dedicated directory
-        var timestamp = Date.now();
-        var currentShaderPath = mpvShaderDir + "/tint_" + timestamp + ".glsl";
-
-        // Store the current active path so updateMpvRuntime knows which one to use
-        wallpaper.mpvShaderPath = currentShaderPath;
-
-        var cmd = ["python3", "-c", "import sys, os, pathlib; " + "d = pathlib.Path(sys.argv[1]); " + "d.mkdir(parents=True, exist_ok=True); " + "[f.unlink() for f in d.iterdir() if f.is_file()]; " + "pathlib.Path(sys.argv[2]).write_text(sys.argv[3]); " + "print('Wrote shader to ' + sys.argv[2]); " + "legacy_dir = os.path.dirname(sys.argv[1]); " + "[pathlib.Path(legacy_dir, f).unlink(missing_ok=True) for f in ['mpv_tint_0.glsl', 'mpv_tint_1.glsl', 'mpv_tint.glsl']]", mpvShaderDir, currentShaderPath, shaderContent];
-
-        mpvShaderWriter.command = cmd;
-        mpvShaderWriter.running = true;
-    }
-
-    property int ipcRetryCount: 0
-
-    Timer {
-        id: ipcRetryTimer
-        interval: 200
-        repeat: false
-        onTriggered: {
-            // Retry the last command (which is currently set in mpvIpcProcess)
-            mpvIpcProcess.running = true;
-        }
-    }
-
-    Process {
-        id: mpvIpcProcess
-        running: false
-        onExited: code => {
-            if (code !== 0) {
-                console.warn("MPV IPC failed (is mpvpaper running?) Code:", code);
-                if (ipcRetryCount < 10) {
-                    ipcRetryCount++;
-                    console.debug("Retrying IPC (" + ipcRetryCount + "/10)...");
-                    ipcRetryTimer.restart();
-                }
-            } else {
-                ipcRetryCount = 0;
-            }
-        }
-    }
-
-    Process {
-        id: mpvShaderWriter
-        running: false
-        command: []
-
-        stdout: StdioCollector {
-            onStreamFinished: {
-                if (text.length > 0) {
-                    console.debug("mpvShaderWriter stdout:", text);
-                }
-            }
-        }
-
-        stderr: StdioCollector {
-            onStreamFinished: {
-                if (text.length > 0) {
-                    console.warn("mpvShaderWriter stderr:", text);
-                }
-            }
-        }
-
-        onExited: code => {
-            if (code === 0) {
-                console.debug("MPV tint shader generated at:", mpvShaderPath);
-                mpvShaderReady = true;
-                // Apply immediately via IPC
-                updateMpvRuntime(true);
-            } else {
-                console.warn("Failed to generate MPV shader");
-            }
-        }
-    }
-
-    // Trigger update when colors change
-    Timer {
-        id: shaderUpdateDebounce
-        interval: 500
-        onTriggered: {
-            console.debug("Shader debounce triggered, updating MPV...");
-            updateMpvShader();
-        }
-    }
-
-    Connections {
-        target: Colors
-        // Watch for file reload (theme change)
-        function onFileChanged() {
-            console.debug("Colors file changed, scheduling update...");
-            shaderUpdateDebounce.restart();
-        }
-        // Watch for background change (OLED mode often affects this first/only)
-        function onBackgroundChanged() {
-            console.debug("Colors background changed, scheduling update...");
-            shaderUpdateDebounce.restart();
-        }
-        // Fallback
-        function onPrimaryChanged() {
-            console.debug("Colors primary changed, scheduling update...");
-            shaderUpdateDebounce.restart();
-        }
-    }
-
-    Connections {
-        target: Config
-        function onOledModeChanged() {
-            console.debug("Config OLED mode changed, scheduling update...");
-            shaderUpdateDebounce.restart();
-        }
-    }
-
-    onTintEnabledChanged: {
-        console.debug("Tint enabled changed to", tintEnabled);
-        updateMpvShader();
+        GlobalStates.videoSyncTick++;
     }
 
     onEffectiveWallpaperChanged: {
         updateVideoSource();
-        if (getFileType(effectiveWallpaper) === "video") {
-            shaderUpdateDebounce.restart();
-        }
     }
 
     Component.onCompleted: {
+        if (currentScreenName)
+            GlobalStates.screenWallpapers[currentScreenName] = wallpaper;
+
         // Only the first Wallpaper instance should manage scanning
         // Other instances (for other screens) share the same data via GlobalStates
         if (GlobalStates.wallpaperManager !== null) {
@@ -876,19 +633,17 @@ PanelWindow {
         // Load initial wallpaper config - this will trigger onWallPathChanged which does the actual scan
         wallpaperConfig.reload();
 
-        // Generate lockscreen frame for initial wallpaper after a short delay
+        // Lockscreen frame generation deferred after boot to reduce peak memory.
         Qt.callLater(function () {
             if (currentWallpaper) {
                 generateLockscreenFrame(currentWallpaper);
-            }
-            // Force shader generation on startup if enabled
-            if (tintEnabled) {
-                updateMpvShader();
             }
         });
     }
 
     Component.onDestruction: {
+        if (currentScreenName && GlobalStates.screenWallpapers[currentScreenName] === wallpaper)
+            delete GlobalStates.screenWallpapers[currentScreenName];
         if (GlobalStates.wallpaperManager === wallpaper) {
             GlobalStates.wallpaperManager = null;
         }
@@ -1439,7 +1194,7 @@ PanelWindow {
         WallpaperImage {
             id: wallImage
             anchors.fill: parent
-            source: wallpaper.effectiveWallpaper
+            source: wallpaper.playbackSource
         }
     }
 
@@ -1447,17 +1202,6 @@ PanelWindow {
         property string source
         property string previousSource
 
-        Process {
-            id: killMpvpaperProcess
-            running: false
-            command: ["pkill", "-f", wallpaper.mpvSocket]
-
-            onExited: function (exitCode) {
-                console.debug("Killed mpvpaper processes on socket", wallpaper.mpvSocket, ", exit code:", exitCode);
-            }
-        }
-
-        // Trigger animation when source changes
         onSourceChanged: {
             if (previousSource !== "" && source !== previousSource) {
                 if (Config.animDuration > 0) {
@@ -1465,14 +1209,6 @@ PanelWindow {
                 }
             }
             previousSource = source;
-
-            // Kill mpvpaper if switching to a static image
-            if (source) {
-                var fileType = getFileType(source);
-                if (fileType === 'image') {
-                    killMpvpaperProcess.running = true;
-                }
-            }
         }
 
         SequentialAnimation {
@@ -1520,12 +1256,10 @@ PanelWindow {
                     return null;
 
                 var fileType = getFileType(parent.source);
-                if (fileType === 'image') {
-                    return staticImageComponent;
-                } else if (fileType === 'gif' || fileType === 'video') {
-                    return mpvpaperComponent;
+                if (fileType === 'video' || fileType === 'gif') {
+                    return videoWallpaperComponent;
                 }
-                return staticImageComponent; // fallback
+                return staticImageComponent;
             }
 
             property string sourceFile: parent.source
@@ -1602,67 +1336,18 @@ PanelWindow {
         }
 
         Component {
-            id: mpvpaperComponent
-            Item {
-                property string sourceFile: parent.sourceFile
-                property string scriptPath: decodeURIComponent(Qt.resolvedUrl("mpvpaper.sh").toString().replace("file://", ""))
+            id: videoWallpaperComponent
+            VideoWallpaper {
+                id: videoWallpaperChild
+                sourceFile: parent.sourceFile
+                tint: wallpaper.tintEnabled
+                paused: wallpaper.wallpaperHidden
+                onRequestVideoSync: wallpaper.requestVideoSync()
 
-                Timer {
-                    id: mpvpaperRestartTimer
-                    interval: 100
-                    onTriggered: {
-                        if (sourceFile) {
-                            console.debug("Restarting mpvpaper for:", sourceFile);
-                            mpvpaperProcess.running = true;
-                            wallpaper.requestVideoSync();
-                        }
-                    }
-                }
-
-                onSourceFileChanged: {
-                    if (sourceFile) {
-                        console.debug("Source file changed to:", sourceFile);
-                        mpvpaperProcess.running = false;
-                        mpvpaperRestartTimer.restart();
-                    }
-                }
-
-                Component.onCompleted: {
-                    if (sourceFile) {
-                        console.debug("Initial mpvpaper run for:", sourceFile);
-                        mpvpaperProcess.running = true;
-                        wallpaper.requestVideoSync();
-                    }
-                }
-
-                Component.onDestruction:
-                // mpvpaper script handles killing previous instances
-                {}
-
-                Process {
-                    id: mpvpaperProcess
-                    running: false
-                    command: sourceFile && wallpaper.currentScreenName ? ["bash", scriptPath, sourceFile, (wallpaper.tintEnabled ? wallpaper.mpvShaderPath : ""), wallpaper.currentScreenName] : []
-
-                    stdout: StdioCollector {
-                        onStreamFinished: {
-                            if (text.length > 0) {
-                                console.debug("mpvpaper output:", text);
-                            }
-                        }
-                    }
-
-                    stderr: StdioCollector {
-                        onStreamFinished: {
-                            if (text.length > 0) {
-                                console.warn("mpvpaper error:", text);
-                            }
-                        }
-                    }
-
-                    onExited: function (exitCode) {
-                        console.debug("mpvpaper process exited with code:", exitCode);
-                    }
+                Component.onCompleted: wallpaper.activeVideo = videoWallpaperChild
+                Component.onDestruction: {
+                    if (wallpaper.activeVideo === videoWallpaperChild)
+                        wallpaper.activeVideo = null;
                 }
             }
         }
