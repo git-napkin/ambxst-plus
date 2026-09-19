@@ -547,26 +547,20 @@ Item {
     }
 
     function copyToClipboard(itemId) {
-        // Find the item to determine its type
+        const nid = String(itemId);
+        if (!/^\d+$/.test(nid))
+            return;
         for (var i = 0; i < root.allItems.length; i++) {
             if (root.allItems[i].id === itemId) {
                 var item = root.allItems[i];
                 if (item.isImage && item.binaryPath) {
-                    // Copy image with correct MIME type (paths/MIME from our own
-                    // DB — quote-escaped before shell interpolation)
-                    copyProcess.command = ["sh", "-c", "cat '" + item.binaryPath.replace(/'/g, "'\\''") + "' | wl-copy --type '" + item.mime.replace(/'/g, "") + "'"];
+                    copyProcess.command = [ClipboardService.copyScriptPath, "file", item.binaryPath, item.mime || "application/octet-stream"];
                 } else if (item.isFile) {
-                    // Copy file URI with text/uri-list MIME type, removing carriage returns
-                    copyProcess.command = ["sh", "-c", "sqlite3 '" + ClipboardService.dbPath + "' \"SELECT full_content FROM clipboard_items WHERE id = " + itemId + ";\" | tr -d '\\r' | wl-copy --type text/uri-list"];
+                    copyProcess.command = [ClipboardService.copyScriptPath, "db", ClipboardService.dbPath, nid, "text/uri-list"];
+                } else if (root.contentMatchesSelection && root.currentItemId === itemId && root.currentFullContent) {
+                    copyProcess.command = ["wl-copy", root.currentFullContent];
                 } else {
-                    // Optimized path for text: use the already loaded safeCurrentContent if it matches
-                    if (root.contentMatchesSelection && root.currentItemId === itemId && root.currentFullContent) {
-                        // Array args — no shell quoting concerns for arbitrary content
-                        copyProcess.command = ["wl-copy", root.currentFullContent];
-                    } else {
-                        // Fallback: Copy text as plain text from DB
-                        copyProcess.command = ["sh", "-c", "sqlite3 '" + ClipboardService.dbPath + "' \"SELECT full_content FROM clipboard_items WHERE id = " + itemId + ";\" | wl-copy"];
-                    }
+                    copyProcess.command = [ClipboardService.copyScriptPath, "db", ClipboardService.dbPath, nid, item.mime || "text/plain"];
                 }
                 copyProcess.running = true;
                 break;

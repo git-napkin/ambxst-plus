@@ -19,6 +19,8 @@ QtObject {
     readonly property string insertScriptPath: Qt.resolvedUrl("../../scripts/clipboard_insert.sh").toString().replace("file://", "")
     readonly property string checkScriptPath: Qt.resolvedUrl("../../scripts/clipboard_check.sh").toString().replace("file://", "")
     readonly property string watchScriptPath: Qt.resolvedUrl("../../scripts/clipboard_watch.sh").toString().replace("file://", "")
+    readonly property string copyScriptPath: Qt.resolvedUrl("../../scripts/clipboard_copy.sh").toString().replace("file://", "")
+    readonly property string gcScriptPath: Qt.resolvedUrl("../../scripts/clipboard_gc.sh").toString().replace("file://", "")
     readonly property string linkPreviewScriptPath: Qt.resolvedUrl("../../scripts/link_preview.py").toString().replace("file://", "")
 
     property bool _initialized: false
@@ -270,6 +272,26 @@ QtObject {
         }
     }
 
+    function _numericId(id) {
+        const s = String(id);
+        return /^\d+$/.test(s) ? s : "";
+    }
+
+    function _utf8Hex(str) {
+        const utf8 = unescape(encodeURIComponent(str));
+        let hex = "";
+        for (let i = 0; i < utf8.length; i++)
+            hex += ("0" + utf8.charCodeAt(i).toString(16)).slice(-2);
+        return hex;
+    }
+
+    function _sqliteCmd() {
+        const args = ["sqlite3", dbPath, ".timeout 5000"];
+        for (let i = 0; i < arguments.length; i++)
+            args.push(arguments[i]);
+        return args;
+    }
+
     function _runRequest(cmd, onDone) {
         requestProcComp.createObject(root, { cmd: cmd, onDone: onDone });
     }
@@ -277,7 +299,9 @@ QtObject {
     // Get full content of an item
     function getFullContent(id) {
         if (!_initialized) return;
-        _runRequest(["sh", "-c", "sqlite3 '" + dbPath + "' '.timeout 5000' 'SELECT full_content FROM clipboard_items WHERE id = " + id + ";'"], (code, text) => {
+        const nid = _numericId(id);
+        if (!nid) return;
+        _runRequest(_sqliteCmd("SELECT full_content FROM clipboard_items WHERE id = " + nid + ";"), (code, text) => {
             root.fullContentRetrieved(id, code === 0 ? text : "");
         });
     }
@@ -322,20 +346,17 @@ QtObject {
         property string deletedHash: ""
         running: false
         
-        command: ["sh", "-c",
-            "# Get current clipboard hash for different types\n" +
-            "CURRENT_HASH=''; " +
-            "if CONTENT=$(wl-paste --type text/uri-list 2>/dev/null); then " +
-            "  CURRENT_HASH=$(echo -n \"$CONTENT\" | tr -d '\\r' | md5sum | cut -d' ' -f1); " +
-            "elif CONTENT=$(wl-paste --type text/plain 2>/dev/null); then " +
-            "  CURRENT_HASH=$(echo -n \"$CONTENT\" | md5sum | cut -d' ' -f1); " +
-            "elif IMAGE_MIME=$(wl-paste --list-types 2>/dev/null | grep '^image/' | head -1); then " +
-            "  [ -n \"$IMAGE_MIME\" ] && CURRENT_HASH=$(wl-paste --type \"$IMAGE_MIME\" 2>/dev/null | md5sum | cut -d' ' -f1); " +
-            "fi; " +
-            "# Clear clipboard if hashes match\n" +
-            "if [ \"$CURRENT_HASH\" = '" + deletedHash + "' ]; then " +
-            "  wl-copy --clear 2>/dev/null || true; " +
-            "fi"
+        command: ["bash", "-c",
+            'CURRENT_HASH=""; ' +
+            'if CONTENT=$(wl-paste --type text/uri-list 2>/dev/null); then ' +
+            '  CURRENT_HASH=$(printf "%s" "$CONTENT" | tr -d "\\r" | md5sum | cut -d" " -f1); ' +
+            'elif CONTENT=$(wl-paste --type text/plain 2>/dev/null); then ' +
+            '  CURRENT_HASH=$(printf "%s" "$CONTENT" | md5sum | cut -d" " -f1); ' +
+            'elif IMAGE_MIME=$(wl-paste --list-types 2>/dev/null | grep "^image/" | head -1); then ' +
+            '  [ -n "$IMAGE_MIME" ] && CURRENT_HASH=$(wl-paste --type "$IMAGE_MIME" 2>/dev/null | md5sum | cut -d" " -f1); ' +
+            'fi; ' +
+            '[ "$CURRENT_HASH" = "$1" ] && wl-copy --clear >/dev/null 2>&1 || true',
+            "clear-if-match", deletedHash
         ]
         
         stderr: StdioCollector {
@@ -409,13 +430,7 @@ QtObject {
     // Clean binary data directory - only remove orphaned files
     property Process cleanBinaryDataDirProcess: Process {
         running: false
-        command: ["sh", "-c", 
-            "cd '" + binaryDataDir + "' && " +
-            "for f in *; do " +
-            "  [ -f \"$f\" ] || continue; " +
-            "  sqlite3 '" + dbPath + "' \"SELECT COUNT(*) FROM clipboard_items WHERE binary_path = '" + binaryDataDir + "/$f';\" | grep -q '^0$' && rm -f \"$f\"; " +
-            "done"
-        ]
+        command: [gcScriptPath, dbPath, binaryDataDir]
     }
 
     // Load image data
@@ -491,7 +506,7 @@ QtObject {
     }
 
     function initialize() {
-        initDbProcess.command = ["sh", "-c", "sqlite3 " + dbPath + " < " + schemaPath];
+        initDbProcess.command = ["sqlite3", dbPath, ".read '" + schemaPath.replace(/'/g, "''") + "'"];
         initDbProcess.running = true;
     }
 
@@ -510,25 +525,20 @@ QtObject {
     function list() {
         if (!_initialized) return;
         _operationInProgress = true;
-        // Use JSON mode for reliable parsing, with timeout to avoid locks
-        // ORDER BY pinned DESC, display_index ASC to show pinned items first (ordered by index), then unpinned items (ordered by index)
-        listProcess.command = ["sh", "-c", 
-            "sqlite3 '" + dbPath + "' <<'EOSQL'\n.timeout 5000\n.mode json\nSELECT id, mime_type, preview, is_image, binary_path, content_hash, size, created_at, pinned, alias, display_index FROM clipboard_items ORDER BY pinned DESC, display_index ASC, updated_at DESC, id DESC LIMIT 100;\nEOSQL"
-        ];
+        listProcess.command = _sqliteCmd(".mode json",
+            "SELECT id, mime_type, preview, is_image, binary_path, content_hash, size, created_at, pinned, alias, display_index FROM clipboard_items ORDER BY pinned DESC, display_index ASC, updated_at DESC, id DESC LIMIT 100;");
         listProcess.running = true;
     }
 
     function deleteItem(id) {
         if (!_initialized) return;
+        const nid = _numericId(id);
+        if (!nid) return;
         _operationInProgress = true;
-        deleteProcess.itemId = id;
-        
-        // First, get the item's hash to check if it's currently in clipboard
-        deleteProcess.command = ["sh", "-c", 
-            "HASH=$(sqlite3 '" + dbPath + "' '.timeout 5000' 'SELECT content_hash FROM clipboard_items WHERE id = " + id + ";'); " +
-            "sqlite3 '" + dbPath + "' '.timeout 5000' 'DELETE FROM clipboard_items WHERE id = " + id + ";'; " +
-            "echo \"$HASH\""
-        ];
+        deleteProcess.itemId = nid;
+        deleteProcess.command = _sqliteCmd(
+            "SELECT content_hash FROM clipboard_items WHERE id = " + nid + "; DELETE FROM clipboard_items WHERE id = " + nid + ";"
+        );
         deleteProcess.running = true;
     }
 
@@ -540,48 +550,43 @@ QtObject {
 
     function togglePin(id) {
         if (!_initialized) return;
+        const nid = _numericId(id);
+        if (!nid) return;
         _operationInProgress = true;
-        togglePinProcess.itemId = id;
-        togglePinProcess.command = ["sh", "-c", 
-            "sqlite3 '" + dbPath + "' <<'EOSQL'\n" +
-            ".timeout 5000\n" +
-            "BEGIN TRANSACTION;\n" +
-            "-- Toggle pin status\n" +
-            "UPDATE clipboard_items SET pinned = CASE WHEN pinned = 1 THEN 0 ELSE 1 END WHERE id = " + id + ";\n" +
-            "-- Get new pinned status\n" +
-            "-- If item is now pinned (pinned=1), set its index to 0 and shift others\n" +
-            "-- If item is now unpinned (pinned=0), set its index to 0 and shift others\n" +
-            "UPDATE clipboard_items SET display_index = CASE \n" +
-            "  WHEN id = " + id + " THEN 0\n" +
-            "  ELSE display_index + 1\n" +
-            "END WHERE pinned = (SELECT pinned FROM clipboard_items WHERE id = " + id + ");\n" +
-            "-- Compact indices to remove gaps for both pinned and unpinned\n" +
-            "WITH reindexed_pinned AS (\n" +
-            "  SELECT id, ROW_NUMBER() OVER (ORDER BY display_index ASC, updated_at DESC, id DESC) - 1 AS new_idx\n" +
-            "  FROM clipboard_items WHERE pinned = 1\n" +
-            ")\n" +
-            "UPDATE clipboard_items SET display_index = (SELECT new_idx FROM reindexed_pinned WHERE reindexed_pinned.id = clipboard_items.id) WHERE pinned = 1;\n" +
-            "WITH reindexed_unpinned AS (\n" +
-            "  SELECT id, ROW_NUMBER() OVER (ORDER BY display_index ASC, updated_at DESC, id DESC) - 1 AS new_idx\n" +
-            "  FROM clipboard_items WHERE pinned = 0\n" +
-            ")\n" +
-            "UPDATE clipboard_items SET display_index = (SELECT new_idx FROM reindexed_unpinned WHERE reindexed_unpinned.id = clipboard_items.id) WHERE pinned = 0;\n" +
-            "COMMIT;\n" +
-            "EOSQL"
-        ];
+        togglePinProcess.itemId = nid;
+        togglePinProcess.command = _sqliteCmd(
+            "BEGIN TRANSACTION; " +
+            "UPDATE clipboard_items SET pinned = CASE WHEN pinned = 1 THEN 0 ELSE 1 END WHERE id = " + nid + "; " +
+            "UPDATE clipboard_items SET display_index = CASE " +
+            "  WHEN id = " + nid + " THEN 0 " +
+            "  ELSE display_index + 1 " +
+            "END WHERE pinned = (SELECT pinned FROM clipboard_items WHERE id = " + nid + "); " +
+            "WITH reindexed_pinned AS ( " +
+            "  SELECT id, ROW_NUMBER() OVER (ORDER BY display_index ASC, updated_at DESC, id DESC) - 1 AS new_idx " +
+            "  FROM clipboard_items WHERE pinned = 1 " +
+            ") " +
+            "UPDATE clipboard_items SET display_index = (SELECT new_idx FROM reindexed_pinned WHERE reindexed_pinned.id = clipboard_items.id) WHERE pinned = 1; " +
+            "WITH reindexed_unpinned AS ( " +
+            "  SELECT id, ROW_NUMBER() OVER (ORDER BY display_index ASC, updated_at DESC, id DESC) - 1 AS new_idx " +
+            "  FROM clipboard_items WHERE pinned = 0 " +
+            ") " +
+            "UPDATE clipboard_items SET display_index = (SELECT new_idx FROM reindexed_unpinned WHERE reindexed_unpinned.id = clipboard_items.id) WHERE pinned = 0; " +
+            "COMMIT;"
+        );
         togglePinProcess.running = true;
     }
 
     function setAlias(id, alias) {
         if (!_initialized) return;
+        const nid = _numericId(id);
+        if (!nid) return;
         _operationInProgress = true;
-        setAliasProcess.itemId = id;
-        // Escape single quotes in alias by replacing ' with ''
-        var escapedAlias = alias.replace(/'/g, "''");
-        if (alias.trim() === "") {
-            setAliasProcess.command = ["sh", "-c", "sqlite3 '" + dbPath + "' '.timeout 5000' 'UPDATE clipboard_items SET alias = NULL WHERE id = " + id + ";'"];
+        setAliasProcess.itemId = nid;
+        if (String(alias).trim() === "") {
+            setAliasProcess.command = _sqliteCmd("UPDATE clipboard_items SET alias = NULL WHERE id = " + nid + ";");
         } else {
-            setAliasProcess.command = ["sh", "-c", "sqlite3 '" + dbPath + "' '.timeout 5000' \"UPDATE clipboard_items SET alias = '" + escapedAlias + "' WHERE id = " + id + ";\""];
+            const hex = _utf8Hex(String(alias));
+            setAliasProcess.command = _sqliteCmd("UPDATE clipboard_items SET alias = CAST(x'" + hex + "' AS TEXT) WHERE id = " + nid + ";");
         }
         setAliasProcess.running = true;
     }
@@ -605,29 +610,26 @@ QtObject {
         
         if (!item) return;
         
+        const nid = _numericId(itemId);
+        if (!nid) return;
         var isPinned = item.pinned ? 1 : 0;
         
         // Validate newIndex is non-negative
         if (newIndex < 0) newIndex = 0;
+        const idx = String(Math.floor(Number(newIndex)));
+        if (!/^\d+$/.test(idx)) return;
         
-        // Execute reordering with conflict resolution
-        reorderProcess.command = ["sh", "-c", 
-            "sqlite3 '" + dbPath + "' <<'EOSQL'\n" +
-            ".timeout 5000\n" +
-            "BEGIN TRANSACTION;\n" +
-            "-- Shift other items to make room\n" +
-            "UPDATE clipboard_items SET display_index = display_index + 1 WHERE pinned = " + isPinned + " AND display_index >= " + newIndex + " AND id != " + itemId + ";\n" +
-            "-- Set new index for target item\n" +
-            "UPDATE clipboard_items SET display_index = " + newIndex + " WHERE id = " + itemId + ";\n" +
-            "-- Compact indices to remove gaps\n" +
-            "WITH reindexed AS (\n" +
-            "  SELECT id, ROW_NUMBER() OVER (ORDER BY display_index ASC, updated_at DESC, id DESC) - 1 AS new_idx\n" +
-            "  FROM clipboard_items WHERE pinned = " + isPinned + "\n" +
-            ")\n" +
-            "UPDATE clipboard_items SET display_index = (SELECT new_idx FROM reindexed WHERE reindexed.id = clipboard_items.id) WHERE pinned = " + isPinned + ";\n" +
-            "COMMIT;\n" +
-            "EOSQL"
-        ];
+        reorderProcess.command = _sqliteCmd(
+            "BEGIN TRANSACTION; " +
+            "UPDATE clipboard_items SET display_index = display_index + 1 WHERE pinned = " + isPinned + " AND display_index >= " + idx + " AND id != " + nid + "; " +
+            "UPDATE clipboard_items SET display_index = " + idx + " WHERE id = " + nid + "; " +
+            "WITH reindexed AS ( " +
+            "  SELECT id, ROW_NUMBER() OVER (ORDER BY display_index ASC, updated_at DESC, id DESC) - 1 AS new_idx " +
+            "  FROM clipboard_items WHERE pinned = " + isPinned + " " +
+            ") " +
+            "UPDATE clipboard_items SET display_index = (SELECT new_idx FROM reindexed WHERE reindexed.id = clipboard_items.id) WHERE pinned = " + isPinned + "; " +
+            "COMMIT;"
+        );
         reorderProcess.running = true;
     }
     
@@ -700,37 +702,33 @@ QtObject {
     // Swap display indices between two items
     function swapItems(itemId1, itemId2) {
         if (!_initialized) return;
-        
-        var cmd = "sqlite3 '" + dbPath + "' <<'EOSQL'\n" +
-            ".timeout 5000\n" +
-            "BEGIN TRANSACTION;\n" +
-            "-- Reindex to ensure unique indices\n" +
-            "WITH reindexed_pinned AS (\n" +
-            "  SELECT id, ROW_NUMBER() OVER (ORDER BY display_index ASC, updated_at DESC, id DESC) - 1 AS new_idx\n" +
-            "  FROM clipboard_items WHERE pinned = 1\n" +
-            ")\n" +
-            "UPDATE clipboard_items SET display_index = (SELECT new_idx FROM reindexed_pinned WHERE reindexed_pinned.id = clipboard_items.id) WHERE pinned = 1;\n" +
-            "WITH reindexed_unpinned AS (\n" +
-            "  SELECT id, ROW_NUMBER() OVER (ORDER BY display_index ASC, updated_at DESC, id DESC) - 1 AS new_idx\n" +
-            "  FROM clipboard_items WHERE pinned = 0\n" +
-            ")\n" +
-            "UPDATE clipboard_items SET display_index = (SELECT new_idx FROM reindexed_unpinned WHERE reindexed_unpinned.id = clipboard_items.id) WHERE pinned = 0;\n" +
-            "-- Create temp variables for the swap\n" +
-            "CREATE TEMP TABLE IF NOT EXISTS swap_temp (idx1 INTEGER, idx2 INTEGER);\n" +
-            "DELETE FROM swap_temp;\n" +
-            "INSERT INTO swap_temp (idx1, idx2) \n" +
-            "  SELECT \n" +
-            "    (SELECT display_index FROM clipboard_items WHERE id = " + itemId1 + "),\n" +
-            "    (SELECT display_index FROM clipboard_items WHERE id = " + itemId2 + ");\n" +
-            "-- Perform the swap\n" +
-            "UPDATE clipboard_items SET display_index = (SELECT idx2 FROM swap_temp) WHERE id = " + itemId1 + ";\n" +
-            "UPDATE clipboard_items SET display_index = (SELECT idx1 FROM swap_temp) WHERE id = " + itemId2 + ";\n" +
-            "-- Clean up\n" +
-            "DELETE FROM swap_temp;\n" +
-            "COMMIT;\n" +
-            "EOSQL";
+        const a = _numericId(itemId1);
+        const b = _numericId(itemId2);
+        if (!a || !b) return;
 
-        swapSqlProcess.command = ["sh", "-c", cmd];
+        swapSqlProcess.command = _sqliteCmd(
+            "BEGIN TRANSACTION; " +
+            "WITH reindexed_pinned AS ( " +
+            "  SELECT id, ROW_NUMBER() OVER (ORDER BY display_index ASC, updated_at DESC, id DESC) - 1 AS new_idx " +
+            "  FROM clipboard_items WHERE pinned = 1 " +
+            ") " +
+            "UPDATE clipboard_items SET display_index = (SELECT new_idx FROM reindexed_pinned WHERE reindexed_pinned.id = clipboard_items.id) WHERE pinned = 1; " +
+            "WITH reindexed_unpinned AS ( " +
+            "  SELECT id, ROW_NUMBER() OVER (ORDER BY display_index ASC, updated_at DESC, id DESC) - 1 AS new_idx " +
+            "  FROM clipboard_items WHERE pinned = 0 " +
+            ") " +
+            "UPDATE clipboard_items SET display_index = (SELECT new_idx FROM reindexed_unpinned WHERE reindexed_unpinned.id = clipboard_items.id) WHERE pinned = 0; " +
+            "CREATE TEMP TABLE IF NOT EXISTS swap_temp (idx1 INTEGER, idx2 INTEGER); " +
+            "DELETE FROM swap_temp; " +
+            "INSERT INTO swap_temp (idx1, idx2) " +
+            "  SELECT " +
+            "    (SELECT display_index FROM clipboard_items WHERE id = " + a + "), " +
+            "    (SELECT display_index FROM clipboard_items WHERE id = " + b + "); " +
+            "UPDATE clipboard_items SET display_index = (SELECT idx2 FROM swap_temp) WHERE id = " + a + "; " +
+            "UPDATE clipboard_items SET display_index = (SELECT idx1 FROM swap_temp) WHERE id = " + b + "; " +
+            "DELETE FROM swap_temp; " +
+            "COMMIT;"
+        );
         swapSqlProcess.running = false;
         swapSqlProcess.running = true;
     }

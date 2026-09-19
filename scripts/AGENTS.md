@@ -9,7 +9,10 @@ Python and Bash backend utilities invoked by QML services via `Quickshell.Io.Pro
 | `system_monitor.py` | Python | `SystemResources.qml` | CPU, RAM, GPU, disk, temperature polling. Outputs JSON to stdout |
 | `clipboard_watch.sh` | Bash | `ClipboardService.qml` | Watches clipboard changes via `wl-paste --watch` |
 | `clipboard_check.sh` | Bash | `ClipboardService.qml` | Validates clipboard state and deduplication |
-| `clipboard_insert.sh` | Bash | `ClipboardService.qml` | Inserts items into clipboard via `wl-copy` |
+| `clipboard_insert.sh` | Bash | `ClipboardService.qml` | Inserts items into sqlite via `readfile()` (MIME/hash never spliced into SQL) |
+| `clipboard_copy.sh` | Bash | `ClipboardTab.qml` | Restores history items with argv `wl-copy` / sqlite |
+| `clipboard_gc.sh` | Bash | `ClipboardService.qml` | Removes orphaned clipboard binary files |
+| `ipc_pipe.sh` | Bash | `GlobalShortcuts.qml` | Per-user FIFO under `$XDG_RUNTIME_DIR` or `/run/user/$UID` |
 | `colorpicker.py` | Python | Tools | `hyprpicker` wrapper with format output |
 | `ocr.sh` | Bash | Tools | Screenshot → OCR text extraction |
 | `qr_scan.sh` | Bash | Tools | QR/barcode scanning from screen capture |

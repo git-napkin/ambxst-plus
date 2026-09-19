@@ -2,6 +2,10 @@
 # Insert clipboard item into database
 # Usage: clipboard_insert.sh <db_path> <hash> <mime_type> <is_image> <binary_path> <size>
 # Content is read from stdin
+#
+# Attacker-controlled strings (MIME from wl-paste --list-types, hash/path) are
+# written to temp files and loaded with sqlite readfile() — never spliced into
+# the SQL text.
 
 set -euo pipefail
 
@@ -12,19 +16,32 @@ IS_IMAGE="$4"
 BINARY_PATH="$5"
 SIZE="${6:-0}"
 
-# Read content from stdin and strip carriage returns
-# Use a temp file to preserve all unicode characters exactly
+if [[ ! "$IS_IMAGE" =~ ^[01]$ ]]; then
+	echo "clipboard_insert: is_image must be 0 or 1" >&2
+	exit 1
+fi
+if [[ ! "$SIZE" =~ ^[0-9]+$ ]]; then
+	echo "clipboard_insert: size must be an integer" >&2
+	exit 1
+fi
+
 CONTENT_FILE=$(mktemp)
 PREVIEW_FILE=$(mktemp)
-trap 'rm -f "$CONTENT_FILE" "$PREVIEW_FILE"' EXIT
+HASH_FILE=$(mktemp)
+MIME_FILE=$(mktemp)
+BINPATH_FILE=$(mktemp)
+trap 'rm -f "$CONTENT_FILE" "$PREVIEW_FILE" "$HASH_FILE" "$MIME_FILE" "$BINPATH_FILE"' EXIT
+
 cat | tr -d '\r' >"$CONTENT_FILE"
+printf '%s' "$HASH" >"$HASH_FILE"
+printf '%s' "$MIME_TYPE" >"$MIME_FILE"
+printf '%s' "$BINARY_PATH" >"$BINPATH_FILE"
 
 # Don't insert empty content for text items
 if [ "$IS_IMAGE" = "0" ] && [ ! -s "$CONTENT_FILE" ]; then
 	exit 0
 fi
 
-# Preview without slurping the full clip into a shell variable
 if [ "$IS_IMAGE" = "1" ]; then
 	printf '%s' "[Image]" >"$PREVIEW_FILE"
 else
@@ -35,24 +52,21 @@ else
 	fi
 fi
 
-# Get timestamp in milliseconds
 TIMESTAMP=$(date +%s)000
 
-# Use sqlite3 with -cmd to read from files using readfile() function
-# This avoids all shell escaping issues
+# Paths come from mktemp (no attacker control). Integers are validated above.
 sqlite3 "$DB_PATH" <<EOSQL
 .timeout 5000
 BEGIN TRANSACTION;
--- Insert or update item (unpinned items always get display_index 0)
 INSERT INTO clipboard_items 
 (content_hash, mime_type, preview, full_content, is_image, binary_path, size, pinned, display_index, created_at, updated_at) 
 VALUES (
-    '${HASH}',
-    '${MIME_TYPE}',
+    readfile('${HASH_FILE}'),
+    readfile('${MIME_FILE}'),
     readfile('${PREVIEW_FILE}'),
     readfile('${CONTENT_FILE}'),
     ${IS_IMAGE},
-    '${BINARY_PATH}',
+    readfile('${BINPATH_FILE}'),
     ${SIZE},
     0,
     0,
@@ -62,7 +76,6 @@ VALUES (
 ON CONFLICT(content_hash) DO UPDATE SET
 updated_at = ${TIMESTAMP},
 display_index = 0;
--- Reindex unpinned items (new item is at 0, others shift down)
 WITH reindexed AS (
   SELECT id, ROW_NUMBER() OVER (ORDER BY updated_at DESC, id DESC) - 1 AS new_idx
   FROM clipboard_items WHERE pinned = 0
