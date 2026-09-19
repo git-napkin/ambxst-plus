@@ -5,7 +5,7 @@
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
 
     axctl = {
-      url = "github:git-napkin/axctl-plus/dev";
+      url = "github:git-napkin/axctl-plus/main";
       inputs.nixpkgs.follows = "nixpkgs";
     };
   };

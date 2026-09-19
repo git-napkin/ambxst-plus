@@ -16,7 +16,7 @@
       },
       "original": {
         "owner": "git-napkin",
-        "ref": "dev",
+        "ref": "main",
         "repo": "axctl-plus",
         "type": "github"
       }
