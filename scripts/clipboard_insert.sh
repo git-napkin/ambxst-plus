@@ -61,12 +61,12 @@ BEGIN TRANSACTION;
 INSERT INTO clipboard_items 
 (content_hash, mime_type, preview, full_content, is_image, binary_path, size, pinned, display_index, created_at, updated_at) 
 VALUES (
-    readfile('${HASH_FILE}'),
-    readfile('${MIME_FILE}'),
-    readfile('${PREVIEW_FILE}'),
-    readfile('${CONTENT_FILE}'),
+    CAST(readfile('${HASH_FILE}') AS TEXT),
+    CAST(readfile('${MIME_FILE}') AS TEXT),
+    CAST(readfile('${PREVIEW_FILE}') AS TEXT),
+    CAST(readfile('${CONTENT_FILE}') AS TEXT),
     ${IS_IMAGE},
-    readfile('${BINPATH_FILE}'),
+    CAST(readfile('${BINPATH_FILE}') AS TEXT),
     ${SIZE},
     0,
     0,
