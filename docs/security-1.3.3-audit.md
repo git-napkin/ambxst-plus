@@ -232,7 +232,9 @@ So **clipboard payload as a command-injection string** is largely gone from the 
 ```
 
 A Wayland client in the session can advertise a MIME type such as  
-`image/png'); ATTACH DATABASE '/tmp/evil' AS e; --`. HASH / paths from `mktemp` are not attacker-chosen; MIME is.
+`x', 'preview', 'full', 0, '', 0, 0, 0, 0, 0); UPDATE clipboard_items SET alias='INJECTED' WHERE 1; --`.
+
+Reproduced 2026-09-19 against an isolated temp copy of `clipboard_init.sql`: a seed row (`id=1`, `mime_type=text/plain`) had `alias` flipped to `INJECTED`, and a second row with `mime_type=x` was inserted. HASH / paths from `mktemp` are not attacker-chosen; MIME is.
 
 **B. Restore / query still `sh -c` + string-concatenated SQL.**  
 `ClipboardTab.copyToClipboard` for images and file URIs, and the text fallback, build a shell:
