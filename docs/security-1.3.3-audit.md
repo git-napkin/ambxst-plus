@@ -5,7 +5,9 @@
 **Compared to:** Axenide/Ambxst tag [1.3.3](https://github.com/Axenide/Ambxst/releases/tag/1.3.3) (SECURITY UPDATE, 2026-09-09)  
 **Related repo in this environment:** `git-napkin/axctl-plus` (flake input `github:git-napkin/axctl-plus/dev`)
 
-This is an analysis-only document. No behavior was changed.
+**Status (2026-09-19):** remediations landed. Historical findings below are kept; each closed item is marked **Fixed**. Wallpaper-port work was not touched.
+
+Flake input `github:git-napkin/axctl-plus/dev` is still locked to `9284080a` in `flake.lock`. Do **not** retarget the pin at a feature branch. After the axctl-plus P0 PR merges onto the branch this flake tracks (`dev` in `flake.nix`; origin HEAD is currently `main`), run `nix flake update axctl`.
 
 Upstream GitHub release notes for 1.3.3 are empty besides the changelog link. The security work is in three same-day commits on that tag:
 
@@ -17,11 +19,11 @@ Upstream GitHub release notes for 1.3.3 are empty besides the changelog link. Th
 
 Axenide/axctl additionally checks `SO_PEERCRED` on every accepted connection (`pkg/server/peercred_linux.go`, called from `handleConnection`). Clipboard injection was largely removed by the 1.3.2 Go rewrite ([`c581b36b`](https://github.com/Axenide/Ambxst/commit/c581b36b) `feat(clipboard): encrypted stores…` / tag 1.3.2) and then kept out of shell in 1.3.3 by not restoring the old `scripts/clipboard_*.sh` path.
 
-| # | Bug | Verdict on Ambxst[+] |
-|---|---|---|
-| 1 | Command injection via Wi-Fi SSID (High) | **Not vulnerable** |
-| 2 | IPC squatting (FIFO + axctl socket + peer creds) | **Partial** (FIFO) / **Vulnerable** (`axctl-plus`) |
-| 3 | Clipboard injection vectors | **Partial** |
+| # | Bug | Verdict on Ambxst[+] | Remediation |
+|---|---|---|---|
+| 1 | Command injection via Wi-Fi SSID (High) | **Not vulnerable** | none needed |
+| 2 | IPC squatting (FIFO + axctl socket + peer creds) | was **Partial** / **Vulnerable** | **Fixed** (FIFO in this tree; socket+peercred in axctl-plus, flake bump pending merge) |
+| 3 | Clipboard injection vectors | was **Partial** | **Fixed** (MIME `readfile`, argv restore, argv sqlite / hex alias) |
 
 ---
 
@@ -86,7 +88,9 @@ None for this bug. Optional: add a contract test like upstream `TestConnectNever
 
 Two distinct channels: the Ambxst[+] keybind FIFO, and the `axctl` / `axctl+` JSON-RPC socket. Axctl-plus is in this environment (`/agent/repos/axctl-plus`, flake input `github:git-napkin/axctl-plus/dev`).
 
-### 2a. Keybind FIFO — **Partial** (already out of hardcoded `/tmp`, weaker fallback)
+### 2a. Keybind FIFO — **Fixed** (was Partial: `/tmp` fallback + no ownership check)
+
+`scripts/ipc_pipe.sh` now lives under `$XDG_RUNTIME_DIR` or `/run/user/$UID`, refuses leftover nodes not owned by this UID, and is used by `GlobalShortcuts.qml` (`listen`). `cli.sh` `write_ipc_pipe` and `scripts/colorpicker.py` use the same path and fail closed on a foreign-owned fifo.
 
 Upstream 1.3.3 moved `GlobalShortcuts.qml` from `/tmp/ambxst_ipc.pipe` to `${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/ambxst_ipc.pipe`. `/tmp` is world-shared; the sticky bit lets another local account plant a FIFO of that name and either block Hyprland keybinds or impersonate the shell.
 
@@ -123,7 +127,11 @@ Gaps versus 1.3.3:
 
 On a normal systemd user session (`XDG_RUNTIME_DIR=/run/user/$UID`, mode `0700`) this is equivalent to upstream for the FIFO.
 
-### 2b. axctl / axctl+ socket — **Vulnerable** (lives in `axctl-plus`, not this tree)
+### 2b. axctl / axctl+ socket — **Fixed in axctl-plus** (flake lock not yet bumped)
+
+axctl-plus `DefaultSocketPath()` is `$AXCTL_SOCKET` → `$XDG_RUNTIME_DIR/axctl.sock` → `/run/user/<uid>/axctl.sock`. `handleConnection` calls `verifyPeerUID` (`SO_PEERCRED`). Socket is `chmod 0600` after listen. Ambxst[+] still execs `axctl` without a hardcoded path; bump `flake.lock` after that PR merges.
+
+Historical vulnerable snapshot:
 
 Upstream Ambxst 1.3.3 looks up `$XDG_RUNTIME_DIR/axctl.sock` first. Current Axenide/axctl `defaultSocketPath()` is:
 
@@ -221,7 +229,11 @@ AI `copy_to_clipboard` is the same pattern (`NativeToolBridge.qml`: `["wl-copy",
 
 So **clipboard payload as a command-injection string** is largely gone from the insert + default text-copy path.
 
-### Remaining vectors
+### Remaining vectors (closed)
+
+**A/B/C/D are Fixed.** `clipboard_insert.sh` loads MIME/hash/path via `readfile()`. Restore goes through `clipboard_copy.sh` argv. `ClipboardService.qml` runs sqlite as argv (`_sqliteCmd`); aliases are hex blobs (`CAST(x'…' AS TEXT)`), not double-quoted `sh -c`. `clearClipboardIfMatches` passes the hash as `$1`.
+
+Historical remaining vectors:
 
 **A. MIME type interpolated into SQL (clipboard-controlled).**  
 `clipboard_check.sh` takes image MIME from `wl-paste --list-types | grep '^image/'` and passes it as argv to `clipboard_insert.sh`, which then drops it into the SQL heredoc unescaped:
@@ -269,15 +281,15 @@ Do **not** port the Go clipboard daemon (out of architecture scope; see `docs/up
 
 ## Ranked remediation
 
-| Rank | Where | Work | Closes |
-|---|---|---|---|
-| **P0** | `axctl-plus` | Runtime-dir socket + `SO_PEERCRED` on accept (copy Axenide/axctl `defaultSocketPath` / `peercred_*.go`). Then bump this flake’s `axctl` input. | 2b — local-user compositor IPC squat |
-| **P1** | `scripts/clipboard_insert.sh` | Stop interpolating MIME/paths into SQL | 3A |
-| **P1** | `ClipboardTab.qml` `copyToClipboard` | Argv `wl-copy` / sqlite; drop `sh -c` | 3B |
-| **P1** | `GlobalShortcuts.qml`, `cli.sh`, `colorpicker.py` | Fallback `/run/user/$UID`; ownership check before using a leftover FIFO | 2a |
-| **P2** | `ClipboardService.qml` | Argv sqlite; alias not in `sh -c` | 3C |
-| **P3** | Wallpaper / screenshot `/tmp` sockets and images | Move under `$XDG_RUNTIME_DIR` (separate from wallpaper-port work) | related squat, not a 1.3.3 item |
-| — | Wi-Fi SSID | No code change | 1 already equivalent |
+| Rank | Where | Work | Closes | Status |
+|---|---|---|---|---|
+| **P0** | `axctl-plus` | Runtime-dir socket + `SO_PEERCRED` on accept. Then bump this flake’s `axctl` input. | 2b | **Done** in axctl-plus; flake lock bump **pending merge** (tracks `dev`, do not pin a feature branch) |
+| **P1** | `scripts/clipboard_insert.sh` | Stop interpolating MIME/paths into SQL | 3A | **Fixed** |
+| **P1** | `ClipboardTab.qml` `copyToClipboard` | Argv `wl-copy` / sqlite; drop `sh -c` | 3B | **Fixed** |
+| **P1** | `GlobalShortcuts.qml`, `cli.sh`, `colorpicker.py` | Fallback `/run/user/$UID`; ownership check before using a leftover FIFO | 2a | **Fixed** |
+| **P2** | `ClipboardService.qml` | Argv sqlite; alias not in `sh -c` | 3C | **Fixed** |
+| **P3** | Wallpaper / screenshot `/tmp` sockets and images | Move under `$XDG_RUNTIME_DIR` (separate from wallpaper-port work) | related squat, not a 1.3.3 item | **untouched** |
+| — | Wi-Fi SSID | No code change | 1 already equivalent | n/a |
 
 ---
 
@@ -286,5 +298,4 @@ Do **not** port the Go clipboard daemon (out of architecture scope; see `docs/up
 - Read Ambxst[+] `NetworkService.qml`, `WifiNetworkItem.qml`, `GlobalShortcuts.qml`, `cli.sh`, `ClipboardService.qml`, `ClipboardTab.qml`, `scripts/clipboard_*.sh`.
 - Read axctl-plus `main.go` `daemonSocketPath` and `pkg/server/server.go` `Start` / `handleConnection`.
 - Compared to Axenide/Ambxst 1.3.3 commits above, Axenide/axctl `defaultSocketPath` + `verifyPeerUID`, and upstream `backend/pkg/svc/clipboard/watch.go`.
-- Did not implement fixes in this change.
-- Did not touch wallpaper-port work.
+- Remediations implemented after this audit; wallpaper-port work was not touched.
