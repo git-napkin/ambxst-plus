@@ -14,7 +14,13 @@ QtObject {
 
     readonly property string appId: "ambxst+"
     readonly property int mediaSeekStepMs: 5000
-    readonly property string ipcPipe: (Quickshell.env("XDG_RUNTIME_DIR") || "/tmp") + "/ambxst+_ipc.pipe"
+    readonly property string ipcPipeScript: Qt.resolvedUrl("../../scripts/ipc_pipe.sh").toString().replace("file://", "")
+    readonly property string ipcPipe: {
+        const xdg = Quickshell.env("XDG_RUNTIME_DIR");
+        if (xdg && xdg.length)
+            return xdg + "/ambxst+_ipc.pipe";
+        return "/run/user/" + Quickshell.env("UID") + "/ambxst+_ipc.pipe";
+    }
     property bool _shuttingDown: false
 
     property Timer pipeRestartTimer: Timer {
@@ -27,14 +33,7 @@ QtObject {
     }
 
     property Process pipeListener: Process {
-        command: ["bash", "-c",
-            "runtime=\"${XDG_RUNTIME_DIR:-/tmp}\"; " +
-            "pipe=\"$runtime/ambxst+_ipc.pipe\"; " +
-            "mkdir -p \"$runtime\"; " +
-            "if [ ! -p \"$pipe\" ]; then rm -f \"$pipe\"; mkfifo -m 600 \"$pipe\"; fi; " +
-            "chmod 600 \"$pipe\" 2>/dev/null || true; " +
-            "while true; do cat \"$pipe\" || sleep 0.2; done"
-        ]
+        command: [ipcPipeScript, "listen"]
         running: true
 
         stdout: SplitParser {

@@ -252,11 +252,17 @@ EOF
 # and bound the open/write.
 write_ipc_pipe() {
 	local payload="$1"
-	local pipe="${XDG_RUNTIME_DIR:-/tmp}/ambxst+_ipc.pipe"
-	local pid
+	local uid runtime pipe owner pid
+	uid="$(id -u)"
+	runtime="${XDG_RUNTIME_DIR:-/run/user/${uid}}"
+	pipe="${runtime}/ambxst+_ipc.pipe"
 
 	pid=$(find_ambxst_plus_pid_cached)
 	if [ -z "$pid" ] || [ ! -p "$pipe" ]; then
+		return 1
+	fi
+	owner="$(stat -c '%u' "$pipe" 2>/dev/null || true)"
+	if [ "$owner" != "$uid" ]; then
 		return 1
 	fi
 	if command -v timeout >/dev/null 2>&1; then

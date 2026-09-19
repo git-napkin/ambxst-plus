@@ -17,15 +17,22 @@ def cmd(*args, input=None, timeout=10):
     return subprocess.run(args, input=input, capture_output=True, timeout=timeout, check=True).stdout
 
 
+def ipc_runtime_dir():
+    xdg = os.environ.get("XDG_RUNTIME_DIR")
+    if xdg:
+        return xdg
+    return f"/run/user/{os.getuid()}"
+
+
 def notify_shell(payload):
-    pipe = os.path.join(os.environ.get("XDG_RUNTIME_DIR", "/tmp"), "ambxst+_ipc.pipe")
+    pipe = os.path.join(ipc_runtime_dir(), "ambxst+_ipc.pipe")
     body = dict(payload)
     body["v"] = "notify"
     data = (json.dumps(body) + "\n").encode("utf-8")
     fd = None
     try:
         st = os.stat(pipe)
-        if not stat.S_ISFIFO(st.st_mode):
+        if not stat.S_ISFIFO(st.st_mode) or st.st_uid != os.getuid():
             return False
         fd = os.open(pipe, os.O_WRONLY | os.O_NONBLOCK)
         written = 0
