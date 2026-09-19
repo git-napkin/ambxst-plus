@@ -113,14 +113,13 @@ loadfile(os.getenv("HOME") .. "/.local/share/ambxst+/hyprland.lua")()
 -- Down here you can write or source anything that you want to override from Ambxst[+]'s settings.
 EOF
 )
-
 append_ambxst_plus_hyprland_block() {
 	local conf="$1"
 	local source="$2"
 	local block="$3"
 
 	if [ -f "$conf" ] && grep -qF "$source" "$conf"; then
-		echo "Ambxst[+] Hyprland block already present in $conf"
+		echo "Ambxst[+] block already present in $conf"
 		return 0
 	fi
 
@@ -130,7 +129,7 @@ append_ambxst_plus_hyprland_block() {
 		printf "%s\n" "$block" >"$conf"
 	fi
 
-	echo "Added Ambxst[+] Hyprland block to $conf"
+	echo "Added Ambxst[+] block to $conf"
 }
 
 ensure_ambxst_plus_hyprland_source() {
@@ -828,6 +827,11 @@ help | --help | -h)
 	# Force Qt6CT
 	export QT_QPA_PLATFORMTHEME=qt6ct
 	unset HL_INITIAL_WORKSPACE_TOKEN
+
+	# Align Ambxst[+]-spawned tmux with user shells. An existing TMUX_TMPDIR always wins.
+	if [ -z "${TMUX_TMPDIR:-}" ] && [ -n "${XDG_RUNTIME_DIR:-}" ]; then
+		export TMUX_TMPDIR="$XDG_RUNTIME_DIR"
+	fi
 
 	# Cache this script's PID before exec (for fast PID lookups in future CLI calls)
 	# In the runtime dir: user-owned (0700) and not world-writable, unlike /tmp

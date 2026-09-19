@@ -642,7 +642,9 @@ WlSessionLockSurface {
     // Timer to unlock after exit animation
     Timer {
         id: unlockTimer
-        interval: Config.animDuration * 2  // Wait for zoom out (1x) + fade out (1x)
+        // A Timer with interval 0 never fires in Qt; keep a 1ms tick when
+        // animations are off so fingerprint/PAM success still dismisses.
+        interval: Config.animDuration > 0 ? Config.animDuration * 2 : 1
         onTriggered: {
             GlobalStates.lockscreenVisible = false;
         }

@@ -57,7 +57,12 @@ Item {
         }
     }
 
-    onIsRunningChanged: updateSpotify()
+    onIsRunningChanged: {
+        updateSpotify();
+        // Re-sync the timer inputs when the countdown restarts
+        if (isRunning)
+            resyncTimerInputs();
+    }
     onIsWorkSessionChanged: updateSpotify()
     
     Connections {
@@ -87,6 +92,12 @@ Item {
         } else {
             isRunning = false;
         }
+        resyncTimerInputs();
+    }
+
+    function resyncTimerInputs() {
+        minIn.resync();
+        secIn.resync();
     }
 
     // Smooth progress animation
@@ -114,6 +125,7 @@ Item {
         timeLeft = Config.system.pomodoro.workTime;
         totalTime = timeLeft;
         visualProgress = 1.0;
+        resyncTimerInputs();
     }
 
     function startAlarm() {
@@ -135,6 +147,8 @@ Item {
         } else {
             alarmSoundLoader.active = true;
         }
+
+        resyncTimerInputs();
 
         if (Config.system.pomodoro.autoStart) {
             nextSession();
@@ -172,6 +186,7 @@ Item {
         timeLeft = isWorkSession ? Config.system.pomodoro.workTime : Config.system.pomodoro.restTime;
         totalTime = timeLeft;
         visualProgress = 1.0;
+        resyncTimerInputs();
         if (Config.system.pomodoro.autoStart) {
             isRunning = true;
         }
@@ -247,6 +262,7 @@ Item {
                         let configTime = root.isWorkSession ? Config.system.pomodoro.workTime : Config.system.pomodoro.restTime;
                         root.timeLeft = configTime;
                         root.totalTime = configTime;
+                        root.resyncTimerInputs();
                     }
                 }
             }
@@ -359,6 +375,7 @@ Item {
                             if (root.isWorkSession) Config.system.pomodoro.workTime = root.timeLeft;
                             else Config.system.pomodoro.restTime = root.timeLeft;
                         }
+                        root.resyncTimerInputs();
                     }
                 }
             }
@@ -395,6 +412,7 @@ Item {
                         if (root.isWorkSession) Config.system.pomodoro.workTime = root.timeLeft;
                         else Config.system.pomodoro.restTime = root.timeLeft;
                     }
+                    root.resyncTimerInputs();
                 }
             }
         }
@@ -499,6 +517,10 @@ Item {
             let v = parseInt(text) || 0;
             tIn.valueUpdated(v);
             text = v.toString().padStart(2, '0');
+        }
+
+        function resync() {
+            text = Qt.binding(() => tIn.value.toString().padStart(2, '0'));
         }
         
         Layout.preferredWidth: 60

@@ -510,6 +510,9 @@ class TestCliPort(unittest.TestCase):
             check=True,
         )
         self.assertIn("wallpaper <file>", result.stdout)
+        self.assertIn("hyprland", result.stdout)
+        self.assertNotIn("niri", result.stdout)
+        self.assertNotIn("mango", result.stdout)
         self.assertNotIn("preset -l", result.stdout)
 
     def test_wallpaper_missing_file_fails_before_ipc(self):
@@ -536,6 +539,101 @@ class TestCliPort(unittest.TestCase):
             other_rc = subprocess.run(["bash", "-c", probe, "_", other]).returncode
             self.assertEqual(store_rc, 0)
             self.assertNotEqual(other_rc, 0)
+
+    def test_install_rejects_niri_and_mango(self):
+        niri = subprocess.run(
+            ["bash", str(self.CLI), "install", "niri"],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        mango = subprocess.run(
+            ["bash", str(self.CLI), "install", "mango"],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        self.assertNotEqual(niri.returncode, 0)
+        self.assertNotEqual(mango.returncode, 0)
+        combined = niri.stdout + niri.stderr + mango.stdout + mango.stderr
+        self.assertIn("Supported: hyprland", combined)
+        self.assertNotIn("niri.kdl", combined)
+        self.assertNotIn("mango.conf", combined)
+
+    def test_unknown_install_target_fails(self):
+        result = subprocess.run(
+            ["bash", str(self.CLI), "install", "sway"],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        self.assertNotEqual(result.returncode, 0)
+        out = result.stdout + result.stderr
+        self.assertIn("Supported: hyprland", out)
+        self.assertNotIn("niri", out)
+        self.assertNotIn("mango", out)
+
+
+class TestUpstreamPhaseA(unittest.TestCase):
+    def _read(self, rel):
+        return (REPO_ROOT / rel).read_text()
+
+    def test_pomodoro_resyncs_timer_inputs(self):
+        src = self._read("modules/bar/clock/Pomodoro.qml")
+        self.assertIn("function resyncTimerInputs()", src)
+        self.assertIn("function resync()", src)
+        self.assertIn("Qt.binding(() => tIn.value.toString().padStart(2, '0'))", src)
+
+    def test_lockscreen_unlock_timer_fires_without_animations(self):
+        src = self._read("modules/lockscreen/LockScreen.qml")
+        self.assertIn("interval: Config.animDuration > 0 ? Config.animDuration * 2 : 1", src)
+        self.assertIn("FingerprintService", src)
+        self.assertIn("startFingerprintAuth", src)
+
+    def test_monocle_layout_dispatches_axctl(self):
+        states = self._read("modules/globals/GlobalStates.qml")
+        icons = self._read("modules/theme/Icons.qml")
+        actions = self._read("config/KeybindActions.js")
+        button = self._read("modules/bar/LayoutSelectorButton.qml")
+        self.assertIn('"monocle"', states)
+        self.assertIn('["axctl", "layout", "set", layout]', states)
+        self.assertIn("readonly property string monocle:", icons)
+        self.assertIn('id: "monocle.focus"', actions)
+        self.assertIn('case "monocle":', button)
+
+    def test_toml_has_no_niri_mango_target(self):
+        src = self._read("modules/services/CompositorTomlWriter.qml")
+        self.assertNotIn("[target]", src)
+        self.assertNotIn("niri.kdl", src)
+        self.assertNotIn("mango.conf", src)
+
+    def test_live_hl_config_uses_axctl_raw_batch(self):
+        src = self._read("modules/services/CompositorConfig.qml")
+        self.assertIn("function luaLiteral", src)
+        self.assertIn("function dispatchHlConfig", src)
+        self.assertIn('"axctl", "config", "raw-batch"', src)
+        self.assertIn("eval ", src)
+        self.assertIn("GameModeService.toggled", src)
+
+    def test_fedora_copr_and_tmux_tmpdir(self):
+        installer = self._read("install.sh")
+        cli = self._read("cli.sh")
+        self.assertIn("lionheartp/Hyprland", installer)
+        self.assertNotIn("solopasha/hyprland", installer)
+        self.assertIn("TMUX_TMPDIR", cli)
+        self.assertIn('export TMUX_TMPDIR="$XDG_RUNTIME_DIR"', cli)
+
+    def test_gap_analysis_excludes_presets(self):
+        src = self._read("docs/upstream-gap-analysis.md")
+        self.assertIn("Out of scope", src)
+        self.assertIn("Official presets", src)
+        self.assertIn("Porting progress", src)
+        self.assertIn("Go `ambxst` daemon", src)
+        self.assertIn("What this fork will not port", src)
+        self.assertIn("Hyprland-only", src)
+        self.assertNotIn("Planned (Phase B)", src)
+        self.assertNotIn("Phase B will keep", src)
+        self.assertNotRegex(src, r"Niri \+ MangoWC `install`/`remove` \| \*\*Done\*\*")
 
 
 class TestKeystorePath(unittest.TestCase):

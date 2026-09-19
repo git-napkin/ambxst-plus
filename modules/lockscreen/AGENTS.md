@@ -25,7 +25,7 @@ Related: `modules/widgets/dashboard/widgets/LockPlayer.qml` (music player on loc
 | `failLockSecondsLeft` | `LockScreen.qml:24` | Tracks account lockout after failed attempts |
 | `authPasswordHolder` | `LockScreen.qml:620` | Temp holder for password during PAM auth |
 | `wrongPasswordAnim` | `LockScreen.qml:541` | Shake animation on auth failure |
-| `unlockTimer` | `LockScreen.qml:588` | Triggers GlobalStates.lockscreenVisible = false after exit animation |
+| `unlockTimer` | `LockScreen.qml` | Triggers GlobalStates.lockscreenVisible = false after exit animation (`interval` is 1ms when `Config.animDuration` is 0 so Qt still fires) |
 
 ### Fingerprint Authentication
 | Symbol | Location | Role |
