@@ -6,6 +6,7 @@ import os
 import re
 import shutil
 import sqlite3
+import stat
 import subprocess
 import sys
 import tempfile
@@ -292,10 +293,101 @@ class TestJustWorksContracts(unittest.TestCase):
     def test_ipc_pipe_uses_runtime_dir(self):
         cli = self._read("cli.sh")
         shortcuts = self._read("modules/services/GlobalShortcuts.qml")
-        self.assertIn('pipe="${XDG_RUNTIME_DIR:-/tmp}/ambxst+_ipc.pipe"', cli)
+        pipe_script = self._read("scripts/ipc_pipe.sh")
+        colorpicker = self._read("scripts/colorpicker.py")
+        self.assertIn('runtime="${XDG_RUNTIME_DIR:-/run/user/${uid}}"', cli)
+        self.assertNotIn('pipe="${XDG_RUNTIME_DIR:-/tmp}/ambxst+_ipc.pipe"', cli)
         self.assertNotIn('PIPE="/tmp/ambxst+_ipc.pipe"', cli)
-        self.assertIn("XDG_RUNTIME_DIR", shortcuts)
+        self.assertIn("ipc_pipe.sh", shortcuts)
+        self.assertIn("/run/user/", shortcuts)
         self.assertNotIn('"/tmp/ambxst+_ipc.pipe"', shortcuts)
+        self.assertNotIn("${XDG_RUNTIME_DIR:-/tmp}", shortcuts)
+        self.assertIn('/run/user/${uid}', pipe_script)
+        self.assertNotIn('XDG_RUNTIME_DIR:-/tmp', pipe_script)
+        self.assertNotIn('runtime="/tmp"', pipe_script)
+        self.assertIn("ipc_runtime_dir", colorpicker)
+        self.assertIn("/run/user/", colorpicker)
+        self.assertNotIn('XDG_RUNTIME_DIR", "/tmp"', colorpicker)
+
+    def test_ipc_pipe_script_creates_owned_fifo(self):
+        script = REPO_ROOT / "scripts" / "ipc_pipe.sh"
+        with tempfile.TemporaryDirectory() as tmp:
+            env = os.environ.copy()
+            env["XDG_RUNTIME_DIR"] = tmp
+            located = subprocess.run(
+                [str(script), "locate"], capture_output=True, text=True, env=env, check=True
+            )
+            self.assertEqual(located.stdout.strip(), os.path.join(tmp, "ambxst+_ipc.pipe"))
+            created = subprocess.run(
+                [str(script), "path"], capture_output=True, text=True, env=env, check=True
+            )
+            pipe = created.stdout.strip()
+            st = os.stat(pipe)
+            self.assertTrue(stat.S_ISFIFO(st.st_mode))
+            self.assertEqual(st.st_uid, os.getuid())
+            self.assertEqual(st.st_mode & 0o777, 0o600)
+            leftover = os.path.join(tmp, "ambxst+_ipc.pipe")
+            os.remove(leftover)
+            with open(leftover, "w", encoding="utf-8") as fh:
+                fh.write("not-a-fifo")
+            again = subprocess.run(
+                [str(script), "path"], capture_output=True, text=True, env=env, check=True
+            )
+            self.assertTrue(stat.S_ISFIFO(os.stat(again.stdout.strip()).st_mode))
+
+    def test_clipboard_insert_mime_does_not_run_sql(self):
+        schema = REPO_ROOT / "modules" / "services" / "clipboard_init.sql"
+        insert = SCRIPTS_DIR / "clipboard_insert.sh"
+        with tempfile.TemporaryDirectory() as tmp:
+            db = os.path.join(tmp, "clip.db")
+            init = subprocess.run(
+                ["sqlite3", db],
+                input=schema.read_text(),
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            self.assertEqual(init.returncode, 0, init.stderr)
+            seed = (
+                "INSERT INTO clipboard_items (content_hash, mime_type, preview, full_content, "
+                "is_image, binary_path, size, pinned, display_index, created_at, updated_at) "
+                "VALUES ('seedhash', 'text/plain', 'seed', 'seed body', 0, '', 9, 0, 0, 1, 1);"
+            )
+            subprocess.run(["sqlite3", db, seed], check=True)
+            mime = (
+                "x', 'preview', 'full', 0, '', 0, 0, 0, 0, 0); "
+                "UPDATE clipboard_items SET alias='INJECTED' WHERE 1; --"
+            )
+            proc = subprocess.run(
+                [str(insert), db, "abc123hash", mime, "0", "", "5"],
+                input=b"hello",
+                capture_output=True,
+            )
+            self.assertEqual(proc.returncode, 0, proc.stderr.decode())
+            conn = sqlite3.connect(db)
+            rows = conn.execute(
+                "SELECT content_hash, mime_type, alias, full_content FROM clipboard_items ORDER BY id"
+            ).fetchall()
+            conn.close()
+            aliases = [row[2] for row in rows]
+            self.assertNotIn("INJECTED", aliases)
+            self.assertTrue(any(row[0] == "abc123hash" for row in rows))
+            stored_mime = [row[1] for row in rows if row[0] == "abc123hash"][0]
+            self.assertEqual(stored_mime, mime)
+            seed_alias = [row[2] for row in rows if row[0] == "seedhash"][0]
+            self.assertTrue(seed_alias in (None, ""))
+
+    def test_clipboard_copy_rejects_non_numeric_id(self):
+        script = SCRIPTS_DIR / "clipboard_copy.sh"
+        proc = subprocess.run(
+            [str(script), "db", "/tmp/no.db", "1;DROP TABLE clipboard_items", "text/plain"],
+            capture_output=True,
+            text=True,
+        )
+        self.assertNotEqual(proc.returncode, 0)
+        src = script.read_text()
+        self.assertIn('wl-copy --type "$mime"', src)
+        self.assertNotIn("sh -c", src)
 
     def test_loginlock_steals_held_lock(self):
         src = self._read("scripts/loginlock.sh")
@@ -2559,6 +2651,25 @@ class TestPerformanceContracts(unittest.TestCase):
         self.assertNotIn("CONTENT=$(cat", src)
         self.assertIn("head -c 97", src)
         self.assertIn("readfile", src)
+        self.assertNotIn("'${MIME_TYPE}'", src)
+        self.assertNotIn("'${HASH}'", src)
+
+    def test_clipboard_service_sqlite_is_argv(self):
+        src = self._read("modules/services/ClipboardService.qml") if hasattr(self, "_read") else (
+            Path(__file__).parent.parent / "modules/services/ClipboardService.qml"
+        ).read_text()
+        self.assertIn("function _sqliteCmd()", src)
+        self.assertIn("function _utf8Hex(str)", src)
+        self.assertIn("CAST(x'", src)
+        self.assertNotIn("escapedAlias", src)
+        set_alias = src[src.index("function setAlias") : src.index("function getImageData")]
+        self.assertNotIn("sh", set_alias)
+        self.assertNotIn("bash", set_alias)
+        tab = (Path(__file__).parent.parent / "modules/widgets/dashboard/clipboard/ClipboardTab.qml").read_text()
+        copy_fn = tab[tab.index("function copyToClipboard") : tab.index("signal requestOpenItem")]
+        self.assertIn("copyScriptPath", copy_fn)
+        self.assertNotIn("sh -c", copy_fn)
+        self.assertNotIn("bash -c", copy_fn)
 
     def test_desktop_scan_uses_scandir(self):
         src = (SCRIPTS_DIR / "desktop_scan.py").read_text()
