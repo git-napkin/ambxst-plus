@@ -44,11 +44,17 @@ pkgs.mkShell {
     kdePackages.qtmultimedia
     kdePackages.qtshadertools
     kdePackages.syntax-highlighting
+    gst_all_1.gstreamer
+    gst_all_1.gst-plugins-base
+    gst_all_1.gst-plugins-good
+    gst_all_1.gst-plugins-bad
+    gst_all_1.gst-libav
   ];
 
   shellHook = ''
     export QML2_IMPORT_PATH="${pkgs.qt6.qtdeclarative}/qml:$QML2_IMPORT_PATH"
     export QML_IMPORT_PATH="$QML2_IMPORT_PATH"
+    export QT_MEDIA_BACKEND="''${QT_MEDIA_BACKEND:-gstreamer}"
     echo "Ambxst[+] dev environment loaded."
   '';
 }

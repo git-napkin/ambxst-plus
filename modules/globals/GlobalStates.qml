@@ -134,6 +134,16 @@ Singleton {
     // Persistent wallpaper navigation state
     property int wallpaperSelectedIndex: -1
 
+    // Bumped to re-align video wallpapers across screens (seek to 0)
+    property int videoSyncTick: 0
+
+    // Per-screen Wallpaper instances (screen name -> instance)
+    property var screenWallpapers: ({})
+
+    function wallpaperForScreen(name) {
+        return (screenWallpapers && screenWallpapers[name]) || wallpaperManager || null;
+    }
+
     function clearWallpaperState() {
         wallpaperSelectedIndex = -1;
     }

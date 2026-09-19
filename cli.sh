@@ -826,6 +826,8 @@ help | --help | -h)
 
 	# Force Qt6CT
 	export QT_QPA_PLATFORMTHEME=qt6ct
+	# QtMultimedia video wallpapers need the GStreamer backend.
+	export QT_MEDIA_BACKEND="${QT_MEDIA_BACKEND:-gstreamer}"
 	unset HL_INITIAL_WORKSPACE_TOKEN
 
 	# Align Ambxst[+]-spawned tmux with user shells. An existing TMUX_TMPDIR always wins.
