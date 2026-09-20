@@ -10,7 +10,12 @@ from .friendly import labels
 from .native import native_request
 from ..execution_profile import ALWAYS_ALLOW, NEVER
 from ..computer_use import atspi, coords, doctor, input as cu_input, screenshot as cu_shot, windows as cu_windows
-from ..models import model_supports_vision, vision_unsupported_message
+from ..models import (
+    apply_computer_use_model,
+    model_supports_vision,
+    restore_chat_model,
+    vision_unsupported_message,
+)
 
 ACTIONS = (
     "screenshot",
@@ -151,11 +156,6 @@ def action_is_critical(ctx, args):
     return False
 
 
-def _current_model(ctx):
-    spec = getattr(ctx, "model", None)
-    return spec if isinstance(spec, dict) else {}
-
-
 def _leave_computer_use(ctx):
     if getattr(ctx, "computer_use_approved", False):
         try:
@@ -166,10 +166,11 @@ def _leave_computer_use(ctx):
     ctx.computer_use_nodes = []
     ctx.computer_use_last_shot = None
     ctx.computer_use_focus_address = ""
+    restore_chat_model(ctx)
 
 
 def _require_vision(ctx):
-    spec = _current_model(ctx)
+    spec = apply_computer_use_model(ctx)
     if model_supports_vision(spec):
         return None
     _leave_computer_use(ctx)

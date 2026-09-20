@@ -9,7 +9,7 @@ Native desktop control for the AI panel. Policy default is **Never**. Advertise 
 3. Prefer `element_index` (or role/name selectors) over pixels. Each slim node includes `frame: [x, y, w, h]` for grounding. Call `action=screenshot` only when you need pixels (canvas, games, layout). Pixel `x`/`y` are in the attached grim image (`width` × `height`), not compositor logical coords.
 4. After the session is granted it stays granted across turns until the user hits Stop, the lockscreen, or `end_computer_use`. Do **not** call `request_computer_use` again for a follow-up in the same task. Routine actions (focus, click, type, scroll) run without asking. Set `critical: true` before payments, sending email or messages, purchases, account deletion, or other irreversible actions.
 
-Computer use always uses the Spotlight model already selected (`lastAiModel` / current session). It does not switch providers or pick a fallback. That model must accept images. If it does not, the grant is refused, the session ends, and you get an error — pick a vision model and request again.
+Computer use uses the computer-use model from Settings when the user set one, otherwise the Spotlight model already selected. It does not change the chat selection or pick a fallback. That model must accept images. If it does not, the grant is refused, the session ends, and you get an error — pick a vision model and request again.
 
 ## Observe vs screenshot
 

@@ -328,6 +328,159 @@ Item {
         }
     }
 
+    component ComputerUseModelPicker: ColumnLayout {
+        id: cuPicker
+        property string filterText: ""
+
+        readonly property var allModels: {
+            Ai.models;
+            KeyStore.revision;
+            Config.ai.manualModelsJson;
+            Config.ai.customModelsJson;
+            return Ai.models;
+        }
+        readonly property var filteredModels: {
+            const q = String(cuPicker.filterText || "").trim().toLowerCase();
+            const all = cuPicker.allModels || [];
+            if (!q)
+                return all;
+            const out = [];
+            for (let i = 0; i < all.length; i++) {
+                const m = all[i];
+                const hay = [m.name, Ai.modelIdOf(m), m.provider, m.description].map(x => String(x || "")).join(" ");
+                if (hay.toLowerCase().indexOf(q) >= 0)
+                    out.push(m);
+            }
+            return out;
+        }
+        readonly property string selectedId: {
+            Config.ai.computerUseModel;
+            return String(Config.ai.computerUseModel || "").trim();
+        }
+        readonly property bool usingSpotlight: cuPicker.selectedId === ""
+
+        function itemLabel(item) {
+            if (!item)
+                return "";
+            const name = item.name || Ai.modelIdOf(item);
+            const provider = String(item.provider || "").trim();
+            if (provider && name)
+                return name + " · " + provider;
+            return name;
+        }
+
+        function isSelected(item) {
+            if (!item || !cuPicker.selectedId)
+                return false;
+            return Ai.modelIdOf(item) === cuPicker.selectedId;
+        }
+
+        function choose(item) {
+            const mid = item ? Ai.modelIdOf(item) : "";
+            if (!mid)
+                return;
+            Config.ai.computerUseModel = mid;
+            root.persistAi();
+        }
+
+        function clearOverride() {
+            Config.ai.computerUseModel = "";
+            root.persistAi();
+        }
+
+        Layout.fillWidth: true
+        spacing: 8
+
+        SettingsRow {
+            label: qsTr("Computer use model")
+            description: {
+                if (Ai.fetchingModels)
+                    return qsTr("Refreshing model list…");
+                if (cuPicker.usingSpotlight)
+                    return qsTr("Same as the Spotlight/chat model. Pick one below to use a different model for computer use only.");
+                let label = cuPicker.selectedId;
+                const all = cuPicker.allModels || [];
+                for (let i = 0; i < all.length; i++) {
+                    if (Ai.modelIdOf(all[i]) === cuPicker.selectedId) {
+                        label = cuPicker.itemLabel(all[i]);
+                        break;
+                    }
+                }
+                return qsTr("Computer use uses %1. Spotlight/chat is unchanged.").arg(label);
+            }
+            stacked: true
+
+            ColumnLayout {
+                Layout.fillWidth: true
+                spacing: 8
+
+                SettingsButton {
+                    Layout.fillWidth: true
+                    text: (cuPicker.usingSpotlight ? "● " : "○ ") + qsTr("Same as Spotlight")
+                    kind: cuPicker.usingSpotlight ? "primary" : "common"
+                    onClicked: cuPicker.clearOverride()
+                }
+
+                RowLayout {
+                    Layout.fillWidth: true
+                    spacing: 8
+
+                    SettingsField {
+                        Layout.fillWidth: true
+                        placeholder: (cuPicker.allModels || []).length > 8 ? qsTr("Search models…") : qsTr("Filter…")
+                        onTextChanged: cuPicker.filterText = text
+                        onAccepted: cuPicker.filterText = text
+                    }
+
+                    SettingsButton {
+                        text: qsTr("Refresh")
+                        enabled: !Ai.fetchingModels
+                        onClicked: Ai.fetchAvailableModels()
+                    }
+                }
+
+                ColumnLayout {
+                    Layout.fillWidth: true
+                    spacing: 4
+                    visible: cuPicker.filteredModels.length > 0
+
+                    Repeater {
+                        model: Math.min(cuPicker.filteredModels.length, 10)
+                        delegate: SettingsButton {
+                            required property int index
+                            readonly property var item: cuPicker.filteredModels[index]
+                            readonly property bool selected: cuPicker.isSelected(item)
+                            Layout.fillWidth: true
+                            text: (selected ? "● " : "○ ") + cuPicker.itemLabel(item)
+                            kind: selected ? "primary" : "common"
+                            onClicked: cuPicker.choose(item)
+                        }
+                    }
+
+                    Text {
+                        visible: cuPicker.filteredModels.length > 10
+                        Layout.fillWidth: true
+                        text: qsTr("Showing 10 of %1 — refine the search").arg(cuPicker.filteredModels.length)
+                        font.family: Config.theme.font
+                        font.pixelSize: Styling.fontSize(-2)
+                        color: Colors.overSurfaceVariant
+                        wrapMode: Text.Wrap
+                    }
+                }
+
+                Text {
+                    visible: cuPicker.filteredModels.length === 0
+                    Layout.fillWidth: true
+                    text: qsTr("No models yet — add a provider key or refresh")
+                    font.family: Config.theme.font
+                    font.pixelSize: Styling.fontSize(-2)
+                    color: Colors.overSurfaceVariant
+                    wrapMode: Text.Wrap
+                }
+            }
+        }
+    }
+
     component KeyEntry: ColumnLayout {
         id: entry
         required property string providerId
@@ -642,6 +795,8 @@ Item {
                         root.persistAi();
                     }
                 }
+
+                ComputerUseModelPicker {}
 
                 SettingsRow {
                     label: "Web search"

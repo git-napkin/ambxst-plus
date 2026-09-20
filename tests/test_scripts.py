@@ -1822,6 +1822,151 @@ class TestComputerUse(unittest.TestCase):
         self.assertEqual(meta_denied["code"], VISION_UNSUPPORTED)
         self.assertFalse(meta_text_ctx.computer_use_approved)
 
+    def test_computer_use_model_override_independent_of_chat(self):
+        from unittest.mock import patch
+        from io import StringIO
+        from pathlib import Path
+        from ai.agent import Agent
+        from ai.models import (
+            apply_computer_use_model,
+            resolve_computer_use_model,
+            restore_chat_model,
+        )
+        from ai.tools.computer_use import RequestComputerUseTool, UseComputerTool, VISION_UNSUPPORTED
+
+        defaults = (Path(__file__).parent.parent / "config/defaults/ai.js").read_text()
+        self.assertIn('"computerUseModel": ""', defaults)
+        self.assertNotIn("gemini-2.0-flash", defaults)
+        config_qml = (Path(__file__).parent.parent / "config/Config.qml").read_text()
+        self.assertIn("property string computerUseModel:", config_qml)
+        panel = (Path(__file__).parent.parent / "modules/widgets/config/AiPanel.qml").read_text()
+        self.assertIn("ComputerUseModelPicker", panel)
+        self.assertIn("Same as Spotlight", panel)
+
+        chat = {"provider": "openai", "model": "gpt-3.5-turbo"}
+        self.assertEqual(resolve_computer_use_model(chat, "")["model"], "gpt-3.5-turbo")
+        self.assertEqual(resolve_computer_use_model(chat, None)["model"], "gpt-3.5-turbo")
+        self.assertEqual(resolve_computer_use_model(chat, {})["model"], "gpt-3.5-turbo")
+        over = resolve_computer_use_model(chat, {"provider": "openai", "model": "gpt-4o"})
+        self.assertEqual(over["model"], "gpt-4o")
+        self.assertEqual(chat["model"], "gpt-3.5-turbo")
+        self.assertEqual(resolve_computer_use_model(chat, "gpt-4o")["model"], "gpt-4o")
+
+        native_calls = []
+
+        def native(_ctx, name, args):
+            native_calls.append((name, dict(args)))
+            return {"ok": True, "locked": False}
+
+        native_calls.clear()
+        text_chat = _ctx(".", execution_profile={"computerUse": "AlwaysAllow"}, model=dict(chat))
+        text_chat.computer_use_model = {"provider": "openai", "model": "gpt-4o"}
+        with patch("ai.tools.computer_use._native", side_effect=native), patch(
+            "ai.tools.computer_use.atspi.probe", return_value=False
+        ), patch("ai.tools.computer_use.doctor.doctor_report", return_value={"can_click": False, "can_type": False}):
+            granted = RequestComputerUseTool().execute(text_chat, {"task_summary": "click"})
+        self.assertEqual(granted["status"], "ok")
+        self.assertTrue(text_chat.computer_use_approved)
+        self.assertEqual(text_chat.model["model"], "gpt-4o")
+        self.assertEqual(text_chat._chat_model["model"], "gpt-3.5-turbo")
+        self.assertTrue(any(args.get("op") == "begin" for _name, args in native_calls))
+
+        native_calls.clear()
+        vision_chat = _ctx(
+            ".",
+            execution_profile={"computerUse": "AlwaysAllow"},
+            model={"provider": "openai", "model": "gpt-4o"},
+        )
+        vision_chat.computer_use_model = {"provider": "openai", "model": "gpt-3.5-turbo"}
+        with patch("ai.tools.computer_use._native", side_effect=native):
+            denied = RequestComputerUseTool().execute(vision_chat, {"task_summary": "click"})
+        self.assertEqual(denied["status"], "error")
+        self.assertEqual(denied["code"], VISION_UNSUPPORTED)
+        self.assertIn("gpt-3.5-turbo", denied["error"])
+        self.assertIn("will not switch models", denied["error"])
+        self.assertFalse(vision_chat.computer_use_approved)
+        self.assertEqual(vision_chat.model["model"], "gpt-4o")
+        self.assertFalse(any(args.get("op") == "begin" for _name, args in native_calls))
+
+        native_calls.clear()
+        empty_override = _ctx(
+            ".",
+            execution_profile={"computerUse": "AlwaysAllow"},
+            model={"provider": "openai", "model": "gpt-4o"},
+        )
+        empty_override.computer_use_model = ""
+        with patch("ai.tools.computer_use._native", side_effect=native), patch(
+            "ai.tools.computer_use.atspi.probe", return_value=False
+        ), patch("ai.tools.computer_use.doctor.doctor_report", return_value={"can_click": False}):
+            same = RequestComputerUseTool().execute(empty_override, {"task_summary": "click"})
+        self.assertEqual(same["status"], "ok")
+        self.assertEqual(empty_override.model["model"], "gpt-4o")
+
+        stdout = StringIO()
+        agent = Agent(stdin=StringIO(), stdout=stdout)
+        agent.apply_init(
+            {
+                "execution_profile": {"computerUse": "AlwaysAllow"},
+                "enabled_tools": ["native"],
+                "system_prompt": "hi",
+                "model": {"provider": "openai", "model": "gpt-3.5-turbo"},
+                "computer_use_model": {"provider": "openai", "model": "gpt-4o"},
+            }
+        )
+        self.assertEqual(agent.model["model"], "gpt-3.5-turbo")
+        self.assertEqual(agent.ctx.model["model"], "gpt-3.5-turbo")
+        self.assertEqual(agent.computer_use_model["model"], "gpt-4o")
+
+        agent.computer_use_approved = True
+        agent.ctx.computer_use_approved = True
+        apply_computer_use_model(agent.ctx)
+        agent.model = dict(agent.ctx.model)
+        self.assertEqual(agent.model["model"], "gpt-4o")
+        self.assertEqual(agent.ctx._chat_model["model"], "gpt-3.5-turbo")
+
+        agent.handle_command({"cmd": "set_model", "model": {"provider": "openai", "model": "o3-mini"}})
+        self.assertEqual(agent.model["model"], "gpt-4o")
+        self.assertTrue(agent.computer_use_approved)
+        self.assertEqual(agent.ctx._chat_model["model"], "o3-mini")
+        logged = stdout.getvalue()
+        self.assertNotIn("vision", logged.lower())
+
+        agent.apply_init(
+            {
+                "execution_profile": {"computerUse": "AlwaysAllow"},
+                "enabled_tools": ["native"],
+                "system_prompt": "hi",
+                "model": {"provider": "openai", "model": "o3-mini"},
+                "computer_use_model": {"provider": "openai", "model": "gpt-4o"},
+            }
+        )
+        self.assertEqual(agent.model["model"], "gpt-4o")
+        self.assertEqual(agent.ctx._chat_model["model"], "o3-mini")
+        self.assertTrue(agent.computer_use_approved)
+
+        native_calls.clear()
+        granted_then_blind = _ctx(
+            ".",
+            execution_profile={"computerUse": "AlwaysAllow"},
+            model={"provider": "openai", "model": "gpt-4o"},
+        )
+        granted_then_blind.computer_use_model = {"provider": "openai", "model": "gpt-3.5-turbo"}
+        granted_then_blind.computer_use_approved = True
+        with patch("ai.tools.computer_use._native", side_effect=native):
+            shot = UseComputerTool().execute(granted_then_blind, {"action": "screenshot"})
+        self.assertEqual(shot["status"], "error")
+        self.assertEqual(shot["code"], VISION_UNSUPPORTED)
+        self.assertFalse(granted_then_blind.computer_use_approved)
+        self.assertEqual(granted_then_blind.model["model"], "gpt-4o")
+        self.assertTrue(any(args.get("op") == "end" for _name, args in native_calls))
+
+        restored = _ctx(".", model={"provider": "openai", "model": "gpt-4o"})
+        restored.computer_use_model = {"provider": "openai", "model": "gpt-4o-mini"}
+        apply_computer_use_model(restored)
+        self.assertEqual(restored.model["model"], "gpt-4o-mini")
+        restore_chat_model(restored)
+        self.assertEqual(restored.model["model"], "gpt-4o")
+
     def test_critical_actions_ask_after_grant(self):
         from ai.tools.computer_use import UseComputerTool, action_is_critical
         from ai.tools.native import NativeTool

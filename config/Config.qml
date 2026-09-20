@@ -1289,6 +1289,7 @@ Singleton {
         adapter: JsonAdapter {
             property list<var> extraModels: []
             property string defaultModel: ""
+            property string computerUseModel: ""
             property string customEndpoint: ""
             property string customCurlTemplate: ""
             property string customName: ""

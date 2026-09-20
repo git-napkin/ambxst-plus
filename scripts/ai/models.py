@@ -4,7 +4,8 @@ from __future__ import annotations
 
 # No Spotlight / computer-use pin. Fresh installs and dead-ID remaps leave
 # the selection empty so restore uses lastAiModel, then the first configured
-# catalog model. Computer use always inherits that current model.
+# catalog model. Computer use uses Config.ai.computerUseModel when set,
+# otherwise the current Spotlight/chat model — never a hardcoded CU pin.
 DEFAULT_MODEL_ID = ""
 DEFAULT_PROVIDER = ""
 
@@ -261,11 +262,61 @@ def display_model_id(spec):
     return mid
 
 
+def normalize_computer_use_override(override):
+    """Empty / unset override => None (use the chat model)."""
+    if override is None or override == "":
+        return None
+    if isinstance(override, str):
+        text = override.strip()
+        if not text:
+            return None
+        return {"model": text, "name": text}
+    if isinstance(override, dict):
+        if not model_id_of(override):
+            return None
+        return dict(override)
+    return None
+
+
+def resolve_computer_use_model(chat_model, override):
+    """CU model: non-empty override wins, else the current chat/Spotlight spec."""
+    if isinstance(chat_model, dict):
+        chat = dict(chat_model)
+    elif chat_model:
+        text = str(chat_model).strip()
+        chat = {"model": text, "name": text} if text else {}
+    else:
+        chat = {}
+    spec = normalize_computer_use_override(override)
+    return spec if spec is not None else chat
+
+
+def apply_computer_use_model(ctx):
+    """Point ctx.model at the resolved CU spec; snapshot the chat model once."""
+    chat = getattr(ctx, "_chat_model", None)
+    if not isinstance(chat, dict) or not chat:
+        ctx._chat_model = dict(getattr(ctx, "model", None) or {})
+        chat = ctx._chat_model
+    spec = resolve_computer_use_model(chat, getattr(ctx, "computer_use_model", None))
+    ctx.model = dict(spec)
+    return spec
+
+
+def restore_chat_model(ctx):
+    """Undo apply_computer_use_model so chat keeps its selected model."""
+    chat = getattr(ctx, "_chat_model", None)
+    if isinstance(chat, dict) and chat:
+        ctx.model = dict(chat)
+    ctx._chat_model = {}
+    return getattr(ctx, "model", None)
+
+
 def vision_unsupported_message(spec):
     mid = display_model_id(spec)
     return (
         "Computer use requires a vision-capable model so it can read screenshots. "
-        "The current model (%s) does not support images. Select a vision model in "
-        "Spotlight and try again — computer use will not switch models. "
+        "The current model (%s) does not support images. Pick a vision-capable "
+        "computer-use model in Settings (or the Spotlight model if no override is "
+        "set) and try again — computer use will not switch models. "
         "Computer use has been ended." % mid
     )

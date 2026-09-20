@@ -274,6 +274,10 @@ Singleton {
         function onManualModelsJsonChanged() {
             fetchAvailableModels();
         }
+        function onComputerUseModelChanged() {
+            if (agentReady)
+                sendInit();
+        }
     }
 
     Component.onCompleted: {
@@ -298,7 +302,57 @@ Singleton {
         };
         if (model.inputModalities && model.inputModalities.length)
             payload.input_modalities = model.inputModalities;
+        else if (model.input_modalities && model.input_modalities.length)
+            payload.input_modalities = model.input_modalities;
         return payload;
+    }
+
+    function computerUseOverrideId() {
+        return String((Config.ai && Config.ai.computerUseModel) || "").trim();
+    }
+
+    function findComputerUseOverride() {
+        const wanted = root.computerUseOverrideId();
+        if (!wanted)
+            return null;
+        const found = root.findModel(wanted);
+        if (found)
+            return found;
+        for (let i = 0; i < models.length; i++) {
+            const m = models[i];
+            if (root.modelIdOf(m) === wanted || (m && m.name === wanted))
+                return m;
+        }
+        return null;
+    }
+
+    function computerUseOverridePayload() {
+        const wanted = root.computerUseOverrideId();
+        if (!wanted)
+            return {};
+        const found = root.findComputerUseOverride();
+        if (found)
+            return modelPayload(found);
+        return {
+            model: wanted,
+            name: wanted
+        };
+    }
+
+    function resolvedComputerUseModel() {
+        const found = root.findComputerUseOverride();
+        if (found)
+            return found;
+        const wanted = root.computerUseOverrideId();
+        if (wanted)
+            return {
+                model: wanted,
+                name: wanted,
+                provider: "",
+                endpoint: "",
+                key_id: ""
+            };
+        return currentModel;
     }
 
     function skillDirs() {
@@ -333,6 +387,7 @@ Singleton {
             ignore_catalog: Config.readIgnoreCatalog(),
             manual_models: Config.readManualModelsMap(),
             model: modelPayload(currentModel),
+            computer_use_model: root.computerUseOverridePayload(),
             context: { autoexecute_any_action: autoApprove },
             jev: {
                 mode: (Config.ai.jev && Config.ai.jev.mode) ? Config.ai.jev.mode : "off",
@@ -648,7 +703,13 @@ Singleton {
         if (last && last.role === "assistant" && last.streaming) {
             next[next.length - 1] = Object.assign({}, last, { content: (last.content || "") + text });
         } else {
-            next.push({ role: "assistant", content: text, streaming: true, model: currentModel ? currentModel.name : "" });
+            const shown = ComputerUse.sessionActive ? root.resolvedComputerUseModel() : currentModel;
+            next.push({
+                role: "assistant",
+                content: text,
+                streaming: true,
+                model: shown ? shown.name : ""
+            });
         }
         currentChat = next;
         chatModelChanged();
