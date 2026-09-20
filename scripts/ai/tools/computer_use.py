@@ -284,6 +284,13 @@ def _capture(ctx, args, raise_window=None):
     native = _native(ctx, "use_computer", payload)
     if native.get("status") == "error" or native.get("error"):
         return native if native.get("status") else _error(native.get("error") or "screenshot failed")
+    if native.get("verified") is False:
+        return _error(
+            native.get("error")
+            or cu_windows.focus_unconfirmed_message(
+                {"address": payload.get("address")}, native.get("focused_window")
+            )
+        )
     path = native.get("path")
     if not path:
         return _error("screenshot produced no file")
@@ -310,9 +317,13 @@ def _capture(ctx, args, raise_window=None):
             "cropped_to_window": bool(native.get("cropped_to_window")),
             "window_title": native.get("window_title"),
             "window_off_screen": native.get("window_off_screen"),
+            "address": native.get("address") or payload.get("address") or "",
+            "verified": native.get("verified"),
             "source": "grim",
         }
     )
+    if native.get("address"):
+        _remember_focus(ctx, native)
     ctx.computer_use_last_shot = {
         k: prepared[k]
         for k in (
@@ -402,6 +413,7 @@ def _slim_windows(windows):
                 "focused": bool(win.get("focused") or win.get("is_focused")),
                 "at": win.get("at") or [],
                 "size": win.get("size") or [],
+                "workspace": win.get("workspace") or {},
             }
         )
     return out
@@ -411,6 +423,54 @@ def _remember_focus(ctx, win):
     address = (win or {}).get("address") or ""
     if address:
         ctx.computer_use_focus_address = address
+
+
+def _target_selectors(ctx, args, include_remembered=True):
+    args = args or {}
+    sel = {}
+    for key in ("address", "title", "class", "pid"):
+        val = args.get(key)
+        if val not in (None, ""):
+            sel[key] = val
+    if "address" not in sel:
+        wid = args.get("window_id")
+        if wid not in (None, ""):
+            sel["address"] = wid
+    if not sel and include_remembered:
+        remembered = getattr(ctx, "computer_use_focus_address", "") or ""
+        if remembered:
+            sel["address"] = remembered
+    return sel
+
+
+def _rejected_focus(native, target=None):
+    if not isinstance(native, dict):
+        return _error(cu_windows.focus_unconfirmed_message(target))
+    if native.get("status") == "error" or native.get("error"):
+        err = native.get("error") or cu_windows.focus_unconfirmed_message(target, native.get("focused_window"))
+        return native if native.get("status") == "error" else _error(err)
+    if native.get("verified") is not True:
+        return _error(
+            native.get("error") or cu_windows.focus_unconfirmed_message(target, native.get("focused_window"))
+        )
+    return None
+
+
+def _ensure_focus(ctx, args, warp=False, include_remembered=True):
+    """One native focus-by-address. QML verifies and retries once; we fail closed."""
+    sel = _target_selectors(ctx, args, include_remembered=include_remembered)
+    if not sel:
+        return None
+    payload = {"action": "focus", **sel}
+    if warp:
+        payload["warp"] = True
+    native = _native(ctx, "use_computer", payload)
+    rejected = _rejected_focus(native, sel)
+    if rejected:
+        return rejected
+    _remember_focus(ctx, native)
+    time.sleep(cu_input.FOCUS_SETTLE)
+    return native
 
 
 def _a11y_followup(ctx, node=None):
@@ -743,12 +803,18 @@ class UseComputerTool(Tool):
         if action == "screenshot":
             return _capture(ctx, args, raise_window=args.get("raise_window"))
         if action == "snapshot":
+            focused = _ensure_focus(ctx, args, include_remembered=False)
+            if focused and focused.get("status") == "error":
+                return focused
             out = _ok(_snapshot_state(ctx, args))
             if args.get("screenshot") is True or out.get("tree_usable") is False:
                 shot = _capture(ctx, args, raise_window=False)
                 _attach_shot_fields(out, shot)
             return out
         if action == "click":
+            focused = _ensure_focus(ctx, args, warp=True)
+            if focused and focused.get("status") == "error":
+                return focused
             node = None
             if args.get("element_index") not in (None, "") or args.get("role") or args.get("name") or args.get("text"):
                 node, err = atspi.resolve_node(ctx.computer_use_nodes, args)
@@ -785,13 +851,6 @@ class UseComputerTool(Tool):
                 return _error(err)
             if x is None:
                 return _error("could not resolve click coordinates")
-            if args.get("address") or args.get("title") or args.get("class") or args.get("pid"):
-                focused = _native(ctx, "use_computer", {"action": "focus", "warp": True, **{k: args.get(k) for k in ("address", "title", "class", "pid") if args.get(k) is not None}})
-                if focused.get("status") == "error" or focused.get("error"):
-                    return focused if focused.get("status") else _error(focused.get("error") or "could not focus target window")
-                if focused.get("verified") is False:
-                    return _error("could not focus target window")
-                time.sleep(cu_input.FOCUS_SETTLE)
             cu_input.movecursor(x, y)
             cu_input.click(button, count)
             return _ok(_pointer_payload(preview, (x, y), {"implemented": "pointer"}))
@@ -804,6 +863,9 @@ class UseComputerTool(Tool):
             cu_input.movecursor(x, y)
             return _ok(_pointer_payload(preview, (x, y)))
         if action == "scroll":
+            focused = _ensure_focus(ctx, args, warp=True)
+            if focused and focused.get("status") == "error":
+                return focused
             x, y, err, _node, preview = _resolve_point(ctx, args)
             if not err and x is not None:
                 try:
@@ -812,10 +874,6 @@ class UseComputerTool(Tool):
                     pass
             elif err == PIXEL_SHOT_NEEDED and (args.get("x") is not None or args.get("y") is not None):
                 pass
-            elif args.get("address") or args.get("title") or args.get("class") or args.get("pid"):
-                focused = _native(ctx, "use_computer", {"action": "focus", "warp": True, **{k: args.get(k) for k in ("address", "title", "class", "pid") if args.get(k) is not None}})
-                if focused.get("status") == "error" or focused.get("verified") is False:
-                    return _error(focused.get("error") or "could not focus target window")
             cu_input.scroll(args.get("direction") or "down", args.get("pages") or 1)
             return _ok({"implemented": "wheel"})
         if action == "drag":
@@ -842,11 +900,9 @@ class UseComputerTool(Tool):
                 }
             )
         if action == "type":
-            if args.get("address") or args.get("title") or args.get("class") or args.get("pid"):
-                focused = _native(ctx, "use_computer", {"action": "focus", **{k: args.get(k) for k in ("address", "title", "class", "pid") if args.get(k) is not None}})
-                if focused.get("status") == "error" or focused.get("verified") is False:
-                    return _error(focused.get("error") or "could not focus target window")
-                time.sleep(cu_input.FOCUS_SETTLE)
+            focused = _ensure_focus(ctx, args)
+            if focused and focused.get("status") == "error":
+                return focused
             _with_inject(ctx, lambda: cu_input.type_text(args.get("text") or ""))
             focused = atspi.focused_from_nodes(getattr(ctx, "computer_use_nodes", None) or [])
             note = ""
@@ -854,19 +910,25 @@ class UseComputerTool(Tool):
                 note = "WARNING: focused element is %s which is not editable" % (focused.get("role") or "unknown")
             return _ok({"implemented": "wtype", "focused": focused, "note": note})
         if action == "key":
+            focused = _ensure_focus(ctx, args)
+            if focused and focused.get("status") == "error":
+                return focused
             spec = args.get("key") or args.get("keys") or ""
-            address = args.get("address") or ""
-            if args.get("title") or args.get("class") or args.get("pid"):
-                focused = cu_windows.resolve_window(_window_list(ctx), args)
-                if focused:
-                    address = focused.get("address") or address
+            address = args.get("address") or getattr(ctx, "computer_use_focus_address", "") or ""
+            if not address and (args.get("title") or args.get("class") or args.get("pid")):
+                resolved = cu_windows.resolve_window(_window_list(ctx), args)
+                if resolved:
+                    address = resolved.get("address") or address
             _with_inject(ctx, lambda: cu_input.press_key(spec, address=address))
             return _ok({"implemented": "key", "key": spec})
         if action in ("focus", "move_window", "resize_window", "cursor"):
-            native = _native(ctx, "use_computer", args)
+            native = _native(ctx, "use_computer", dict(args, action=action))
             if native.get("status") == "error":
                 return native
             if action == "focus":
+                rejected = _rejected_focus(native, args)
+                if rejected:
+                    return rejected
                 _remember_focus(ctx, native)
             return _ok(native)
         if action == "wait":

@@ -31,7 +31,11 @@ The user sees a bottom-right response card while computer use is active. A separ
 
 ## Targeting
 
-Window `address` is a string from `get_windows` / snapshot. Also: `pid`, `class`, title substring, and terminal `/proc` fields (`tty`, `terminal_pid`, `command`, `cwd`) when present. After `focus`, wait for verification before typing.
+Window `address` is a string from `get_windows` / snapshot. Also: `pid`, `class`, title substring, and terminal `/proc` fields (`tty`, `terminal_pid`, `command`, `cwd`) when present.
+
+Cross-workspace focus is a **one-step** `use_computer action=focus` (or pass `address` on click/type/screenshot). The harness focuses by window address — that both activates the window's workspace and focuses that window — then verifies Hyprland `activewindow` matches. If it does not, it retries **once** and then errors. Do **not** `hyprctl dispatch workspace …` and hope, and do **not** loop on `hyprctl` when focus fails.
+
+After `focus`, wait for verification before typing. Screenshot/observe uses the same verified focus (or an explicit `geometry` crop).
 
 Cursor aiming teleports (one compositor `movecursor`). Do not plan multi-step mouse easing. Click via AT-SPI `DoAction` when the node has a click/press/toggle action; otherwise the runtime clicks the node's `frame` center. Pixel clicks need a grim shot first — if you omit one, the error includes `next` (and may already attach a shot).
 

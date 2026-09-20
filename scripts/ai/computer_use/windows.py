@@ -120,3 +120,60 @@ def resolve_window(windows, target):
             if title in _norm(win.get("title") or ""):
                 return win
     return None
+
+
+def normalize_address(value):
+    text = str(value or "").strip()
+    if text.lower().startswith("address:"):
+        text = text[8:].strip()
+    return text
+
+
+def workspace_id(value):
+    if value in (None, "", False):
+        return None
+    if isinstance(value, dict):
+        return workspace_id(value.get("id") if value.get("id") not in (None, "") else value.get("name"))
+    try:
+        number = int(value)
+    except (TypeError, ValueError):
+        text = str(value).strip()
+        return text or None
+    return number if number else None
+
+
+def active_matches_target(target, active, monitor_active_workspace=None):
+    """True when compositor activewindow is the intended target on its workspace."""
+    if not target or not active:
+        return False
+    want = normalize_address(target.get("address") or target.get("window_id"))
+    got = normalize_address(active.get("address") or active.get("window_id"))
+    if not want or want != got:
+        return False
+    if active.get("focused") is False or active.get("is_focused") is False:
+        return False
+    want_ws = workspace_id(monitor_active_workspace)
+    if want_ws is None:
+        want_ws = workspace_id(active.get("workspace"))
+    target_ws = workspace_id(target.get("workspace"))
+    if want_ws is not None and target_ws is not None and want_ws != target_ws:
+        return False
+    return True
+
+
+FOCUS_UNCONFIRMED = "could not confirm keyboard focus"
+
+
+def focus_unconfirmed_message(target=None, active=None):
+    target = target or {}
+    want = target.get("title") or target.get("class") or target.get("class_name") or "target window"
+    addr = normalize_address(target.get("address") or target.get("window_id")) or "?"
+    msg = "could not confirm keyboard focus on %s (address %s)" % (want, addr)
+    if active:
+        got = active.get("title") or active.get("class") or active.get("class_name") or "unknown"
+        got_addr = normalize_address(active.get("address") or active.get("window_id")) or "?"
+        msg += "; activewindow is %s (address %s)" % (got, got_addr)
+    else:
+        msg += "; activewindow did not match"
+    msg += ". Do not retry with hyprctl; focus handoff failed."
+    return msg

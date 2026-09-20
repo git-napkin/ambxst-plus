@@ -59,7 +59,11 @@ Singleton {
     property string _focusAddress: ""
     property bool _focusWarp: false
     property int _focusTries: 0
+    property int _focusAttempt: 0
+    property var _captureMeta: null
     property bool _hideThenCapture: false
+    readonly property int focusPollLimit: 8
+    readonly property int focusRetryLimit: 1
 
     readonly property int inset: 24
     readonly property int barReserve: {
@@ -191,6 +195,10 @@ Singleton {
         root.noscreenshare = false;
     }
 
+    function setWorkspaceFollowSuppressed(on) {
+        AxctlService.suppressActivatedWorkspaceFollow = !!on;
+    }
+
     function ensureYdotoold() {
         if (root.ydotoolStarted || ydoProc.running || ydoProbeProc.running)
             return;
@@ -242,6 +250,7 @@ Singleton {
         root.composerFocused = false;
         root.hudScreen = Visibilities.lastFocusedScreen || (root.pickScreen("") ? root.pickScreen("").name : "");
         root.applyNoscreenshare();
+        root.setWorkspaceFollowSuppressed(true);
         root.ensureYdotoold();
         root.ensureAtSpi();
         root.injectingInput = false;
@@ -283,6 +292,7 @@ Singleton {
         escArmTimer.stop();
         waitTickTimer.stop();
         root.unlockPointer();
+        root.setWorkspaceFollowSuppressed(false);
         root.sessionFinished(root._pendingUserIndex, root._pendingDurationMs);
         if (immediate)
             root.completeEnd();
@@ -312,6 +322,7 @@ Singleton {
         root.clearWait();
         root._pendingUserIndex = -1;
         root._pendingDurationMs = 0;
+        root.setWorkspaceFollowSuppressed(false);
         root.hudLinger = true;
         hudLingerTimer.restart();
         if (restore && Visibilities.currentActiveModule !== "assistant")
@@ -617,14 +628,64 @@ Singleton {
         done({ error: "unknown use_computer action: " + action });
     }
 
+    function workspaceIdOf(value) {
+        if (value === undefined || value === null)
+            return 0;
+        if (typeof value === "object")
+            return AxctlService.parseWorkspaceId(value.id, value.name, value.workspace_id);
+        return AxctlService.parseWorkspaceId(value);
+    }
+
+    function focusConfirmed(address) {
+        const addr = String(address || "");
+        if (!addr)
+            return false;
+        const clients = AxctlService.clients.values || [];
+        const win = clients.find(c => c.address === addr);
+        if (!win || !win.is_focused)
+            return false;
+        const focused = AxctlService.focusedClient;
+        if (!focused || focused.address !== addr)
+            return false;
+        const monitors = AxctlService.monitors.values || [];
+        const mon = monitors.find(m => m.id === win.monitor) || AxctlService.focusedMonitor;
+        const winWs = root.workspaceIdOf(win.workspace);
+        const activeWs = mon && mon.activeWorkspace ? root.workspaceIdOf(mon.activeWorkspace) : 0;
+        if (winWs > 0 && activeWs > 0 && winWs !== activeWs)
+            return false;
+        return true;
+    }
+
+    function focusFailure(address) {
+        const intended = root.findWindow({ address: address });
+        const active = root.windowPayload(AxctlService.focusedClient);
+        const want = intended ? (intended.title || intended.class || address) : (address || "target window");
+        let msg = "could not confirm keyboard focus on " + want + " (address " + (address || "?") + ")";
+        if (active && active.address)
+            msg += "; activewindow is " + (active.title || active.class || "unknown") + " (address " + active.address + ")";
+        else
+            msg += "; activewindow did not match";
+        msg += ". Do not retry with hyprctl; focus handoff failed.";
+        return {
+            error: msg,
+            verified: false,
+            address: address || "",
+            focused_window: active
+        };
+    }
+
     function captureScreenshot(args, cb) {
         const win = root.findWindow(args);
+        const fullScreen = !!args.full_screen;
+        const explicitGeometry = !!(args.geometry);
         const raiseWindow = args.raise_window !== false && args.raise_window !== "false";
-        if (win && raiseWindow) {
-            root._pendingCapture = { args: args, cb: cb, win: win };
+        const needsFocus = !!(win && win.address && !fullScreen && !explicitGeometry);
+        if (needsFocus && (raiseWindow || !root.focusConfirmed(win.address))) {
+            root._pendingCapture = { args: args, cb: cb, address: win.address };
             root.focusWindow({ address: win.address }, true, result => {
-                if (result && result.error) {
-                    cb(result);
+                if (result && (result.error || result.verified === false)) {
+                    root._pendingCapture = null;
+                    cb(result.error ? result : root.focusFailure(win.address));
                     return;
                 }
                 raiseTimer.restart();
@@ -634,9 +695,16 @@ Singleton {
         root._runCapture(args, win, cb);
     }
 
-    function _runCapture(args, win, cb) {
+    function _runCapture(args, win, cb, focusOk) {
         const screens = root.screenList();
         const fullScreen = !!args.full_screen;
+        const explicitGeometry = !!(args.geometry);
+        const mustVerify = !!(win && win.address && !fullScreen && !explicitGeometry);
+        const verified = !mustVerify || focusOk === true || root.focusConfirmed(win.address);
+        if (mustVerify && !verified) {
+            cb(root.focusFailure(win.address));
+            return;
+        }
         let mon = root.pickScreen(args.monitor || args.target || "");
         if (win && !fullScreen) {
             const at = win.at || [0, 0];
@@ -687,8 +755,43 @@ Singleton {
         }
         root._actionCb = cb;
         root.hudHiddenForCapture = true;
+        root._captureMeta = {
+            address: win ? (win.address || "") : "",
+            verified: verified,
+            window_title: win ? (win.title || "") : "",
+            workspace: win ? (win.workspace || {}) : {}
+        };
         root._pendingCapture = { opts: opts, cb: cb };
         hideTimer.restart();
+    }
+
+    function dispatchFocus(address) {
+        AxctlService.dispatch("focuswindow address:" + address);
+    }
+
+    function finishFocus(ok) {
+        focusTimer.stop();
+        if (!root._focusWarp)
+            Quickshell.execDetached(["hyprctl", "keyword", "cursor:no_warps", "false"]);
+        const cb = root._actionCb;
+        root._actionCb = null;
+        const address = root._focusAddress;
+        if (!cb)
+            return;
+        if (ok) {
+            const intended = root.findWindow({ address: address });
+            cb({
+                ok: true,
+                address: address,
+                verified: true,
+                title: intended ? (intended.title || "") : "",
+                class: intended ? (intended.class || "") : "",
+                workspace: intended ? (intended.workspace || {}) : {},
+                focused_window: intended
+            });
+            return;
+        }
+        cb(root.focusFailure(address));
     }
 
     function focusWindow(args, warp, cb) {
@@ -697,13 +800,19 @@ Singleton {
             cb({ error: "window not found" });
             return;
         }
+        focusTimer.stop();
         root._focusAddress = win.address;
         root._focusWarp = !!warp;
         root._actionCb = cb;
         root._focusTries = 0;
+        root._focusAttempt = 0;
+        if (root.focusConfirmed(win.address)) {
+            root.finishFocus(true);
+            return;
+        }
         if (!warp)
             Quickshell.execDetached(["hyprctl", "keyword", "cursor:no_warps", "true"]);
-        AxctlService.dispatch("focuswindow address:" + win.address);
+        root.dispatchFocus(win.address);
         focusTimer.restart();
     }
 
@@ -949,8 +1058,10 @@ Singleton {
         onTriggered: {
             const pending = root._pendingCapture;
             root._pendingCapture = null;
-            if (pending)
-                root._runCapture(pending.args, pending.win, pending.cb);
+            if (!pending)
+                return;
+            const live = pending.address ? (root.findWindow({ address: pending.address }) || pending.win) : pending.win;
+            root._runCapture(pending.args, live, pending.cb, true);
         }
     }
 
@@ -960,17 +1071,19 @@ Singleton {
         repeat: true
         onTriggered: {
             root._focusTries += 1;
-            const clients = AxctlService.clients.values || [];
-            const match = clients.find(c => c.address === root._focusAddress && c.is_focused);
-            if (match || root._focusTries >= 20) {
-                focusTimer.stop();
-                if (!root._focusWarp)
-                    Quickshell.execDetached(["hyprctl", "keyword", "cursor:no_warps", "false"]);
-                const cb = root._actionCb;
-                root._actionCb = null;
-                if (cb)
-                    cb({ ok: true, address: root._focusAddress, verified: !!match });
+            if (root.focusConfirmed(root._focusAddress)) {
+                root.finishFocus(true);
+                return;
             }
+            if (root._focusTries < root.focusPollLimit)
+                return;
+            if (root._focusAttempt < root.focusRetryLimit) {
+                root._focusAttempt += 1;
+                root._focusTries = 0;
+                root.dispatchFocus(root._focusAddress);
+                return;
+            }
+            root.finishFocus(false);
         }
     }
 
@@ -981,7 +1094,13 @@ Singleton {
                 root.hudHiddenForCapture = false;
             const cb = root._actionCb;
             root._actionCb = null;
-            if (cb)
+            const extra = root._captureMeta;
+            root._captureMeta = null;
+            if (!cb)
+                return;
+            if (extra)
+                cb(Object.assign({}, result || {}, extra));
+            else
                 cb(result);
         }
     }

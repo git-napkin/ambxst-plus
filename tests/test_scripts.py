@@ -2447,6 +2447,31 @@ class TestComputerUse(unittest.TestCase):
         self.assertIn("wait_end", service)
         self.assertIn("function startWait", service)
 
+    def test_computer_use_cross_workspace_focus_contracts(self):
+        service = Path(__file__).parent.parent.joinpath("modules/services/ComputerUse.qml").read_text()
+        axctl = Path(__file__).parent.parent.joinpath("modules/services/AxctlService.qml").read_text()
+        bridge = Path(__file__).parent.parent.joinpath("modules/services/ai/NativeToolBridge.qml").read_text()
+        skill = Path(__file__).parent.parent.joinpath("assets/ai/skills/computer-use/SKILL.md").read_text()
+        focus_fn = service[service.index("function focusWindow") : service.index("function moveOrResize")]
+        self.assertIn('root.dispatchFocus(win.address)', focus_fn)
+        self.assertIn("function dispatchFocus", service)
+        self.assertIn('AxctlService.dispatch("focuswindow address:"', service)
+        self.assertNotIn('dispatch("workspace', focus_fn)
+        self.assertNotIn("workspace switch", focus_fn)
+        self.assertNotIn("_focusTries >= 20", service)
+        self.assertIn("focusConfirmed", focus_fn)
+        self.assertIn("_focusAttempt", focus_fn)
+        self.assertIn("focusRetryLimit", service)
+        self.assertIn("could not confirm keyboard focus", service)
+        self.assertIn("Do not retry with hyprctl", service)
+        self.assertIn("function setWorkspaceFollowSuppressed", service)
+        self.assertIn("suppressActivatedWorkspaceFollow", axctl)
+        self.assertIn("if (root.suppressActivatedWorkspaceFollow)", axctl)
+        self.assertIn("ComputerUse.focusWindow", bridge)
+        self.assertNotIn("case \"focus_window\":", bridge)
+        self.assertIn("one-step", skill)
+        self.assertIn("Do **not** `hyprctl dispatch workspace", skill)
+
     def test_computer_use_no_iter_cap(self):
         from io import StringIO
         from unittest.mock import patch
@@ -2529,6 +2554,168 @@ class TestComputerUse(unittest.TestCase):
         self.assertEqual(resolve_window(windows, {"tty": "pts/3"})["address"], "0x2")
         self.assertEqual(resolve_window(windows, {"pid": 10})["class"], "firefox")
         self.assertEqual(resolve_window(windows, {"title": "firefox"})["address"], "0x1")
+
+    def test_active_matches_target_requires_address_and_workspace(self):
+        from ai.computer_use.windows import active_matches_target, focus_unconfirmed_message
+
+        browser = {
+            "address": "address:0xbbb",
+            "title": "Firefox",
+            "class": "firefox",
+            "focused": True,
+            "workspace": {"id": 2},
+        }
+        terminal = {
+            "address": "0xaaa",
+            "title": "Kitty",
+            "class": "kitty",
+            "focused": True,
+            "workspace": {"id": 1},
+        }
+        self.assertTrue(active_matches_target(browser, {"address": "0xbbb", "focused": True, "workspace": {"id": 2}}))
+        self.assertTrue(
+            active_matches_target(
+                {"address": "0xbbb", "workspace": {"id": 2}},
+                {"address": "0xbbb", "is_focused": True},
+                monitor_active_workspace=2,
+            )
+        )
+        self.assertFalse(active_matches_target(browser, terminal))
+        self.assertFalse(
+            active_matches_target(
+                {"address": "0xbbb", "workspace": {"id": 2}},
+                {"address": "0xbbb", "focused": True, "workspace": {"id": 2}},
+                monitor_active_workspace=1,
+            )
+        )
+        self.assertFalse(active_matches_target(browser, {"address": "0xbbb", "focused": False}))
+        msg = focus_unconfirmed_message(browser, terminal)
+        self.assertIn("could not confirm keyboard focus", msg)
+        self.assertIn("0xbbb", msg)
+        self.assertIn("Kitty", msg)
+        self.assertIn("hyprctl", msg.lower())
+
+    def test_focus_unverified_errors_without_hyprctl_retry(self):
+        from unittest.mock import patch
+        from ai.tools.computer_use import UseComputerTool
+
+        ctx = _ctx(".", execution_profile={"computerUse": "AlwaysAllow"})
+        ctx.computer_use_approved = True
+        native_calls = []
+
+        def native(_ctx, name, args):
+            native_calls.append((name, dict(args)))
+            if args.get("action") == "focus":
+                return {
+                    "ok": True,
+                    "address": args.get("address"),
+                    "verified": False,
+                    "focused_window": {"address": "0xterm", "title": "Kitty"},
+                }
+            return {"ok": True}
+
+        with patch("ai.tools.computer_use._native", side_effect=native), patch(
+            "ai.tools.computer_use.time.sleep"
+        ):
+            out = UseComputerTool()._dispatch(ctx, "focus", {"address": "0xbrowser", "title": "Firefox"})
+        self.assertEqual(out["status"], "error")
+        self.assertIn("could not confirm keyboard focus", out["error"])
+        self.assertIn("hyprctl", out["error"].lower())
+        self.assertEqual(ctx.computer_use_focus_address, "")
+        focus_calls = [args for name, args in native_calls if args.get("action") == "focus"]
+        self.assertEqual(len(focus_calls), 1)
+
+    def test_click_focuses_target_once_then_clicks(self):
+        from unittest.mock import patch
+        from ai.tools.computer_use import UseComputerTool
+
+        ctx = _ctx(".", execution_profile={"computerUse": "AlwaysAllow"})
+        ctx.computer_use_approved = True
+        ctx.computer_use_last_shot = {
+            "scale": 1,
+            "monitor_scale": 1,
+            "origin_x": 0,
+            "origin_y": 0,
+            "crop_x": 0,
+            "crop_y": 0,
+            "width": 100,
+            "height": 100,
+        }
+        native_calls = []
+
+        def native(_ctx, name, args):
+            native_calls.append((name, dict(args)))
+            if args.get("action") == "focus":
+                return {"ok": True, "verified": True, "address": args.get("address")}
+            return {"ok": True}
+
+        with patch("ai.tools.computer_use._native", side_effect=native), patch(
+            "ai.tools.computer_use.time.sleep"
+        ), patch("ai.tools.computer_use.cu_input.movecursor", return_value=True) as moved, patch(
+            "ai.tools.computer_use.cu_input.click"
+        ) as clicked:
+            out = UseComputerTool()._dispatch(
+                ctx, "click", {"x": 10, "y": 10, "address": "0xbrowser"}
+            )
+        self.assertEqual(out["status"], "ok")
+        self.assertEqual(ctx.computer_use_focus_address, "0xbrowser")
+        focus_calls = [args for name, args in native_calls if args.get("action") == "focus"]
+        self.assertEqual(len(focus_calls), 1)
+        self.assertEqual(focus_calls[0]["address"], "0xbrowser")
+        self.assertTrue(focus_calls[0].get("warp"))
+        moved.assert_called_once()
+        clicked.assert_called_once()
+
+    def test_same_workspace_click_skips_focus_without_target(self):
+        from unittest.mock import patch
+        from ai.tools.computer_use import UseComputerTool
+
+        ctx = _ctx(".", execution_profile={"computerUse": "AlwaysAllow"})
+        ctx.computer_use_approved = True
+        ctx.computer_use_last_shot = {
+            "scale": 1,
+            "monitor_scale": 1,
+            "origin_x": 0,
+            "origin_y": 0,
+            "crop_x": 0,
+            "crop_y": 0,
+            "width": 100,
+            "height": 100,
+        }
+        native_calls = []
+
+        def native(_ctx, name, args):
+            native_calls.append((name, dict(args)))
+            return {"ok": True}
+
+        with patch("ai.tools.computer_use._native", side_effect=native), patch(
+            "ai.tools.computer_use.cu_input.movecursor", return_value=True
+        ), patch("ai.tools.computer_use.cu_input.click"):
+            out = UseComputerTool()._dispatch(ctx, "click", {"x": 10, "y": 10})
+        self.assertEqual(out["status"], "ok")
+        self.assertFalse(any(args.get("action") == "focus" for _name, args in native_calls))
+
+    def test_screenshot_errors_when_focus_unverified(self):
+        from unittest.mock import patch
+        from ai.tools.computer_use import UseComputerTool
+
+        ctx = _ctx(".", execution_profile={"computerUse": "AlwaysAllow"})
+        ctx.computer_use_approved = True
+
+        def native(_ctx, name, args):
+            return {
+                "ok": True,
+                "verified": False,
+                "address": "0xbrowser",
+                "focused_window": {"address": "0xterm", "title": "Kitty"},
+                "path": "/tmp/missing.png",
+            }
+
+        with patch("ai.tools.computer_use._native", side_effect=native):
+            out = UseComputerTool()._dispatch(ctx, "screenshot", {"address": "0xbrowser"})
+        self.assertEqual(out["status"], "error")
+        self.assertIn("could not confirm keyboard focus", out["error"])
+        self.assertEqual(ctx.computer_use_focus_address, "")
 
     def test_observe_after_click_returns_tree(self):
         from unittest.mock import patch
