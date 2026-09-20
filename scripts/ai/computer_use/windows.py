@@ -73,7 +73,7 @@ def resolve_window(windows, target):
     address = str(target.get("address") or target.get("window_id") or "").strip()
     if address:
         for win in windows:
-            if str(win.get("address") or "") == address:
+            if addresses_equal(win.get("address"), address):
                 return win
         return None
     tty = str(target.get("tty") or "").strip()
@@ -122,11 +122,31 @@ def resolve_window(windows, target):
     return None
 
 
-def normalize_address(value):
+def canonical_address(value):
+    """Hyprland window address: strip address:, collapse 0x0x, lowercase."""
     text = str(value or "").strip()
     if text.lower().startswith("address:"):
         text = text[8:].strip()
-    return text
+    lowered = text.lower()
+    while lowered.startswith("0x0x"):
+        text = "0x" + text[4:]
+        lowered = text.lower()
+    if text and not lowered.startswith("0x"):
+        hexish = all(ch in "0123456789abcdef" for ch in lowered)
+        if hexish:
+            text = "0x" + text
+            lowered = text.lower()
+    return lowered
+
+
+def normalize_address(value):
+    return canonical_address(value)
+
+
+def addresses_equal(left, right):
+    want = canonical_address(left)
+    got = canonical_address(right)
+    return bool(want) and want == got
 
 
 def workspace_id(value):
@@ -143,12 +163,15 @@ def workspace_id(value):
 
 
 def active_matches_target(target, active, monitor_active_workspace=None):
-    """True when compositor activewindow is the intended target on its workspace."""
+    """Address + optional workspace match. Not sufficient for Hyprland handoff.
+
+    Cache `is_focused` plus the window's own workspace id can agree while that
+    workspace is still inactive (or a layer-shell Exclusive grab holds keys).
+    Use live_focus_confirmed() with hyprctl activewindow + monitors.
+    """
     if not target or not active:
         return False
-    want = normalize_address(target.get("address") or target.get("window_id"))
-    got = normalize_address(active.get("address") or active.get("window_id"))
-    if not want or want != got:
+    if not addresses_equal(target.get("address") or target.get("window_id"), active.get("address") or active.get("window_id")):
         return False
     if active.get("focused") is False or active.get("is_focused") is False:
         return False
@@ -159,6 +182,93 @@ def active_matches_target(target, active, monitor_active_workspace=None):
     if want_ws is not None and target_ws is not None and want_ws != target_ws:
         return False
     return True
+
+
+def _monitor_active_workspace(monitors, monitor_id):
+    for mon in monitors or []:
+        mid = mon.get("id")
+        name = mon.get("name")
+        if monitor_id not in (None, "") and str(mid) != str(monitor_id) and name != monitor_id:
+            continue
+        aw = mon.get("activeWorkspace") or mon.get("active_workspace") or {}
+        if isinstance(aw, dict):
+            ident = aw.get("id") if aw.get("id") not in (None, "") else aw.get("name")
+            return workspace_id(ident), str(aw.get("name") or aw.get("id") or "")
+        return workspace_id(aw), str(aw or "")
+    return None, ""
+
+
+def live_focus_confirmed(target, activewindow, monitors):
+    """True only from live hyprctl activewindow + monitors — never cache is_focused.
+
+    Empty/missing activewindow fails. Matching address is required. The target's
+    workspace must be the active workspace on its monitor.
+    """
+    if not target or not isinstance(activewindow, dict):
+        return False
+    addr = activewindow.get("address") or activewindow.get("window_id")
+    if not addr:
+        return False
+    if not addresses_equal(target.get("address") or target.get("window_id"), addr):
+        return False
+    if not isinstance(monitors, (list, tuple)):
+        return False
+    target_ws = workspace_id(target.get("workspace"))
+    if target_ws is None:
+        target_ws = workspace_id(activewindow.get("workspace"))
+    mon_id = target.get("monitor")
+    if mon_id in (None, ""):
+        mon_id = activewindow.get("monitor")
+    shown_ws, shown_name = _monitor_active_workspace(monitors, mon_id)
+    if shown_ws is None and not shown_name:
+        return False
+    if target_ws is not None and shown_ws is not None and target_ws != shown_ws:
+        return False
+    target_name = ""
+    ws = target.get("workspace")
+    if isinstance(ws, dict):
+        target_name = str(ws.get("name") or "")
+    elif ws not in (None, ""):
+        target_name = str(ws)
+    if target_ws is None and target_name and shown_name and target_name != shown_name:
+        return False
+    return True
+
+
+def handoff_steps(window, monitors=None, focused_monitor_id=None, warp=False):
+    """Bounded Hyprland focus recipe: monitor, workspace, focuswindow, raise, optional warp."""
+    window = window or {}
+    steps = []
+    mon_id = window.get("monitor")
+    if mon_id not in (None, "") and focused_monitor_id not in (None, "") and str(mon_id) != str(focused_monitor_id):
+        steps.append(("focusmonitor", str(mon_id)))
+    ws = window.get("workspace") or {}
+    ws_name = str(ws.get("name") or "") if isinstance(ws, dict) else str(ws or "")
+    ws_ident = workspace_id(ws)
+    mon_ws, mon_ws_name = _monitor_active_workspace(monitors, mon_id)
+    if ws_name.startswith("special"):
+        special = ws_name.split(":", 1)[-1] if ":" in ws_name else ws_name
+        if not str(mon_ws_name).startswith("special"):
+            steps.append(("togglespecialworkspace", special))
+    elif ws_ident is not None and (mon_ws is None or ws_ident != mon_ws):
+        steps.append(("workspace", str(ws_ident)))
+    elif ws_name and mon_ws_name and ws_name != mon_ws_name and ws_ident is None:
+        steps.append(("workspace", ws_name))
+    addr = canonical_address(window.get("address"))
+    if addr:
+        steps.append(("focuswindow", "address:" + addr))
+    steps.append(("bringactivetotop", ""))
+    if warp:
+        at = window.get("at") or [0, 0]
+        size = window.get("size") or [0, 0]
+        try:
+            cx = int(round(float(at[0]) + float(size[0]) / 2.0))
+            cy = int(round(float(at[1]) + float(size[1]) / 2.0))
+        except (TypeError, ValueError, IndexError):
+            cx = cy = None
+        if cx is not None:
+            steps.append(("movecursor", "%s %s" % (cx, cy)))
+    return steps
 
 
 FOCUS_UNCONFIRMED = "could not confirm keyboard focus"

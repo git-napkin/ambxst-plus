@@ -19,15 +19,15 @@ PanelWindow {
         right: true
     }
     color: "transparent"
-    visible: ComputerUse.sessionActive
+    visible: ComputerUse.sessionActive && !ComputerUse.ending
     exclusionMode: ExclusionMode.Ignore
 
     WlrLayershell.layer: WlrLayer.Overlay
     WlrLayershell.namespace: "ambxst+:computer-use"
     WlrLayershell.keyboardFocus: {
-        if (!ComputerUse.sessionActive)
+        if (!ComputerUse.sessionActive || ComputerUse.ending)
             return WlrKeyboardFocus.None;
-        if (ComputerUse.userHasControl || ComputerUse.injectingInput)
+        if (ComputerUse.userHasControl || ComputerUse.injectingInput || ComputerUse.handoffKeys)
             return WlrKeyboardFocus.None;
         if (ComputerUse.sessionState === "grantedIdle")
             return WlrKeyboardFocus.None;
@@ -38,7 +38,7 @@ PanelWindow {
         item: ComputerUse.sessionState === "approvalWait" ? inputBlock : (hud.clickThrough ? grabPixel : hudAnchor)
     }
 
-    readonly property bool drivingKeys: ComputerUse.sessionActive && !ComputerUse.userHasControl && !ComputerUse.injectingInput && ComputerUse.sessionState !== "grantedIdle"
+    readonly property bool drivingKeys: ComputerUse.sessionActive && !ComputerUse.ending && !ComputerUse.userHasControl && !ComputerUse.injectingInput && !ComputerUse.handoffKeys && ComputerUse.sessionState !== "grantedIdle"
     readonly property bool showWait: ComputerUse.waiting && !Ai.approvalPending
     readonly property bool pointerChrome: ComputerUse.userHasControl
 

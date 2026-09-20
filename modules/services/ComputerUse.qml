@@ -31,6 +31,11 @@ Singleton {
     property var _disabledMice: []
     property string _devicesIntent: ""
     property bool ending: false
+    property bool handoffKeys: false
+    property int _pointerEpoch: 0
+    property string _verifiedFocusAddress: ""
+    property var _liveActive: null
+    property var _liveMonitors: []
     property bool _restoreSpotlight: true
     property int _pendingUserIndex: -1
     property real _pendingDurationMs: 0
@@ -152,7 +157,7 @@ Singleton {
         const address = String(args.address || args.window_id || "").trim();
         if (address) {
             for (let i = 0; i < windows.length; i++) {
-                if (String(windows[i].address) === address)
+                if (root.addressesEqual(windows[i].address, address))
                     return windows[i];
             }
             return null;
@@ -221,6 +226,34 @@ Singleton {
         if (!n)
             return;
         Quickshell.execDetached(["hyprctl", "eval", "hl.device({ name = " + root.luaQuote(n) + ", enabled = " + (on ? "true" : "false") + " })"]);
+        Quickshell.execDetached(["hyprctl", "keyword", "device[" + n + "]:enabled", on ? "true" : "false"]);
+    }
+
+    function lockPointer() {
+        if (root.ending || root.userHasControl)
+            return;
+        if (root.sessionState === "approvalWait" || root.sessionState === "grantedIdle" || root.sessionState === "idle" || root.sessionState === "userControl")
+            return;
+        root._devicesIntent = "lock";
+        root._pointerEpoch += 1;
+        devicesProc.epoch = root._pointerEpoch;
+        root.restartDevicesProc();
+    }
+
+    function unlockPointer() {
+        root.releaseCursorLock();
+    }
+
+    function releaseCursorLock() {
+        root._devicesIntent = "unlock";
+        root._pointerEpoch += 1;
+        devicesProc.epoch = root._pointerEpoch;
+        const names = root._disabledMice || [];
+        for (let i = 0; i < names.length; i++)
+            root.setPointerDeviceEnabled(names[i], true);
+        root.persistDisabledMice([]);
+        Quickshell.execDetached(["hyprctl", "keyword", "cursor:no_warps", "false"]);
+        root.restartDevicesProc();
     }
 
     function formatWorkedDuration(ms) {
@@ -256,6 +289,8 @@ Singleton {
         root.injectingInput = false;
         root.steerOpen = false;
         root.escArmed = false;
+        root.handoffKeys = false;
+        root._verifiedFocusAddress = "";
         root.lastEscAt = 0;
         root.clearWait();
         if (!root.sessionActive)
@@ -269,6 +304,7 @@ Singleton {
     function end(opts) {
         const restore = !opts || opts.restoreSpotlight !== false;
         const immediate = !!(opts && opts.immediate) || !restore;
+        root.releaseCursorLock();
         if (root.ending) {
             if (immediate)
                 root.completeEnd();
@@ -280,6 +316,7 @@ Singleton {
             return;
         }
         root.ending = true;
+        root.handoffKeys = false;
         root._restoreSpotlight = restore;
         root._pendingUserIndex = root.workUserIndex;
         root._pendingDurationMs = root.sessionStartedAt ? (Date.now() - root.sessionStartedAt) : 0;
@@ -291,7 +328,10 @@ Singleton {
         captureWatchdog.stop();
         escArmTimer.stop();
         waitTickTimer.stop();
-        root.unlockPointer();
+        focusTimer.stop();
+        if (focusVerifyProc.running)
+            focusVerifyProc.running = false;
+        root.refocusVerifiedTarget();
         root.setWorkspaceFollowSuppressed(false);
         root.sessionFinished(root._pendingUserIndex, root._pendingDurationMs);
         if (immediate)
@@ -319,7 +359,9 @@ Singleton {
         root.injectingInput = false;
         root.steerOpen = false;
         root.escArmed = false;
+        root.handoffKeys = false;
         root.clearWait();
+        root.releaseCursorLock();
         root._pendingUserIndex = -1;
         root._pendingDurationMs = 0;
         root.setWorkspaceFollowSuppressed(false);
@@ -432,6 +474,7 @@ Singleton {
         if (root.escArmed) {
             root.escArmed = false;
             escArmTimer.stop();
+            root.releaseCursorLock();
             root.stopRequested();
             return;
         }
@@ -472,11 +515,13 @@ Singleton {
             return root.gate((args && args.action) || "", (args && args.summary) || "");
         if (op === "inject_begin") {
             root.injectingInput = true;
+            root.handoffKeys = true;
             injectWatchdog.restart();
             return { ok: true };
         }
         if (op === "inject_end") {
             root.injectingInput = false;
+            root.handoffKeys = false;
             injectWatchdog.stop();
             return { ok: true };
         }
@@ -489,23 +534,6 @@ Singleton {
             return { ok: true };
         }
         return { error: "unknown computer_use_session op" };
-    }
-
-    function lockPointer() {
-        if (root.userHasControl || root.sessionState === "approvalWait" || root.sessionState === "grantedIdle")
-            return;
-        root._devicesIntent = "lock";
-        root.restartDevicesProc();
-    }
-
-    function unlockPointer() {
-        root._devicesIntent = "unlock";
-        const names = root._disabledMice || [];
-        for (let i = 0; i < names.length; i++)
-            root.setPointerDeviceEnabled(names[i], true);
-        root.persistDisabledMice([]);
-        if (devicesProc.running)
-            devicesProc.running = false;
     }
 
     function recoverPointers() {
@@ -636,29 +664,86 @@ Singleton {
         return AxctlService.parseWorkspaceId(value);
     }
 
-    function focusConfirmed(address) {
-        const addr = String(address || "");
-        if (!addr)
+    function canonicalAddress(value) {
+        let t = String(value || "").trim();
+        if (!t)
+            return "";
+        if (t.toLowerCase().indexOf("address:") === 0)
+            t = t.slice(8).trim();
+        let lower = t.toLowerCase();
+        while (lower.indexOf("0x0x") === 0) {
+            t = "0x" + t.slice(4);
+            lower = t.toLowerCase();
+        }
+        if (lower.indexOf("0x") !== 0 && /^[0-9a-f]+$/.test(lower))
+            t = "0x" + t;
+        return t.toLowerCase();
+    }
+
+    function addressesEqual(a, b) {
+        const left = root.canonicalAddress(a);
+        return !!left && left === root.canonicalAddress(b);
+    }
+
+    function parseFocusVerify(text) {
+        const parts = String(text || "").split("__AX_SPLIT__");
+        let active = {};
+        let monitors = [];
+        try {
+            active = JSON.parse((parts[0] || "").trim() || "{}");
+        } catch (e) {
+            active = {};
+        }
+        try {
+            monitors = JSON.parse((parts[1] || "").trim() || "[]");
+        } catch (e2) {
+            monitors = [];
+        }
+        if (!Array.isArray(monitors))
+            monitors = [];
+        return { active: active, monitors: monitors };
+    }
+
+    function liveFocusMatches(address, active, monitors) {
+        if (!active || typeof active !== "object")
             return false;
-        const clients = AxctlService.clients.values || [];
-        const win = clients.find(c => c.address === addr);
-        if (!win || !win.is_focused)
+        const got = active.address || active.window_id || "";
+        if (!got || !root.addressesEqual(address, got))
             return false;
-        const focused = AxctlService.focusedClient;
-        if (!focused || focused.address !== addr)
+        if (!Array.isArray(monitors))
             return false;
-        const monitors = AxctlService.monitors.values || [];
-        const mon = monitors.find(m => m.id === win.monitor) || AxctlService.focusedMonitor;
-        const winWs = root.workspaceIdOf(win.workspace);
-        const activeWs = mon && mon.activeWorkspace ? root.workspaceIdOf(mon.activeWorkspace) : 0;
-        if (winWs > 0 && activeWs > 0 && winWs !== activeWs)
+        const win = root.findWindow({ address: address });
+        const winWs = root.workspaceIdOf(win ? win.workspace : (active.workspace || null));
+        const winName = win && win.workspace && win.workspace.name ? String(win.workspace.name) : String((active.workspace && (active.workspace.name || active.workspace.id)) || "");
+        const monId = (win && win.monitor !== undefined && win.monitor !== null) ? win.monitor : active.monitor;
+        let mon = null;
+        for (let i = 0; i < monitors.length; i++) {
+            if (String(monitors[i].id) === String(monId) || monitors[i].name === monId) {
+                mon = monitors[i];
+                break;
+            }
+        }
+        if (!mon && monitors.length)
+            mon = monitors.find(m => m.focused) || monitors[0];
+        if (!mon)
+            return false;
+        const aw = mon.activeWorkspace || {};
+        const shownWs = root.workspaceIdOf(aw);
+        const shownName = String(aw.name || aw.id || "");
+        if (winWs > 0 && shownWs > 0 && winWs !== shownWs)
+            return false;
+        if (!(winWs > 0 && shownWs > 0) && winName && shownName && winName !== shownName)
             return false;
         return true;
     }
 
+    function focusConfirmed(address) {
+        return root.liveFocusMatches(address, root._liveActive, root._liveMonitors);
+    }
+
     function focusFailure(address) {
         const intended = root.findWindow({ address: address });
-        const active = root.windowPayload(AxctlService.focusedClient);
+        const active = root._liveActive && root._liveActive.address ? root._liveActive : root.windowPayload(AxctlService.focusedClient);
         const want = intended ? (intended.title || intended.class || address) : (address || "target window");
         let msg = "could not confirm keyboard focus on " + want + " (address " + (address || "?") + ")";
         if (active && active.address)
@@ -695,12 +780,12 @@ Singleton {
         root._runCapture(args, win, cb);
     }
 
-    function _runCapture(args, win, cb, focusOk) {
+    function _runCapture(args, win, cb) {
         const screens = root.screenList();
         const fullScreen = !!args.full_screen;
         const explicitGeometry = !!(args.geometry);
         const mustVerify = !!(win && win.address && !fullScreen && !explicitGeometry);
-        const verified = !mustVerify || focusOk === true || root.focusConfirmed(win.address);
+        const verified = !mustVerify || root.focusConfirmed(win.address);
         if (mustVerify && !verified) {
             cb(root.focusFailure(win.address));
             return;
@@ -766,16 +851,65 @@ Singleton {
     }
 
     function dispatchFocus(address) {
-        AxctlService.dispatch("focuswindow address:" + address);
+        const win = root.findWindow({ address: address });
+        const monitors = AxctlService.monitors.values || [];
+        const fmon = AxctlService.focusedMonitor;
+        const parts = [];
+        if (win) {
+            const mon = monitors.find(m => m.id === win.monitor);
+            if (mon && fmon && String(mon.id) !== String(fmon.id))
+                parts.push("dispatch focusmonitor " + mon.id);
+            const wsName = win.workspace && win.workspace.name ? String(win.workspace.name) : "";
+            const wsId = root.workspaceIdOf(win.workspace);
+            const activeWs = mon && mon.activeWorkspace ? root.workspaceIdOf(mon.activeWorkspace) : 0;
+            const activeName = mon && mon.activeWorkspace ? String(mon.activeWorkspace.name || mon.activeWorkspace.id || "") : "";
+            if (wsName.indexOf("special") === 0) {
+                if (activeName.indexOf("special") !== 0)
+                    parts.push("dispatch togglespecialworkspace " + wsName.replace(/^special:?/, ""));
+            } else if (wsId > 0 && wsId !== activeWs) {
+                parts.push("dispatch workspace " + wsId);
+            } else if (wsName && activeName && wsName !== activeName && !(wsId > 0)) {
+                parts.push("dispatch workspace " + wsName);
+            }
+        }
+        const canon = root.canonicalAddress(address);
+        if (canon)
+            parts.push("dispatch focuswindow address:" + canon);
+        parts.push("dispatch bringactivetotop");
+        if (root._focusWarp && win && win.at && win.size) {
+            const cx = Math.round(Number(win.at[0] || 0) + Number(win.size[0] || 0) / 2);
+            const cy = Math.round(Number(win.at[1] || 0) + Number(win.size[1] || 0) / 2);
+            parts.push("dispatch movecursor " + cx + " " + cy);
+        }
+        if (parts.length)
+            Quickshell.execDetached(["hyprctl", "--batch", parts.join("; ")]);
+    }
+
+    function refocusVerifiedTarget() {
+        const addr = root._verifiedFocusAddress || root._focusAddress;
+        if (!addr)
+            return;
+        const canon = root.canonicalAddress(addr);
+        AxctlService.savedFocusAddress = addr;
+        const parts = [];
+        if (canon)
+            parts.push("dispatch focuswindow address:" + canon);
+        parts.push("dispatch bringactivetotop");
+        Quickshell.execDetached(["hyprctl", "--batch", parts.join("; ")]);
     }
 
     function finishFocus(ok) {
         focusTimer.stop();
+        if (focusVerifyProc.running)
+            focusVerifyProc.running = false;
+        root.handoffKeys = false;
         if (!root._focusWarp)
             Quickshell.execDetached(["hyprctl", "keyword", "cursor:no_warps", "false"]);
         const cb = root._actionCb;
         root._actionCb = null;
         const address = root._focusAddress;
+        if (ok)
+            root._verifiedFocusAddress = address;
         if (!cb)
             return;
         if (ok) {
@@ -794,6 +928,27 @@ Singleton {
         cb(root.focusFailure(address));
     }
 
+    function consumeFocusVerify(text) {
+        if (!root._actionCb)
+            return;
+        const parsed = root.parseFocusVerify(text);
+        root._liveActive = parsed.active;
+        root._liveMonitors = parsed.monitors;
+        if (root.liveFocusMatches(root._focusAddress, parsed.active, parsed.monitors)) {
+            root.finishFocus(true);
+            return;
+        }
+        if (root._focusTries < root.focusPollLimit)
+            return;
+        if (root._focusAttempt < root.focusRetryLimit) {
+            root._focusAttempt += 1;
+            root._focusTries = 0;
+            root.dispatchFocus(root._focusAddress);
+            return;
+        }
+        root.finishFocus(false);
+    }
+
     function focusWindow(args, warp, cb) {
         const win = root.findWindow(args);
         if (!win || !win.address) {
@@ -801,15 +956,16 @@ Singleton {
             return;
         }
         focusTimer.stop();
+        if (focusVerifyProc.running)
+            focusVerifyProc.running = false;
         root._focusAddress = win.address;
         root._focusWarp = !!warp;
         root._actionCb = cb;
         root._focusTries = 0;
         root._focusAttempt = 0;
-        if (root.focusConfirmed(win.address)) {
-            root.finishFocus(true);
-            return;
-        }
+        root._liveActive = null;
+        root._liveMonitors = [];
+        root.handoffKeys = true;
         if (!warp)
             Quickshell.execDetached(["hyprctl", "keyword", "cursor:no_warps", "true"]);
         root.dispatchFocus(win.address);
@@ -871,10 +1027,12 @@ Singleton {
     Process {
         id: devicesProc
         running: false
+        property int epoch: 0
         command: ["hyprctl", "devices", "-j"]
         stdout: StdioCollector {}
         onExited: () => {
             Qt.callLater(() => {
+                const epoch = devicesProc.epoch;
                 let data = {};
                 try {
                     data = JSON.parse((devicesProc.stdout && devicesProc.stdout.text) || "{}");
@@ -883,8 +1041,18 @@ Singleton {
                 }
                 const pointers = root.pointerNamesFromDevices(data);
                 const keyboards = root.keyboardNamesFromDevices(data);
+                if (epoch !== root._pointerEpoch)
+                    return;
+                if (root._devicesIntent === "unlock" || root.ending || root.sessionState === "idle") {
+                    for (let i = 0; i < pointers.length; i++)
+                        root.setPointerDeviceEnabled(pointers[i], true);
+                    root.persistDisabledMice([]);
+                    return;
+                }
                 if (root._devicesIntent === "lock") {
-                    if (root.userHasControl || !root.sessionActive || root.sessionState === "approvalWait" || root.sessionState === "grantedIdle")
+                    if (root.ending || root.userHasControl || !root.sessionActive)
+                        return;
+                    if (root.sessionState === "approvalWait" || root.sessionState === "grantedIdle" || root.sessionState === "userControl" || root.sessionState === "idle")
                         return;
                     const names = [];
                     for (let i = 0; i < pointers.length; i++) {
@@ -1061,7 +1229,7 @@ Singleton {
             if (!pending)
                 return;
             const live = pending.address ? (root.findWindow({ address: pending.address }) || pending.win) : pending.win;
-            root._runCapture(pending.args, live, pending.cb, true);
+            root._runCapture(pending.args, live, pending.cb);
         }
     }
 
@@ -1071,19 +1239,20 @@ Singleton {
         repeat: true
         onTriggered: {
             root._focusTries += 1;
-            if (root.focusConfirmed(root._focusAddress)) {
-                root.finishFocus(true);
-                return;
-            }
-            if (root._focusTries < root.focusPollLimit)
-                return;
-            if (root._focusAttempt < root.focusRetryLimit) {
-                root._focusAttempt += 1;
-                root._focusTries = 0;
-                root.dispatchFocus(root._focusAddress);
-                return;
-            }
-            root.finishFocus(false);
+            if (!focusVerifyProc.running)
+                focusVerifyProc.running = true;
+        }
+    }
+
+    Process {
+        id: focusVerifyProc
+        running: false
+        command: ["sh", "-c", "hyprctl -j activewindow; printf '\\n__AX_SPLIT__\\n'; hyprctl -j monitors"]
+        stdout: StdioCollector {}
+        onExited: () => {
+            Qt.callLater(() => {
+                root.consumeFocusVerify((focusVerifyProc.stdout && focusVerifyProc.stdout.text) || "");
+            });
         }
     }
 

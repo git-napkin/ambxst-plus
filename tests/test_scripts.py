@@ -2455,12 +2455,21 @@ class TestComputerUse(unittest.TestCase):
         focus_fn = service[service.index("function focusWindow") : service.index("function moveOrResize")]
         self.assertIn('root.dispatchFocus(win.address)', focus_fn)
         self.assertIn("function dispatchFocus", service)
-        self.assertIn('AxctlService.dispatch("focuswindow address:"', service)
-        self.assertNotIn('dispatch("workspace', focus_fn)
-        self.assertNotIn("workspace switch", focus_fn)
+        self.assertIn("--batch", service)
+        self.assertIn("dispatch focuswindow address:", service)
+        self.assertIn("dispatch workspace ", service)
+        self.assertIn("dispatch bringactivetotop", service)
+        self.assertIn("hyprctl -j activewindow", service)
+        self.assertIn("function liveFocusMatches", service)
+        self.assertIn("function releaseCursorLock", service)
+        self.assertIn("handoffKeys", service)
+        self.assertIn("_pointerEpoch", service)
         self.assertNotIn("_focusTries >= 20", service)
-        self.assertIn("focusConfirmed", focus_fn)
+        self.assertIn("function liveFocusMatches", service)
+        self.assertIn("root.dispatchFocus(win.address)", focus_fn)
+        self.assertNotIn("root.focusConfirmed(win.address)", focus_fn)
         self.assertIn("_focusAttempt", focus_fn)
+        self.assertIn("handoffKeys = true", focus_fn)
         self.assertIn("focusRetryLimit", service)
         self.assertIn("could not confirm keyboard focus", service)
         self.assertIn("Do not retry with hyprctl", service)
@@ -2469,8 +2478,8 @@ class TestComputerUse(unittest.TestCase):
         self.assertIn("if (root.suppressActivatedWorkspaceFollow)", axctl)
         self.assertIn("ComputerUse.focusWindow", bridge)
         self.assertNotIn("case \"focus_window\":", bridge)
-        self.assertIn("one-step", skill)
-        self.assertIn("Do **not** `hyprctl dispatch workspace", skill)
+        self.assertIn("monitor + workspace + focuswindow", skill)
+        self.assertIn("hyprctl -j activewindow", skill)
 
     def test_computer_use_no_iter_cap(self):
         from io import StringIO
@@ -2594,6 +2603,93 @@ class TestComputerUse(unittest.TestCase):
         self.assertIn("0xbbb", msg)
         self.assertIn("Kitty", msg)
         self.assertIn("hyprctl", msg.lower())
+
+    def test_live_focus_rejects_cache_false_successes(self):
+        from ai.computer_use.windows import (
+            addresses_equal,
+            canonical_address,
+            handoff_steps,
+            live_focus_confirmed,
+        )
+
+        browser = {
+            "address": "address:0xbbb",
+            "title": "Firefox",
+            "workspace": {"id": 2, "name": "2"},
+            "monitor": 0,
+            "at": [100, 80],
+            "size": [800, 600],
+        }
+        monitors_ws1 = [{"id": 0, "name": "DP-1", "focused": True, "activeWorkspace": {"id": 1, "name": "1"}}]
+        monitors_ws2 = [{"id": 0, "name": "DP-1", "focused": True, "activeWorkspace": {"id": 2, "name": "2"}}]
+        self.assertTrue(addresses_equal("address:0xBBB", "0xbbb"))
+        self.assertTrue(addresses_equal("0x0xbbb", "0xbbb"))
+        self.assertEqual(canonical_address("address:0xABC"), "0xabc")
+        self.assertFalse(live_focus_confirmed(browser, None, monitors_ws2))
+        self.assertFalse(live_focus_confirmed(browser, {}, monitors_ws2))
+        self.assertFalse(live_focus_confirmed(browser, {"focused": True, "is_focused": True, "workspace": {"id": 2}}, monitors_ws2))
+        self.assertFalse(
+            live_focus_confirmed(
+                browser,
+                {"address": "0xbbb", "title": "Firefox", "workspace": {"id": 2}},
+                monitors_ws1,
+            )
+        )
+        self.assertTrue(
+            live_focus_confirmed(
+                browser,
+                {"address": "0xbbb", "title": "Firefox", "workspace": {"id": 2}, "monitor": 0},
+                monitors_ws2,
+            )
+        )
+        steps = handoff_steps(browser, monitors_ws1, focused_monitor_id=0, warp=True)
+        names = [name for name, _arg in steps]
+        self.assertEqual(names[0], "workspace")
+        self.assertIn("focuswindow", names)
+        self.assertIn("bringactivetotop", names)
+        self.assertIn("movecursor", names)
+        self.assertEqual(steps[names.index("focuswindow")][1], "address:0xbbb")
+        same = handoff_steps(browser, monitors_ws2, focused_monitor_id=0, warp=False)
+        self.assertNotIn("workspace", [name for name, _arg in same])
+        self.assertIn(("focuswindow", "address:0xbbb"), same)
+        other_mon = handoff_steps(browser, monitors_ws1, focused_monitor_id=1, warp=False)
+        self.assertEqual(other_mon[0], ("focusmonitor", "0"))
+
+    def test_pointer_lock_release_on_every_exit(self):
+        from ai.computer_use.session import hud_exclusive_keyboard, should_lock_pointers, should_release_cursor
+
+        self.assertTrue(should_lock_pointers("agentDriving", intent="lock", epoch=3, callback_epoch=3))
+        self.assertFalse(should_lock_pointers("agentDriving", ending=True, epoch=3, callback_epoch=3))
+        self.assertFalse(should_lock_pointers("agentDriving", intent="unlock", epoch=3, callback_epoch=3))
+        self.assertFalse(should_lock_pointers("agentDriving", epoch=4, callback_epoch=3))
+        self.assertFalse(should_lock_pointers("idle", epoch=1, callback_epoch=1))
+        self.assertFalse(should_lock_pointers("grantedIdle", epoch=1, callback_epoch=1))
+        self.assertFalse(should_lock_pointers("approvalWait", epoch=1, callback_epoch=1))
+        self.assertFalse(should_lock_pointers("agentDriving", user_has_control=True, epoch=1, callback_epoch=1))
+        for event in ("esc_confirmed", "stop", "cancel", "error", "end", "complete_end", "lockscreen"):
+            self.assertTrue(should_release_cursor(event), event)
+        self.assertTrue(hud_exclusive_keyboard("agentDriving"))
+        self.assertFalse(hud_exclusive_keyboard("agentDriving", ending=True))
+        self.assertFalse(hud_exclusive_keyboard("agentDriving", handoff=True))
+        self.assertFalse(hud_exclusive_keyboard("agentDriving", injecting=True))
+        self.assertFalse(hud_exclusive_keyboard("grantedIdle"))
+
+        service = Path(__file__).parent.parent.joinpath("modules/services/ComputerUse.qml").read_text()
+        hud = Path(__file__).parent.parent.joinpath("modules/widgets/assistant/ComputerUseHud.qml").read_text()
+        end_fn = service[service.index("function end(") : service.index("function completeEnd")]
+        complete_fn = service[service.index("function completeEnd") : service.index("function stop")]
+        escape_fn = service[service.index("function handleEscape") : service.index("function gate")]
+        lock_fn = service[service.index("function lockPointer") : service.index("function unlockPointer")]
+        devices = service[service.index("id: devicesProc") : service.index("id: recoverProc")]
+        self.assertIn("root.releaseCursorLock()", end_fn)
+        self.assertIn("root.releaseCursorLock()", complete_fn)
+        self.assertIn("root.releaseCursorLock()", escape_fn)
+        self.assertIn("root.ending", lock_fn)
+        self.assertIn("epoch !== root._pointerEpoch", devices)
+        self.assertIn('root._devicesIntent === "unlock"', devices)
+        self.assertIn("ComputerUse.ending", hud)
+        self.assertIn("ComputerUse.handoffKeys", hud)
+        self.assertIn("visible: ComputerUse.sessionActive && !ComputerUse.ending", hud)
 
     def test_focus_unverified_errors_without_hyprctl_retry(self):
         from unittest.mock import patch
@@ -2793,6 +2889,32 @@ class TestComputerUse(unittest.TestCase):
         walked.assert_not_called()
         self.assertEqual(out["status"], "ok")
         self.assertEqual(out["focused"]["role"], "text")
+
+    def test_type_focuses_after_inject_begin(self):
+        from unittest.mock import patch
+        from ai.tools.computer_use import UseComputerTool
+
+        ctx = _ctx(".", execution_profile={"computerUse": "AlwaysAllow"})
+        ctx.computer_use_approved = True
+        native_calls = []
+
+        def native(_ctx, name, args):
+            native_calls.append((name, dict(args)))
+            if args.get("action") == "focus":
+                return {"ok": True, "verified": True, "address": args.get("address")}
+            return {"ok": True}
+
+        with patch("ai.tools.computer_use._native", side_effect=native), patch(
+            "ai.tools.computer_use.time.sleep"
+        ), patch("ai.tools.computer_use.cu_input.type_text", return_value=True):
+            out = UseComputerTool()._dispatch(ctx, "type", {"text": "hi", "address": "0xbrowser"})
+        self.assertEqual(out["status"], "ok")
+        ops = [(name, args.get("op") or args.get("action")) for name, args in native_calls]
+        inject = ops.index(("computer_use_session", "inject_begin"))
+        focus = next(i for i, item in enumerate(ops) if item == ("use_computer", "focus"))
+        inject_end = ops.index(("computer_use_session", "inject_end"))
+        self.assertLess(inject, focus)
+        self.assertLess(focus, inject_end)
 
     def test_actions_batch_honored_with_top_level_action(self):
         from unittest.mock import patch
