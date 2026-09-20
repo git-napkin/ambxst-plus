@@ -2,6 +2,7 @@
 
 var data = {
     "defaultModel": "",
+    "computerUseModel": "",
     "customEndpoint": "",
     "customCurlTemplate": "",
     "customName": "",

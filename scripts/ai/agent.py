@@ -27,7 +27,10 @@ from ai.list_models import list_models
 from ai.models import (
     DEFAULT_MODEL_ID,
     DEFAULT_PROVIDER,
+    apply_computer_use_model,
     model_supports_vision,
+    normalize_computer_use_override,
+    restore_chat_model,
     vision_unsupported_message,
 )
 
@@ -177,6 +180,7 @@ class Agent:
         self.computer_use_nodes = []
         self.computer_use_last_shot = None
         self.computer_use_focus_address = ""
+        self.computer_use_model = {}
         self.ctx.model = dict(self.model)
         self._lock = threading.Lock()
         self._busy = threading.Event()
@@ -222,9 +226,18 @@ class Agent:
         self.registry = build_registry(self.ctx, user_tools_dir=user_tools_dir)
         self.system_prompt = payload.get("system_prompt") or payload.get("systemPrompt") or DEFAULT_SYSTEM
         self._apply_sampling(payload)
+        override = payload.get("computer_use_model")
+        if override is None:
+            override = payload.get("computerUseModel")
+        self.computer_use_model = normalize_computer_use_override(override) or {}
+        self.ctx.computer_use_model = self.computer_use_model
         if payload.get("model"):
             self.model = dict(payload["model"])
+        self.ctx._chat_model = dict(self.model)
         self.ctx.model = dict(self.model)
+        if self.computer_use_approved:
+            apply_computer_use_model(self.ctx)
+            self.model = dict(self.ctx.model)
         catalog = [n for n in skill_catalog_names(self.ctx.skill_dirs) if n != "computer-use"]
         extra = []
         if catalog:
@@ -260,6 +273,9 @@ class Agent:
         self.ctx.computer_use_nodes = []
         self.ctx.computer_use_last_shot = None
         self.ctx.computer_use_focus_address = ""
+        restore_chat_model(self.ctx)
+        if getattr(self.ctx, "model", None):
+            self.model = dict(self.ctx.model)
 
     def _apply_sampling(self, payload):
         if "temperature" in payload:
@@ -363,12 +379,20 @@ class Agent:
             return
         if cmd == "set_model":
             if payload.get("model"):
-                self.model = dict(payload["model"])
-            self.ctx.model = dict(self.model)
+                incoming = dict(payload["model"])
+                if self.computer_use_approved:
+                    self.ctx._chat_model = incoming
+                    apply_computer_use_model(self.ctx)
+                    self.model = dict(self.ctx.model)
+                else:
+                    self.model = incoming
+                    self.ctx.model = dict(self.model)
+                    self.ctx._chat_model = dict(self.model)
             self._apply_sampling(payload)
             if self.computer_use_approved and not model_supports_vision(self.model):
+                failed = dict(self.model)
                 self._clear_computer_use()
-                self.emit({"type": "error", "error": vision_unsupported_message(self.model)})
+                self.emit({"type": "error", "error": vision_unsupported_message(failed)})
                 return
             self.emit({"type": "done", "reason": "set_model"})
             return
@@ -583,10 +607,7 @@ class Agent:
         return MAX_TOOL_ITERS
 
     def _run_turn(self):
-        provider = get_provider(self.model, custom_endpoint=self.ctx.custom_endpoint)
         tools = self._tool_schemas()
-        api_key = self._api_key()
-        endpoint = self.ctx.custom_endpoint or self.model.get("endpoint") or ""
         iters = 0
         while True:
             cap = self._max_tool_iters()
@@ -601,6 +622,10 @@ class Agent:
             assistant_text = []
             tool_calls = []
             self.messages = prune_image_attachments(self.messages)
+            self.model = dict(getattr(self.ctx, "model", None) or self.model)
+            provider = get_provider(self.model, custom_endpoint=self.ctx.custom_endpoint)
+            api_key = self._api_key()
+            endpoint = self.ctx.custom_endpoint or self.model.get("endpoint") or ""
             for event in provider.stream_chat(
                 self.messages,
                 tools,
@@ -669,6 +694,8 @@ class Agent:
                 self.computer_use_nodes = list(getattr(self.ctx, "computer_use_nodes", None) or [])
                 self.computer_use_last_shot = getattr(self.ctx, "computer_use_last_shot", None)
                 self.computer_use_focus_address = getattr(self.ctx, "computer_use_focus_address", "") or ""
+                if getattr(self.ctx, "model", None):
+                    self.model = dict(self.ctx.model)
                 emit_result = dict(result) if isinstance(result, dict) else result
                 attachments = []
                 if isinstance(emit_result, dict):

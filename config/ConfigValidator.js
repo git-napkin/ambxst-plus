@@ -25,6 +25,8 @@ function remapAiConfig(config) {
         return config;
     if (config.defaultModel)
         config.defaultModel = remapDeadModelId(config.defaultModel);
+    if (config.computerUseModel)
+        config.computerUseModel = remapDeadModelId(config.computerUseModel);
     if (config.defaultModels && typeof config.defaultModels === "object") {
         if (config.defaultModels.gemini)
             config.defaultModels.gemini = remapDeadModelId(config.defaultModels.gemini);

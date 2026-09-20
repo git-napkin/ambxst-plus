@@ -31,7 +31,7 @@ CodeBlock and ModelSelectorPopup live in `modules/sidebar/` and are imported fro
 | Computer-use HUD | `ComputerUseHud.qml` + `modules/services/ComputerUse.qml` |
 | Chat / agent IPC | `modules/services/Ai.qml` |
 | Native tools | `modules/services/ai/NativeToolBridge.qml` |
-| Config | `Config.ai.*` (`overlayWidth`, `overlayAnchor`, `overlayOffsetX`, `overlayOffsetY`, `showScrim`, `executionProfile`) |
+| Config | `Config.ai.*` (`overlayWidth`, `overlayAnchor`, `overlayOffsetX`, `overlayOffsetY`, `showScrim`, `executionProfile`, `computerUseModel`) |
 
 ## CONVENTIONS
 
