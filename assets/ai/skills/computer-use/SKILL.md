@@ -33,7 +33,7 @@ The user sees a bottom-right response card while computer use is active. A separ
 
 Window `address` is a string from `get_windows` / snapshot. Also: `pid`, `class`, title substring, and terminal `/proc` fields (`tty`, `terminal_pid`, `command`, `cwd`) when present.
 
-Cross-workspace focus is a **one-step** `use_computer action=focus` (or pass `address` on click/type/screenshot). The harness focuses by window address — that both activates the window's workspace and focuses that window — then verifies Hyprland `activewindow` matches. If it does not, it retries **once** and then errors. Do **not** `hyprctl dispatch workspace …` and hope, and do **not** loop on `hyprctl` when focus fails.
+Cross-workspace focus drops the HUD Exclusive grab, then runs a **bounded** Hyprland recipe (`monitor + workspace + focuswindow`, then `bringactivetotop`, optional `movecursor` to the window centre). It verifies live `hyprctl -j activewindow` **and** that the window's workspace is active on its monitor — not axctl's `is_focused` cache. One retry, then a hard error. Do **not** loop on `hyprctl` when focus fails, and do **not** treat cache-only focus as success.
 
 After `focus`, wait for verification before typing. Screenshot/observe uses the same verified focus (or an explicit `geometry` crop).
 

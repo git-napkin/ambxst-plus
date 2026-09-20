@@ -900,27 +900,33 @@ class UseComputerTool(Tool):
                 }
             )
         if action == "type":
-            focused = _ensure_focus(ctx, args)
-            if focused and focused.get("status") == "error":
-                return focused
-            _with_inject(ctx, lambda: cu_input.type_text(args.get("text") or ""))
-            focused = atspi.focused_from_nodes(getattr(ctx, "computer_use_nodes", None) or [])
-            note = ""
-            if focused and not focused.get("editable"):
-                note = "WARNING: focused element is %s which is not editable" % (focused.get("role") or "unknown")
-            return _ok({"implemented": "wtype", "focused": focused, "note": note})
+            def _type():
+                focused = _ensure_focus(ctx, args)
+                if focused and focused.get("status") == "error":
+                    return focused
+                cu_input.type_text(args.get("text") or "")
+                focused_el = atspi.focused_from_nodes(getattr(ctx, "computer_use_nodes", None) or [])
+                note = ""
+                if focused_el and not focused_el.get("editable"):
+                    note = "WARNING: focused element is %s which is not editable" % (focused_el.get("role") or "unknown")
+                return _ok({"implemented": "wtype", "focused": focused_el, "note": note})
+
+            return _with_inject(ctx, _type)
         if action == "key":
-            focused = _ensure_focus(ctx, args)
-            if focused and focused.get("status") == "error":
-                return focused
-            spec = args.get("key") or args.get("keys") or ""
-            address = args.get("address") or getattr(ctx, "computer_use_focus_address", "") or ""
-            if not address and (args.get("title") or args.get("class") or args.get("pid")):
-                resolved = cu_windows.resolve_window(_window_list(ctx), args)
-                if resolved:
-                    address = resolved.get("address") or address
-            _with_inject(ctx, lambda: cu_input.press_key(spec, address=address))
-            return _ok({"implemented": "key", "key": spec})
+            def _key():
+                focused = _ensure_focus(ctx, args)
+                if focused and focused.get("status") == "error":
+                    return focused
+                spec = args.get("key") or args.get("keys") or ""
+                address = args.get("address") or getattr(ctx, "computer_use_focus_address", "") or ""
+                if not address and (args.get("title") or args.get("class") or args.get("pid")):
+                    resolved = cu_windows.resolve_window(_window_list(ctx), args)
+                    if resolved:
+                        address = resolved.get("address") or address
+                cu_input.press_key(spec, address=address)
+                return _ok({"implemented": "key", "key": spec})
+
+            return _with_inject(ctx, _key)
         if action in ("focus", "move_window", "resize_window", "cursor"):
             native = _native(ctx, "use_computer", dict(args, action=action))
             if native.get("status") == "error":
