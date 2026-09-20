@@ -47,6 +47,14 @@ QtObject {
             ComputerUse.handleAction(a, result => root.resultReady(callId, result || {}));
             return;
         }
+        if (name === "focus_window") {
+            if (!a.address) {
+                Qt.callLater(() => root.resultReady(callId, { error: "address required" }));
+                return;
+            }
+            ComputerUse.focusWindow(a, false, result => root.resultReady(callId, result || {}));
+            return;
+        }
         let result = {};
         try {
             result = dispatch(name, a);
@@ -152,10 +160,6 @@ QtObject {
             return { ok: true, active: NightLightService.active };
         case "lock":
             LockscreenService.lock();
-            return { ok: true };
-        case "focus_window":
-            if (args.address)
-                AxctlService.dispatch("focuswindow address:" + args.address);
             return { ok: true };
         default:
             return { error: "unknown native tool: " + name };

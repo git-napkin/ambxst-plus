@@ -379,6 +379,12 @@ Singleton {
     property int _lastFollowTime: 0
     property string _lastFocusedAddress: ""
 
+    // Computer-use owns cross-workspace focus while a session is active.
+    // The Path 1 "dispatch workspace then hope" follow would switch to the
+    // target workspace without focusing that window, leaving the previous
+    // client with keyboard focus (and confusing grim).
+    property bool suppressActivatedWorkspaceFollow: false
+
     // Mirrors KDE/GNOME behaviour: when a window is activated on a workspace
     // that isn't the active one of its monitor, follow it there. Hyprland only
     // does this reliably when the app performed a proper xdg-activation request
@@ -389,6 +395,8 @@ Singleton {
     // workspace of its monitor, so the mismatch is transient by construction.
     function followActivatedWorkspace() {
         if (!root.ready)
+            return;
+        if (root.suppressActivatedWorkspaceFollow)
             return;
         if (!(Config.compositor?.switchToActivatedWorkspace ?? true))
             return;
